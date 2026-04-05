@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "meat-memory.fullname" . }}
+  labels:
+    {{- include "meat-memory.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "meat-memory.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        {{- include "meat-memory.labels" . | nindent 8 }}
+        app.kubernetes.io/component: app
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MEAT_MEMORY_CONFIG
+              value: /app/config/app-config.toml
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: OPENAI_API_KEY
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: GEMINI_API_KEY
+            - name: QWEN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: QWEN_API_KEY
+            - name: DOUBAO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: DOUBAO_API_KEY
+            - name: MINIMAX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: MINIMAX_API_KEY
+            - name: GLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  key: GLM_API_KEY
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "meat-memory.fullname" . }}-config
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "meat-memory.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

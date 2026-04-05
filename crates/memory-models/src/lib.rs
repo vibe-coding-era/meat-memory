@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use image::{ColorType, DynamicImage, GenericImageView, ImageFormat};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use thiserror::Error;
@@ -380,10 +381,237 @@ pub enum ModelError {
     EmptyInput,
     #[error("model returned no output")]
     EmptyOutput,
+    #[error("unsupported image media type '{0}'")]
+    UnsupportedImageMediaType(String),
+    #[error("failed to decode image payload: {0}")]
+    ImageDecode(String),
     #[error("registry validation failed: {0}")]
     Registry(#[from] RegistryError),
     #[error("{0}")]
     Message(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct VisionGateway {
+    registry: ModelRegistry,
+    default_locale: String,
+}
+
+impl VisionGateway {
+    pub fn new(
+        registry: ModelRegistry,
+        default_locale: impl Into<String>,
+    ) -> Result<Self, ModelError> {
+        registry.resolve_primary(ModelCapability::Vision)?;
+        let default_locale = default_locale.into();
+        if default_locale.trim().is_empty() {
+            return Err(ModelError::EmptyInput);
+        }
+
+        Ok(Self {
+            registry,
+            default_locale,
+        })
+    }
+
+    pub async fn analyze(&self, request: VisionRequest) -> Result<VisionResponse, ModelError> {
+        if request.asset_uri.trim().is_empty() || request.media_type.trim().is_empty() {
+            return Err(ModelError::EmptyInput);
+        }
+
+        let route = self.registry.resolve(ModelCapability::Vision)?;
+        let locale = if request.locale.trim().is_empty() {
+            self.default_locale.clone()
+        } else {
+            request.locale.clone()
+        };
+        let caption = render_caption(&request, &locale);
+        let structured = json!({
+            "asset_uri": request.asset_uri,
+            "media_type": request.media_type,
+            "locale": locale,
+            "provider": route.primary.provider.as_str(),
+            "model_alias": route.primary.alias,
+            "fallback_chain": route.fallbacks.iter().map(|model| model.alias.as_str()).collect::<Vec<_>>(),
+            "profile": request.profile,
+            "byte_size": request.byte_size,
+            "user_note": request.prompt.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+        });
+
+        Ok(VisionResponse {
+            caption,
+            structured,
+            model_alias: route.primary.alias.clone(),
+        })
+    }
+}
+
+pub fn inspect_image(bytes: &[u8], media_type: &str) -> Result<ImageProfile, ModelError> {
+    if bytes.is_empty() {
+        return Err(ModelError::EmptyInput);
+    }
+
+    let format = format_for_media_type(media_type)?;
+    let image = image::load_from_memory_with_format(bytes, format)
+        .map_err(|error| ModelError::ImageDecode(error.to_string()))?;
+    Ok(profile_from_image(&image))
+}
+
+fn render_caption(request: &VisionRequest, locale: &str) -> String {
+    let note = request
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match request.profile.as_ref() {
+        Some(profile) if locale.starts_with("zh") => {
+            let alpha_hint = if profile.has_alpha {
+                "，包含透明通道"
+            } else {
+                ""
+            };
+            match note {
+                Some(note) => format!(
+                    "检测到一张 {} 图片，尺寸 {}x{}，{}布局，整体{}{}。用户备注：{}",
+                    request.media_type,
+                    profile.width,
+                    profile.height,
+                    orientation_hint(profile.width, profile.height),
+                    brightness_hint(profile.average_luma),
+                    alpha_hint,
+                    note
+                ),
+                None => format!(
+                    "检测到一张 {} 图片，尺寸 {}x{}，{}布局，整体{}{}，已生成可检索视觉摘要。",
+                    request.media_type,
+                    profile.width,
+                    profile.height,
+                    orientation_hint(profile.width, profile.height),
+                    brightness_hint(profile.average_luma),
+                    alpha_hint
+                ),
+            }
+        }
+        Some(profile) => match note {
+            Some(note) => format!(
+                "Detected a {} image at {}x{} with {} composition and {} lighting. User note: {}",
+                request.media_type,
+                profile.width,
+                profile.height,
+                english_orientation_hint(profile.width, profile.height),
+                english_brightness_hint(profile.average_luma),
+                note
+            ),
+            None => format!(
+                "Detected a {} image at {}x{} with {} composition and {} lighting.",
+                request.media_type,
+                profile.width,
+                profile.height,
+                english_orientation_hint(profile.width, profile.height),
+                english_brightness_hint(profile.average_luma)
+            ),
+        },
+        None if locale.starts_with("zh") => match note {
+            Some(note) => format!(
+                "检测到一张 {} 图片，已记录原始资产并保留后续视觉解析入口。用户备注：{}",
+                request.media_type, note
+            ),
+            None => format!(
+                "检测到一张 {} 图片，已记录原始资产并保留后续视觉解析入口。",
+                request.media_type
+            ),
+        },
+        None => match note {
+            Some(note) => format!(
+                "Detected a {} image and recorded the raw asset for later visual analysis. User note: {}",
+                request.media_type, note
+            ),
+            None => format!(
+                "Detected a {} image and recorded the raw asset for later visual analysis.",
+                request.media_type
+            ),
+        },
+    }
+}
+
+fn format_for_media_type(media_type: &str) -> Result<ImageFormat, ModelError> {
+    match media_type {
+        "image/png" => Ok(ImageFormat::Png),
+        "image/jpeg" => Ok(ImageFormat::Jpeg),
+        "image/gif" => Ok(ImageFormat::Gif),
+        "image/webp" => Ok(ImageFormat::WebP),
+        other => Err(ModelError::UnsupportedImageMediaType(other.to_string())),
+    }
+}
+
+fn profile_from_image(image: &DynamicImage) -> ImageProfile {
+    let (width, height) = image.dimensions();
+    let rgba = image.to_rgba8();
+    let pixel_count = rgba.pixels().len().max(1) as u64;
+    let luma_sum = rgba.pixels().fold(0_u64, |accumulator, pixel| {
+        let [red, green, blue, _] = pixel.0;
+        accumulator
+            + ((2126_u64 * red as u64) + (7152_u64 * green as u64) + (722_u64 * blue as u64))
+                / 10_000
+    });
+    let has_alpha = matches!(
+        image.color(),
+        ColorType::La8
+            | ColorType::La16
+            | ColorType::Rgba8
+            | ColorType::Rgba16
+            | ColorType::Rgba32F
+    ) || rgba.pixels().any(|pixel| pixel.0[3] < 255);
+
+    ImageProfile {
+        width,
+        height,
+        has_alpha,
+        average_luma: (luma_sum / pixel_count) as u8,
+        color_mode: color_mode_label(image.color()).to_string(),
+    }
+}
+
+fn color_mode_label(color_type: ColorType) -> &'static str {
+    match color_type {
+        ColorType::L8 | ColorType::L16 | ColorType::La8 | ColorType::La16 => "grayscale",
+        ColorType::Rgb8 | ColorType::Rgb16 | ColorType::Rgb32F => "rgb",
+        ColorType::Rgba8 | ColorType::Rgba16 | ColorType::Rgba32F => "rgba",
+        _ => "unknown",
+    }
+}
+
+fn orientation_hint(width: u32, height: u32) -> &'static str {
+    match width.cmp(&height) {
+        std::cmp::Ordering::Greater => "横向",
+        std::cmp::Ordering::Less => "纵向",
+        std::cmp::Ordering::Equal => "近方形",
+    }
+}
+
+fn english_orientation_hint(width: u32, height: u32) -> &'static str {
+    match width.cmp(&height) {
+        std::cmp::Ordering::Greater => "landscape",
+        std::cmp::Ordering::Less => "portrait",
+        std::cmp::Ordering::Equal => "square",
+    }
+}
+
+fn brightness_hint(average_luma: u8) -> &'static str {
+    match average_luma {
+        0..=63 => "偏暗",
+        64..=179 => "亮度中等",
+        _ => "偏亮",
+    }
+}
+
+fn english_brightness_hint(average_luma: u8) -> &'static str {
+    match average_luma {
+        0..=63 => "dark",
+        64..=179 => "balanced",
+        _ => "bright",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -421,6 +649,11 @@ pub struct ExtractionResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct VisionRequest {
     pub asset_uri: String,
+    pub media_type: String,
+    #[serde(default)]
+    pub profile: Option<ImageProfile>,
+    #[serde(default)]
+    pub byte_size: Option<u64>,
     #[serde(default)]
     pub prompt: Option<String>,
     #[serde(default = "default_locale")]
@@ -433,6 +666,15 @@ pub struct VisionResponse {
     #[serde(default)]
     pub structured: Value,
     pub model_alias: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ImageProfile {
+    pub width: u32,
+    pub height: u32,
+    pub has_alpha: bool,
+    pub average_luma: u8,
+    pub color_mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -526,10 +768,13 @@ pub enum RegistryError {
 #[cfg(test)]
 mod tests {
     use super::{
-        CapabilityRoute, DeploymentTarget, ModelCapability, ModelDescriptor, ModelRegistry,
-        Provider, ProviderDescriptor, RegistryError,
+        CapabilityRoute, DeploymentTarget, ImageProfile, ModelCapability, ModelDescriptor,
+        ModelRegistry, Provider, ProviderDescriptor, RegistryError, VisionGateway, VisionRequest,
+        inspect_image,
     };
+    use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
     use std::collections::BTreeSet;
+    use std::io::Cursor;
 
     #[test]
     fn renders_provider_name() {
@@ -726,5 +971,133 @@ mod tests {
                 alias: "gemini_reasoning".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn inspects_png_dimensions_and_profile() {
+        let bytes = tiny_png_bytes([240, 240, 240, 255]);
+        let profile = inspect_image(&bytes, "image/png").expect("png should decode");
+
+        assert_eq!(
+            profile,
+            ImageProfile {
+                width: 1,
+                height: 1,
+                has_alpha: true,
+                average_luma: 240,
+                color_mode: "rgba".to_string(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn vision_gateway_generates_structured_caption() {
+        let registry = ModelRegistry::build(
+            vec![ProviderDescriptor {
+                provider: Provider::Gemini,
+                display_name: "Gemini".to_string(),
+                base_url: Some("https://generativelanguage.googleapis.com".to_string()),
+                api_key_env: Some("GEMINI_API_KEY".to_string()),
+                enabled: true,
+            }],
+            vec![
+                ModelDescriptor {
+                    alias: "gemini_reasoning".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Reasoning".to_string(),
+                    capabilities: BTreeSet::from([
+                        ModelCapability::Reasoning,
+                        ModelCapability::Extraction,
+                    ]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_vision".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Vision".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Vision]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_embedding".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "text-embedding-004".to_string(),
+                    display_name: "Gemini Embedding".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Embedding]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Extraction,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "gemini_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "gemini_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect("registry should build");
+        let gateway = VisionGateway::new(registry, "zh-CN").expect("gateway should build");
+        let profile = inspect_image(&tiny_png_bytes([220, 220, 220, 255]), "image/png")
+            .expect("png should decode");
+
+        let response = gateway
+            .analyze(VisionRequest {
+                asset_uri: "asset://raw/sha256/demo.png".to_string(),
+                media_type: "image/png".to_string(),
+                profile: Some(profile),
+                byte_size: Some(68),
+                prompt: Some("登录页截图".to_string()),
+                locale: "zh-CN".to_string(),
+            })
+            .await
+            .expect("vision analysis should succeed");
+
+        assert_eq!(response.model_alias, "gemini_vision");
+        assert!(response.caption.contains("检测到一张 image/png 图片"));
+        assert!(response.caption.contains("登录页截图"));
+        assert_eq!(response.structured["provider"], "gemini");
+    }
+
+    fn tiny_png_bytes(pixel: [u8; 4]) -> Vec<u8> {
+        let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba(pixel)));
+        let mut buffer = Cursor::new(Vec::new());
+        image
+            .write_to(&mut buffer, ImageFormat::Png)
+            .expect("png should encode");
+        buffer.into_inner()
     }
 }

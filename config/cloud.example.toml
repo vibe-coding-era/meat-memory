@@ -4,17 +4,17 @@ shutdown_grace_period_secs = 10
 
 [logging]
 level = "info"
-format = "pretty"
+format = "json"
 
 [markdown]
-root = "/app/docs"
+root = "/data/markdown"
 
 [postgres]
 app_name = "meat-memory"
-database_url = "postgres://postgres:postgres@pgvector:5432/meat_memory_dev"
+database_url = "postgres://postgres:postgres@postgresql:5432/meat_memory"
 
 [assets]
-root = "/app/storage/assets"
+root = "/data/assets"
 
 [models]
 default_locale = "zh-CN"

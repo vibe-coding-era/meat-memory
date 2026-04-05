@@ -1,0 +1,49 @@
+image:
+  repository: meat-memory
+  tag: latest
+  pullPolicy: IfNotPresent
+
+app:
+  replicas: 1
+  resources: {}
+
+worker:
+  enabled: false
+  replicas: 1
+  resources: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  enabled: true
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+postgres:
+  databaseUrl: postgres://postgres:postgres@postgresql:5432/meat_memory
+
+config:
+  logging:
+    level: info
+    format: json
+  models:
+    defaultLocale: zh-CN
+  sync:
+    mode: dual_write
+  features:
+    enablePg: true
+    enableMarkdown: true
+    enableHttp: true
+    enableMcp: true
+
+secrets:
+  openaiApiKey: ""
+  anthropicApiKey: ""
+  geminiApiKey: ""
+  qwenApiKey: ""
+  doubaoApiKey: ""
+  minimaxApiKey: ""
+  glmApiKey: ""

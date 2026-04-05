@@ -39,8 +39,11 @@ check:
 test:
     cargo test --workspace
 
+acceptance:
+    ./scripts/v1-acceptance.sh
+
 app:
     cargo run -p memory-app
 
 worker:
-    cargo run -p memory-worker --bin worker
+    cargo run -p memory-worker

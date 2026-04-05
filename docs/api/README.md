@@ -1,4 +1,5 @@
 # API Docs
 
-This directory will hold HTTP API, MCP tool schema, and payload contract documentation.
-
+- `http-api-v1.md`: V1 HTTP API routes, payloads, and examples
+- `mcp-tools-v1.md`: V1 MCP tool surface and transport usage
+- `cli-v1.md`: V1 CLI commands and examples

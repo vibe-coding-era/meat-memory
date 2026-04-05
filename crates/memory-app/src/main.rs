@@ -3,6 +3,7 @@ use memory_config::AppConfig;
 use memory_core::{ServiceInfo, log_startup, startup_banner};
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::Kernel;
+use memory_mcp::McpServer;
 use std::{net::SocketAddr, sync::Arc};
 use tracing::info;
 
@@ -30,11 +31,20 @@ async fn main() -> Result<()> {
     };
 
     let bind = config.server.bind.parse::<SocketAddr>()?;
-    let app = build_router(HttpAppState::new(
+    let mut app = build_router(HttpAppState::new(
         service_info.default_scope.clone(),
         metadata,
-        kernel,
+        kernel.clone(),
     ));
+    if config.features.enable_mcp {
+        let mcp = McpServer::new(
+            service_info.default_scope.clone(),
+            service_info.name,
+            service_info.version,
+            kernel,
+        );
+        app = app.merge(memory_mcp::build_router(mcp));
+    }
     info!(bind = %bind, "starting http server");
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
@@ -46,7 +56,12 @@ async fn main() -> Result<()> {
 }
 
 async fn build_kernel(config: &AppConfig) -> Result<Kernel> {
-    let mut builder = Kernel::builder().with_asset_root(&config.assets.root)?;
+    let mut builder = Kernel::builder()
+        .with_asset_root(&config.assets.root)?
+        .with_model_registry(
+            config.model_registry()?,
+            config.models.default_locale.clone(),
+        )?;
     if config.features.enable_pg {
         builder = builder
             .with_postgres_url(&config.postgres.database_url)

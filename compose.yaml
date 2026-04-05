@@ -30,6 +30,9 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+    volumes:
+      - memory-docs:/app/docs
+      - memory-assets:/app/storage/assets
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/healthz >/dev/null"]
       interval: 5s
@@ -48,7 +51,12 @@ services:
     depends_on:
       pgvector:
         condition: service_healthy
+    volumes:
+      - memory-docs:/app/docs
+      - memory-assets:/app/storage/assets
     restart: unless-stopped
 
 volumes:
   pgvector-data:
+  memory-docs:
+  memory-assets:

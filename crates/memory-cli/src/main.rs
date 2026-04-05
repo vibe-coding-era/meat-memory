@@ -5,6 +5,7 @@ use memory_core::{ServiceInfo, log_startup, startup_banner};
 use memory_domain::{ArtifactKind, MemoryKind, ScopeId, Sensitivity, Visibility};
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{Kernel, RememberImageRequest, RememberTextRequest, SearchContextRequest};
+use memory_mcp::McpServer;
 use serde_json::json;
 use std::{
     fs,
@@ -125,11 +126,21 @@ async fn serve_command(args: ServeArgs) -> Result<()> {
 
     let metadata = api_metadata(&config, &service_info);
     let bind = args.bind.unwrap_or(config.server.bind);
-    let app = build_router(HttpAppState::new(
+    let kernel = Arc::new(kernel);
+    let mut app = build_router(HttpAppState::new(
         service_info.default_scope.clone(),
         metadata,
-        Arc::new(kernel),
+        Arc::clone(&kernel),
     ));
+    if config.features.enable_mcp {
+        let mcp = McpServer::new(
+            service_info.default_scope.clone(),
+            service_info.name,
+            service_info.version,
+            kernel,
+        );
+        app = app.merge(memory_mcp::build_router(mcp));
+    }
 
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     println!("Serving Meat Memory on {bind}");
@@ -223,6 +234,8 @@ async fn remember_image_command(args: RememberImageArgs) -> Result<()> {
             "memory_kind": format!("{:?}", result.memory.kind).to_lowercase(),
             "memory_state": result.memory.state.as_str(),
             "evidence_count": result.memory.evidence_count,
+            "vision_caption": result.vision.as_ref().map(|vision| vision.caption.as_str()),
+            "vision_model_alias": result.vision.as_ref().map(|vision| vision.model_alias.as_str()),
             "wrote_pg": result.wrote_pg,
             "wrote_markdown": result.wrote_markdown
         }))?;
@@ -237,6 +250,9 @@ async fn remember_image_command(args: RememberImageArgs) -> Result<()> {
         );
         println!("Asset: {}", result.asset.reference.uri());
         println!("Title: {}", result.memory.title);
+        if let Some(vision) = &result.vision {
+            println!("Vision: {}", vision.caption);
+        }
     }
 
     Ok(())
@@ -305,7 +321,12 @@ async fn bootstrap_runtime() -> Result<(AppConfig, Kernel, ServiceInfo)> {
 }
 
 async fn build_kernel(config: &AppConfig) -> Result<Kernel> {
-    let mut builder = Kernel::builder().with_asset_root(&config.assets.root)?;
+    let mut builder = Kernel::builder()
+        .with_asset_root(&config.assets.root)?
+        .with_model_registry(
+            config.model_registry()?,
+            config.models.default_locale.clone(),
+        )?;
     if config.features.enable_pg {
         builder = builder
             .with_postgres_url(&config.postgres.database_url)

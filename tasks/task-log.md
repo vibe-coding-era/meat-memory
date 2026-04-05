@@ -281,3 +281,23 @@
   key_output: 为 `memory-kernel` 新增 `RememberImageRequest` / `remember_image`，将图片写入接到 `memory-assets`；同时在 `memory-http` 增加 `POST /api/v1/images`，在 `memory-cli` 增加 `remember-image` 子命令，并补齐 kernel/HTTP/CLI 的图片写入测试与全工作区回归
   issues_decisions: V1 先采用“图片字节先落本地资产存储，再生成带 `asset://` 引用的 Image Artifact 文本”的最小实现，避免在 V1-MUL-003 之前提前绑定具体 OCR/vision SDK；接口拆成独立 `/api/v1/images`，而不是复用 `/api/v1/memories` 混合文本/图片 payload，以保持调用面清晰
   next_action: 继续推进 `V1-MUL-003`，把最小 OCR/caption/vision extraction 接到模型 registry，并为图片检索补强自动派生文本
+
+- timestamp: 2026-04-05 18:15:37 CST
+  task_id: V1-MUL-003
+  executor: Codex
+  duration: 1.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 在 `memory-models` 新增本地 image profile 解析、vision gateway 与中文优先 caption 生成；在 `memory-kernel` 将 vision route 接入 `remember_image`，自动把图片 caption/结构化派生文本写回 Artifact/Memory；在 HTTP/CLI 图片写入返回中补充 `vision_caption` / `vision_model_alias`，并完成全工作区 `fmt/clippy/test`
+  issues_decisions: V1 明确采用“本地最小 vision derivation + model route attribution”的策略，而不是立即接入真实云视觉 SDK；这样既能满足图片记忆的自动派生文本闭环，又能保持 provider 抽象和后续真实 SDK 对接边界稳定
+  next_action: 转入 `V1-API-004`、`V1-DEP-001`、`V1-DEP-002`、`V1-QA-001`、`V1-DOC-001`，把 Agent 接入文档、部署包和版本验收收口
+
+- timestamp: 2026-04-05 18:39:21 CST
+  task_id: V1-API-004/V1-DEP-001/V1-DEP-002/V1-QA-001/V1-DOC-001
+  executor: Codex
+  duration: 2.0h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 补齐 `docs/agent-integration-v1.md`、HTTP/MCP/CLI 使用文档、本地与云部署 runbook、`config/cloud.example.toml`、`infra/helm/meat-memory`、`scripts/v1-acceptance.sh`、CLI E2E 测试，并将 MCP HTTP 路由真实接入 `memory-app` 与 `memory-cli serve`
+  issues_decisions: 本轮在部署 smoke 中发现 `.cargo/config.toml` 全局固定 `/usr/bin/clang` 会导致 Linux Docker 构建失败，因此改为只对 Apple target 固定 clang；同时统一 `memory-worker` 二进制命名，修正 Dockerfile/compose/justfile 的入口不一致问题；云部署包在 V1 采用“单实例 app + worker 默认关闭 + Helm 最小闭环”的保守策略，避免误导为已完成共享卷集群形态
+  next_action: 继续推进 `V1-ZH-001` 中文系统化验收集，随后整理 V1 提交与 release 收口

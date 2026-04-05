@@ -10,6 +10,7 @@ memory-config = { path = "../memory-config" }
 memory-core = { path = "../memory-core" }
 memory-http = { path = "../memory-http" }
 memory-kernel = { path = "../memory-kernel" }
+memory-mcp = { path = "../memory-mcp" }
 memory-observability = { path = "../memory-observability" }
 serde_json.workspace = true
 tokio.workspace = true

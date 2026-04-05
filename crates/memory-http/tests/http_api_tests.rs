@@ -6,6 +6,11 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::ScopeId;
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::Kernel;
+use memory_models::{
+    CapabilityRoute, DeploymentTarget, ModelCapability, ModelDescriptor, ModelRegistry, Provider,
+    ProviderDescriptor,
+};
+use std::collections::BTreeSet;
 use std::{env, sync::Arc};
 use tempfile::tempdir;
 use tower::ServiceExt;
@@ -25,6 +30,8 @@ async fn build_test_app() -> axum::Router {
             .with_markdown_root(tempdir.path().join("markdown"))
             .unwrap()
             .with_asset_root(tempdir.path().join("assets"))
+            .unwrap()
+            .with_model_registry(test_model_registry(), "zh-CN")
             .unwrap()
             .build()
             .unwrap(),
@@ -164,4 +171,91 @@ async fn http_create_image_flow_returns_asset_uri() {
             .unwrap()
             .starts_with("asset://raw/sha256/")
     );
+    assert!(
+        body["vision_caption"]
+            .as_str()
+            .unwrap()
+            .contains("检测到一张 image/png 图片")
+    );
+}
+
+fn test_model_registry() -> ModelRegistry {
+    ModelRegistry::build(
+        vec![ProviderDescriptor {
+            provider: Provider::Gemini,
+            display_name: "Gemini".to_string(),
+            base_url: Some("https://generativelanguage.googleapis.com".to_string()),
+            api_key_env: Some("GEMINI_API_KEY".to_string()),
+            enabled: true,
+        }],
+        vec![
+            ModelDescriptor {
+                alias: "gemini_reasoning".to_string(),
+                provider: Provider::Gemini,
+                remote_model_id: "gemini-2.5-flash".to_string(),
+                display_name: "Gemini Reasoning".to_string(),
+                capabilities: BTreeSet::from([
+                    ModelCapability::Reasoning,
+                    ModelCapability::Extraction,
+                ]),
+                deployment: DeploymentTarget::Cloud,
+                locale: "zh-CN".to_string(),
+                priority: 100,
+                enabled: true,
+            },
+            ModelDescriptor {
+                alias: "gemini_vision".to_string(),
+                provider: Provider::Gemini,
+                remote_model_id: "gemini-2.5-flash".to_string(),
+                display_name: "Gemini Vision".to_string(),
+                capabilities: BTreeSet::from([ModelCapability::Vision]),
+                deployment: DeploymentTarget::Cloud,
+                locale: "zh-CN".to_string(),
+                priority: 100,
+                enabled: true,
+            },
+            ModelDescriptor {
+                alias: "gemini_embedding".to_string(),
+                provider: Provider::Gemini,
+                remote_model_id: "text-embedding-004".to_string(),
+                display_name: "Gemini Embedding".to_string(),
+                capabilities: BTreeSet::from([ModelCapability::Embedding]),
+                deployment: DeploymentTarget::Cloud,
+                locale: "zh-CN".to_string(),
+                priority: 100,
+                enabled: true,
+            },
+        ],
+        [
+            (
+                ModelCapability::Reasoning,
+                CapabilityRoute {
+                    primary: "gemini_reasoning".to_string(),
+                    fallbacks: Vec::new(),
+                },
+            ),
+            (
+                ModelCapability::Extraction,
+                CapabilityRoute {
+                    primary: "gemini_reasoning".to_string(),
+                    fallbacks: Vec::new(),
+                },
+            ),
+            (
+                ModelCapability::Vision,
+                CapabilityRoute {
+                    primary: "gemini_vision".to_string(),
+                    fallbacks: Vec::new(),
+                },
+            ),
+            (
+                ModelCapability::Embedding,
+                CapabilityRoute {
+                    primary: "gemini_embedding".to_string(),
+                    fallbacks: Vec::new(),
+                },
+            ),
+        ],
+    )
+    .expect("test registry should build")
 }

@@ -11,6 +11,9 @@ use memory_extract::{
     should_extract,
 };
 use memory_index::{SearchQuery, normalize_query};
+use memory_models::{
+    ImageProfile, ModelRegistry, VisionGateway, VisionRequest, VisionResponse, inspect_image,
+};
 use memory_observability::{
     operation_span, record_search_failure, record_search_success, record_write_failure,
     record_write_success,
@@ -93,8 +96,20 @@ pub struct RememberImageResult {
     pub asset: StoredAsset,
     pub artifact: Artifact,
     pub memory: Memory,
+    pub vision: Option<VisionResponse>,
     pub wrote_pg: bool,
     pub wrote_markdown: bool,
+}
+
+struct ImageArtifactInput {
+    scope_id: ScopeId,
+    media_type: String,
+    body: Option<String>,
+    source_refs: Vec<String>,
+    visibility: Visibility,
+    sensitivity: Sensitivity,
+    image_profile: Option<ImageProfile>,
+    vision: Option<VisionResponse>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +140,7 @@ pub struct KernelBuilder {
     pg_store: Option<PgStore>,
     markdown_store: Option<MarkdownStore>,
     asset_store: Option<FileSystemAssetStore>,
+    vision_gateway: Option<VisionGateway>,
 }
 
 impl Default for KernelBuilder {
@@ -139,6 +155,7 @@ impl KernelBuilder {
             pg_store: None,
             markdown_store: None,
             asset_store: None,
+            vision_gateway: None,
         }
     }
 
@@ -168,6 +185,15 @@ impl KernelBuilder {
         Ok(self)
     }
 
+    pub fn with_model_registry(
+        mut self,
+        registry: ModelRegistry,
+        default_locale: impl Into<String>,
+    ) -> Result<Self> {
+        self.vision_gateway = Some(VisionGateway::new(registry, default_locale)?);
+        Ok(self)
+    }
+
     pub fn build(self) -> Result<Kernel> {
         if self.pg_store.is_none() && self.markdown_store.is_none() {
             bail!("kernel requires at least one backing store");
@@ -177,6 +203,7 @@ impl KernelBuilder {
             pg_store: self.pg_store,
             markdown_store: self.markdown_store,
             asset_store: self.asset_store,
+            vision_gateway: self.vision_gateway,
         })
     }
 }
@@ -185,6 +212,7 @@ pub struct Kernel {
     pg_store: Option<PgStore>,
     markdown_store: Option<MarkdownStore>,
     asset_store: Option<FileSystemAssetStore>,
+    vision_gateway: Option<VisionGateway>,
 }
 
 impl Kernel {
@@ -202,6 +230,10 @@ impl Kernel {
 
     pub fn has_asset_store(&self) -> bool {
         self.asset_store.is_some()
+    }
+
+    pub fn has_vision_gateway(&self) -> bool {
+        self.vision_gateway.is_some()
     }
 
     pub async fn get_memory(
@@ -266,28 +298,50 @@ impl Kernel {
                 visibility,
                 sensitivity,
             } = request;
+            let image_profile = inspect_image(&bytes, &media_type).ok();
+            let byte_size = bytes.len() as u64;
 
             let asset = asset_store.store_bytes(PutAssetRequest {
                 bytes,
                 media_type: media_type.clone(),
                 storage_class: StorageClass::Raw,
                 extension: file_extension,
-                width: None,
-                height: None,
+                width: image_profile.as_ref().map(|profile| profile.width),
+                height: image_profile.as_ref().map(|profile| profile.height),
                 duration_ms: None,
                 page_count: None,
                 codec: None,
             })?;
+            let vision = match &self.vision_gateway {
+                Some(vision_gateway) => Some(
+                    vision_gateway
+                        .analyze(VisionRequest {
+                            asset_uri: asset.reference.uri(),
+                            media_type: media_type.clone(),
+                            profile: image_profile.clone(),
+                            byte_size: Some(byte_size),
+                            prompt: body.clone(),
+                            locale: String::new(),
+                        })
+                        .await?,
+                ),
+                None => None,
+            };
             let title_override = title
                 .filter(|value| !value.trim().is_empty())
+                .or_else(|| vision.as_ref().map(|response| response.caption.clone()))
                 .or_else(|| Some(format!("Image asset {}", &asset.reference.sha256[..12])));
             let artifact = build_image_artifact(
-                scope_id,
-                media_type,
-                body,
-                source_refs,
-                visibility,
-                sensitivity,
+                ImageArtifactInput {
+                    scope_id,
+                    media_type,
+                    body,
+                    source_refs,
+                    visibility,
+                    sensitivity,
+                    image_profile: image_profile.clone(),
+                    vision: vision.clone(),
+                },
                 &asset,
             )?;
             let remembered = self
@@ -298,6 +352,7 @@ impl Kernel {
                 asset,
                 artifact: remembered.artifact,
                 memory: remembered.memory,
+                vision,
                 wrote_pg: remembered.wrote_pg,
                 wrote_markdown: remembered.wrote_markdown,
             })
@@ -584,38 +639,46 @@ fn artifact_kind_label(kind: ArtifactKind) -> &'static str {
     }
 }
 
-fn build_image_artifact(
-    scope_id: ScopeId,
-    media_type: String,
-    body: Option<String>,
-    mut source_refs: Vec<String>,
-    visibility: Visibility,
-    sensitivity: Sensitivity,
-    asset: &StoredAsset,
-) -> Result<Artifact> {
-    source_refs.push(asset.reference.uri());
+fn build_image_artifact(mut input: ImageArtifactInput, asset: &StoredAsset) -> Result<Artifact> {
+    input.source_refs.push(asset.reference.uri());
 
-    let body = body
+    let body = input
+        .body
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let content_text = match body {
-        Some(note) => format!(
-            "image asset: {}\nmedia_type: {}\nuser_note: {}",
-            asset.reference.uri(),
-            media_type,
-            note
-        ),
-        None => format!(
-            "image asset: {}\nmedia_type: {}\nimage recorded for future memory retrieval.",
-            asset.reference.uri(),
-            media_type
-        ),
-    };
+    let mut lines = vec![
+        format!("image asset: {}", asset.reference.uri()),
+        format!("media_type: {}", input.media_type),
+        format!("asset_sha256: {}", asset.reference.sha256),
+    ];
+    if let Some(profile) = input.image_profile.as_ref() {
+        lines.push(format!(
+            "image_dimensions: {}x{}",
+            profile.width, profile.height
+        ));
+        lines.push(format!("image_color_mode: {}", profile.color_mode));
+        lines.push(format!("image_average_luma: {}", profile.average_luma));
+    }
+    if let Some(vision) = input.vision.as_ref() {
+        lines.push(format!("vision_model: {}", vision.model_alias));
+        lines.push(format!("vision_caption: {}", vision.caption));
+    }
+    if let Some(note) = body {
+        lines.push(format!("user_note: {}", note));
+    } else {
+        lines.push("image recorded for future memory retrieval.".to_string());
+    }
+    let content_text = lines.join("\n");
 
-    let mut artifact = Artifact::new(scope_id, ArtifactKind::Image, content_text, source_refs)?;
-    artifact.mime_type = Some(media_type);
-    artifact.visibility = visibility;
-    artifact.sensitivity = sensitivity;
+    let mut artifact = Artifact::new(
+        input.scope_id,
+        ArtifactKind::Image,
+        content_text,
+        input.source_refs,
+    )?;
+    artifact.mime_type = Some(input.media_type);
+    artifact.visibility = input.visibility;
+    artifact.sensitivity = input.sensitivity;
     Ok(artifact)
 }
 
@@ -682,6 +745,11 @@ mod tests {
         build_context_graph,
     };
     use memory_domain::{ArtifactKind, Memory, MemoryKind, RelationType, ScopeId};
+    use memory_models::{
+        CapabilityRoute, DeploymentTarget, ModelCapability, ModelDescriptor, ModelRegistry,
+        Provider, ProviderDescriptor,
+    };
+    use std::collections::BTreeSet;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -773,6 +841,8 @@ mod tests {
             .unwrap()
             .with_asset_root(tempdir.path().join("assets"))
             .unwrap()
+            .with_model_registry(test_model_registry(), "zh-CN")
+            .unwrap()
             .build()
             .unwrap();
         let scope_id = ScopeId::from_string("scp_kernel_image");
@@ -795,7 +865,9 @@ mod tests {
         assert!(result.asset.absolute_path.exists());
         assert_eq!(result.artifact.kind, ArtifactKind::Image);
         assert_eq!(result.artifact.mime_type.as_deref(), Some("image/png"));
+        assert!(result.vision.is_some());
         assert!(result.memory.body.contains("image asset:"));
+        assert!(result.memory.body.contains("vision_caption:"));
         assert!(projection_path.exists());
     }
 
@@ -829,5 +901,86 @@ mod tests {
                 .iter()
                 .any(|relation| relation.relation_type == RelationType::Uses)
         );
+    }
+
+    fn test_model_registry() -> ModelRegistry {
+        ModelRegistry::build(
+            vec![ProviderDescriptor {
+                provider: Provider::Gemini,
+                display_name: "Gemini".to_string(),
+                base_url: Some("https://generativelanguage.googleapis.com".to_string()),
+                api_key_env: Some("GEMINI_API_KEY".to_string()),
+                enabled: true,
+            }],
+            vec![
+                ModelDescriptor {
+                    alias: "gemini_reasoning".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Reasoning".to_string(),
+                    capabilities: BTreeSet::from([
+                        ModelCapability::Reasoning,
+                        ModelCapability::Extraction,
+                    ]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_vision".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Vision".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Vision]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_embedding".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "text-embedding-004".to_string(),
+                    display_name: "Gemini Embedding".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Embedding]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Extraction,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "gemini_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "gemini_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect("test registry should build")
     }
 }

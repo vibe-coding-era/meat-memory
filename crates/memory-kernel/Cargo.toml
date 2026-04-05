@@ -11,6 +11,7 @@ memory-core = { path = "../memory-core" }
 memory-domain = { path = "../memory-domain" }
 memory-extract = { path = "../memory-extract" }
 memory-index = { path = "../memory-index" }
+memory-models = { path = "../memory-models" }
 memory-observability = { path = "../memory-observability" }
 memory-policy = { path = "../memory-policy" }
 memory-store-md = { path = "../memory-store-md" }

@@ -33,3 +33,5 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      - name: Docker build
+        run: docker build -t meat-memory:ci .

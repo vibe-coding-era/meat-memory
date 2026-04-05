@@ -111,6 +111,8 @@ pub struct CreateImageResponse {
     pub memory_kind: String,
     pub memory_state: String,
     pub evidence_count: usize,
+    pub vision_caption: Option<String>,
+    pub vision_model_alias: Option<String>,
     pub wrote_pg: bool,
     pub wrote_markdown: bool,
 }
@@ -304,6 +306,11 @@ async fn create_image(
         .map_err(api_error_from_anyhow)?;
     let asset_id = result.asset.reference.asset_id.clone();
     let asset_uri = result.asset.reference.uri();
+    let vision_caption = result.vision.as_ref().map(|vision| vision.caption.clone());
+    let vision_model_alias = result
+        .vision
+        .as_ref()
+        .map(|vision| vision.model_alias.clone());
 
     Ok((
         StatusCode::CREATED,
@@ -318,6 +325,8 @@ async fn create_image(
             memory_kind: memory_kind_label(result.memory.kind).to_string(),
             memory_state: result.memory.state.as_str().to_string(),
             evidence_count: result.memory.evidence_count,
+            vision_caption,
+            vision_model_alias,
             wrote_pg: result.wrote_pg,
             wrote_markdown: result.wrote_markdown,
         }),
@@ -464,6 +473,11 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use memory_domain::ScopeId;
     use memory_kernel::Kernel;
+    use memory_models::{
+        CapabilityRoute, DeploymentTarget, ModelCapability, ModelDescriptor, ModelRegistry,
+        Provider, ProviderDescriptor,
+    };
+    use std::collections::BTreeSet;
     use std::sync::Arc;
     use tempfile::tempdir;
     use tower::ServiceExt;
@@ -474,6 +488,8 @@ mod tests {
                 .with_markdown_root(tempdir.join("markdown"))
                 .unwrap()
                 .with_asset_root(tempdir.join("assets"))
+                .unwrap()
+                .with_model_registry(test_model_registry(), "zh-CN")
                 .unwrap()
                 .build()
                 .unwrap(),
@@ -594,5 +610,86 @@ mod tests {
 
         assert_eq!(livez.status(), axum::http::StatusCode::OK);
         assert_eq!(metrics.status(), axum::http::StatusCode::OK);
+    }
+
+    fn test_model_registry() -> ModelRegistry {
+        ModelRegistry::build(
+            vec![ProviderDescriptor {
+                provider: Provider::Gemini,
+                display_name: "Gemini".to_string(),
+                base_url: Some("https://generativelanguage.googleapis.com".to_string()),
+                api_key_env: Some("GEMINI_API_KEY".to_string()),
+                enabled: true,
+            }],
+            vec![
+                ModelDescriptor {
+                    alias: "gemini_reasoning".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Reasoning".to_string(),
+                    capabilities: BTreeSet::from([
+                        ModelCapability::Reasoning,
+                        ModelCapability::Extraction,
+                    ]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_vision".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Vision".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Vision]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_embedding".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "text-embedding-004".to_string(),
+                    display_name: "Gemini Embedding".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Embedding]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Extraction,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "gemini_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "gemini_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect("test registry should build")
     }
 }

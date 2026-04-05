@@ -1,0 +1,6 @@
+apiVersion: v2
+name: meat-memory
+description: Self-hosted Meat Memory deployment for single-node cloud environments
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
