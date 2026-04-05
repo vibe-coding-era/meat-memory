@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+memory-assets = { path = "../memory-assets" }
 memory-core = { path = "../memory-core" }
 memory-domain = { path = "../memory-domain" }
 memory-extract = { path = "../memory-extract" }

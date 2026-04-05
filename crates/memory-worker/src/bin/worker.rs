@@ -8,10 +8,15 @@ use tracing::info;
 async fn main() -> Result<()> {
     let config = AppConfig::load()?;
     memory_observability::init(&config.logging.level, &config.logging.format)?;
+    let registry = config.model_registry()?;
 
     info!(
         sync_mode = %config.sync.mode,
         database_url = %config.postgres.database_url,
+        providers = registry.provider_count(),
+        models = registry.model_count(),
+        routes = registry.route_count(),
+        default_locale = %config.models.default_locale,
         "memory worker started"
     );
 

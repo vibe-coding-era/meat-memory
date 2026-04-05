@@ -893,6 +893,11 @@ dependencies = [
 [[package]]
 name = "memory-assets"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "sha2",
+ "thiserror",
+]
 
 [[package]]
 name = "memory-cli"
@@ -909,6 +914,7 @@ dependencies = [
  "memory-observability",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -916,6 +922,7 @@ name = "memory-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "memory-models",
  "serde",
  "toml",
 ]
@@ -957,6 +964,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
  "memory-domain",
  "memory-kernel",
  "memory-observability",
@@ -977,6 +985,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "memory-assets",
  "memory-core",
  "memory-domain",
  "memory-extract",
@@ -1012,6 +1021,12 @@ dependencies = [
 [[package]]
 name = "memory-models"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "memory-observability"

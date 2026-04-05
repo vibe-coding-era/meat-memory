@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+base64 = "0.22.1"
 memory-domain = { path = "../memory-domain" }
 memory-kernel = { path = "../memory-kernel" }
 memory-observability = { path = "../memory-observability" }

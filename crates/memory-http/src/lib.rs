@@ -5,8 +5,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::{ArtifactKind, Memory, MemoryKind, ScopeId, Sensitivity, Visibility};
-use memory_kernel::{Kernel, RememberTextRequest, SearchContextRequest};
+use memory_kernel::{Kernel, RememberImageRequest, RememberTextRequest, SearchContextRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/metrics",
     "/api/v1/meta",
     "/api/v1/memories",
+    "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
 ];
@@ -68,8 +70,39 @@ pub struct CreateMemoryRequest {
     pub sensitivity: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateImageRequest {
+    pub scope_id: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub image_base64: String,
+    pub media_type: String,
+    pub file_extension: Option<String>,
+    pub memory_kind: Option<String>,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    pub visibility: Option<String>,
+    pub sensitivity: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CreateMemoryResponse {
+    pub artifact_id: String,
+    pub memory_id: String,
+    pub scope_id: String,
+    pub title: String,
+    pub body: String,
+    pub memory_kind: String,
+    pub memory_state: String,
+    pub evidence_count: usize,
+    pub wrote_pg: bool,
+    pub wrote_markdown: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateImageResponse {
+    pub asset_id: String,
+    pub asset_uri: String,
     pub artifact_id: String,
     pub memory_id: String,
     pub scope_id: String,
@@ -153,6 +186,7 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/metrics", get(metrics))
         .route("/api/v1/meta", get(meta))
         .route("/api/v1/memories", post(create_memory))
+        .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
         .route("/api/v1/context/search", post(search_context))
         .with_state(state)
@@ -219,6 +253,63 @@ async fn create_memory(
     Ok((
         StatusCode::CREATED,
         Json(CreateMemoryResponse {
+            artifact_id: result.artifact.id.as_str().to_string(),
+            memory_id: result.memory.id.as_str().to_string(),
+            scope_id: result.memory.scope_id.as_str().to_string(),
+            title: result.memory.title.clone(),
+            body: result.memory.body.clone(),
+            memory_kind: memory_kind_label(result.memory.kind).to_string(),
+            memory_state: result.memory.state.as_str().to_string(),
+            evidence_count: result.memory.evidence_count,
+            wrote_pg: result.wrote_pg,
+            wrote_markdown: result.wrote_markdown,
+        }),
+    ))
+}
+
+async fn create_image(
+    State(state): State<HttpAppState>,
+    Json(payload): Json<CreateImageRequest>,
+) -> Result<(StatusCode, Json<CreateImageResponse>), ApiError> {
+    let scope_id = payload
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let memory_kind = payload
+        .memory_kind
+        .as_deref()
+        .map(parse_memory_kind)
+        .transpose()?;
+    let visibility = parse_visibility(payload.visibility.as_deref())?;
+    let sensitivity = parse_sensitivity(payload.sensitivity.as_deref())?;
+    let bytes = STANDARD
+        .decode(payload.image_base64.as_bytes())
+        .map_err(|_| ApiError::bad_request("invalid image_base64 payload"))?;
+
+    let result = state
+        .kernel
+        .remember_image(RememberImageRequest {
+            scope_id,
+            title: payload.title,
+            body: payload.body,
+            bytes,
+            media_type: payload.media_type,
+            file_extension: payload.file_extension,
+            memory_kind,
+            source_refs: payload.source_refs,
+            visibility,
+            sensitivity,
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+    let asset_id = result.asset.reference.asset_id.clone();
+    let asset_uri = result.asset.reference.uri();
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateImageResponse {
+            asset_id,
+            asset_uri,
             artifact_id: result.artifact.id.as_str().to_string(),
             memory_id: result.memory.id.as_str().to_string(),
             scope_id: result.memory.scope_id.as_str().to_string(),
@@ -370,6 +461,7 @@ fn memory_kind_label(kind: MemoryKind) -> &'static str {
 mod tests {
     use super::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router, has_route};
     use axum::{body::Body, http::Request};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     use memory_domain::ScopeId;
     use memory_kernel::Kernel;
     use std::sync::Arc;
@@ -379,7 +471,9 @@ mod tests {
     fn test_state(tempdir: &std::path::Path) -> HttpAppState {
         let kernel = Arc::new(
             Kernel::builder()
-                .with_markdown_root(tempdir)
+                .with_markdown_root(tempdir.join("markdown"))
+                .unwrap()
+                .with_asset_root(tempdir.join("assets"))
                 .unwrap()
                 .build()
                 .unwrap(),
@@ -431,12 +525,36 @@ mod tests {
         assert!(
             tempdir
                 .path()
+                .join("markdown")
                 .join("default")
                 .join("scopes")
                 .join("scp_http_scope")
                 .join("MEMORY.md")
                 .exists()
         );
+    }
+
+    #[tokio::test]
+    async fn creates_image_through_router() {
+        let tempdir = tempdir().unwrap();
+        let app = build_router(test_state(tempdir.path()));
+        let payload = format!(
+            r#"{{"scope_id":"scp_http_image","title":"UI screenshot","body":"Search result page","media_type":"image/png","image_base64":"{}"}}"#,
+            STANDARD.encode([137_u8, 80, 78, 71, 13, 10, 26, 10])
+        );
+
+        let response = app
+            .oneshot(
+                Request::post("/api/v1/images")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CREATED);
+        assert!(tempdir.path().join("assets").join("raw").exists());
     }
 
     #[tokio::test]

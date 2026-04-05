@@ -251,3 +251,33 @@
   key_output: 将 `memory-sync` 从枚举占位 crate 升级为可运行的 replication baseline，新增 `OplogEntry`、`SyncCursor`、`SyncBatch`、`ApplyBatchResult`、`ReplicationEngine`、`InMemoryReplicationEngine`、`append_oplog_entry`、`merge_ops`，并补齐 `crates/memory-sync/tests/sync_merge_tests.rs`
   issues_decisions: 当前 sync 先落“内存版 oplog/merge 基线”，优先固定协议对象和冲突决策，再把持久化、worker 消费和 projection refresh 放到 `MM-SYNC-004/005`；这样能先把混合部署所需的复制抽象定住，而不把实现绑定到单一存储
   next_action: 继续推进 `MM-KER-003`、`MM-SYNC-004/005` 与 `MM-OBS-004/005/007`
+
+- timestamp: 2026-04-05 18:23:19 CST
+  task_id: V1-MOD-001/V1-MOD-002
+  executor: Codex
+  duration: 1.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将 `memory-models` 从占位库扩展为 V1 可用的模型网关骨架，新增 reasoning/extraction/vision/embedding trait、provider/model descriptor、route/fallback registry；`memory-config`、`config/default.toml`、`config/docker.toml` 已接入 Gemini / Claude / ChatGPT / 千问 / 豆包 / Minimax / GLM 的 provider catalog 与默认路由，并在 `memory-app`、`memory-cli`、`memory-worker` 启动期执行 registry 校验
+  issues_decisions: 采用“先落 metadata + route registry，不提前接真实 SDK”的 V1 策略，优先保证能力抽象、配置结构和 fallback 规则稳定；同时改为显式 serde rename，避免 `OpenAI -> open_a_i` 这类枚举序列化漂移导致配置不可用
+  next_action: 继续推进 `V1-MUL-001`、`V1-MUL-002`、`V1-MUL-003`，补齐图片资产寻址、`remember_image` 与最小 vision/OCR/caption 链路
+
+- timestamp: 2026-04-05 18:30:15 CST
+  task_id: V1-MUL-001
+  executor: Codex
+  duration: 0.9h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将 `memory-assets` 从最小 `AssetRef` 升级为可运行的本地资产存储层，新增 `StorageClass`、`AssetMetadata`、`PutAssetRequest`、`StoredAsset`、`FileSystemAssetStore`，支持 sha256 内容寻址、分类目录、本地文件落盘、重复写入按哈希去重与回读测试
+  issues_decisions: V1 先聚焦“本地目录模式 + 图片资产”，不提前接 S3 与数据库元数据表；资产 ID 采用 `asset_{sha256}` 的稳定派生形式，优先保证同内容幂等寻址和后续 `remember_image` 的可追溯性
+  next_action: 继续推进 `V1-MUL-002` 与 `V1-MUL-003`，把 `remember_image`、最小 vision/OCR/caption 派生链路接到 kernel/HTTP/CLI
+
+- timestamp: 2026-04-05 18:42:00 CST
+  task_id: V1-MUL-002
+  executor: Codex
+  duration: 1.1h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-kernel` 新增 `RememberImageRequest` / `remember_image`，将图片写入接到 `memory-assets`；同时在 `memory-http` 增加 `POST /api/v1/images`，在 `memory-cli` 增加 `remember-image` 子命令，并补齐 kernel/HTTP/CLI 的图片写入测试与全工作区回归
+  issues_decisions: V1 先采用“图片字节先落本地资产存储，再生成带 `asset://` 引用的 Image Artifact 文本”的最小实现，避免在 V1-MUL-003 之前提前绑定具体 OCR/vision SDK；接口拆成独立 `/api/v1/images`，而不是复用 `/api/v1/memories` 混合文本/图片 payload，以保持调用面清晰
+  next_action: 继续推进 `V1-MUL-003`，把最小 OCR/caption/vision extraction 接到模型 registry，并为图片检索补强自动派生文本

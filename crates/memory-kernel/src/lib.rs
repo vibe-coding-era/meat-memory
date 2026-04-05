@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
+use memory_assets::{FileSystemAssetStore, PutAssetRequest, StorageClass, StoredAsset};
 use memory_core::MemoryService;
 use memory_domain::{
     Artifact, ArtifactKind, ContextBundle, Entity, Memory, MemoryId, MemoryKind, Relation, ScopeId,
@@ -57,6 +58,46 @@ pub struct RememberTextResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct RememberImageRequest {
+    pub scope_id: ScopeId,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub bytes: Vec<u8>,
+    pub media_type: String,
+    pub file_extension: Option<String>,
+    pub memory_kind: Option<MemoryKind>,
+    pub source_refs: Vec<String>,
+    pub visibility: Visibility,
+    pub sensitivity: Sensitivity,
+}
+
+impl RememberImageRequest {
+    pub fn new(scope_id: ScopeId, media_type: impl Into<String>, bytes: Vec<u8>) -> Self {
+        Self {
+            scope_id,
+            title: None,
+            body: None,
+            bytes,
+            media_type: media_type.into(),
+            file_extension: None,
+            memory_kind: None,
+            source_refs: Vec::new(),
+            visibility: Visibility::Private,
+            sensitivity: Sensitivity::Internal,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RememberImageResult {
+    pub asset: StoredAsset,
+    pub artifact: Artifact,
+    pub memory: Memory,
+    pub wrote_pg: bool,
+    pub wrote_markdown: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct PublishMemoryResult {
     pub memory: Memory,
     pub wrote_pg: bool,
@@ -83,6 +124,7 @@ impl SearchContextRequest {
 pub struct KernelBuilder {
     pg_store: Option<PgStore>,
     markdown_store: Option<MarkdownStore>,
+    asset_store: Option<FileSystemAssetStore>,
 }
 
 impl Default for KernelBuilder {
@@ -96,6 +138,7 @@ impl KernelBuilder {
         Self {
             pg_store: None,
             markdown_store: None,
+            asset_store: None,
         }
     }
 
@@ -120,6 +163,11 @@ impl KernelBuilder {
         Ok(self)
     }
 
+    pub fn with_asset_root(mut self, root: impl Into<PathBuf>) -> Result<Self> {
+        self.asset_store = Some(FileSystemAssetStore::new(root)?);
+        Ok(self)
+    }
+
     pub fn build(self) -> Result<Kernel> {
         if self.pg_store.is_none() && self.markdown_store.is_none() {
             bail!("kernel requires at least one backing store");
@@ -128,6 +176,7 @@ impl KernelBuilder {
         Ok(Kernel {
             pg_store: self.pg_store,
             markdown_store: self.markdown_store,
+            asset_store: self.asset_store,
         })
     }
 }
@@ -135,6 +184,7 @@ impl KernelBuilder {
 pub struct Kernel {
     pg_store: Option<PgStore>,
     markdown_store: Option<MarkdownStore>,
+    asset_store: Option<FileSystemAssetStore>,
 }
 
 impl Kernel {
@@ -148,6 +198,10 @@ impl Kernel {
 
     pub fn has_markdown(&self) -> bool {
         self.markdown_store.is_some()
+    }
+
+    pub fn has_asset_store(&self) -> bool {
+        self.asset_store.is_some()
     }
 
     pub async fn get_memory(
@@ -174,6 +228,85 @@ impl Kernel {
             "remember_text",
             Some(&scope_id),
             Some("remember_text"),
+        ))
+        .await;
+
+        match &result {
+            Ok(payload) => record_write_success(
+                payload.wrote_pg,
+                payload.wrote_markdown,
+                started_at.elapsed(),
+            ),
+            Err(_) => record_write_failure(started_at.elapsed()),
+        }
+
+        result
+    }
+
+    pub async fn remember_image(
+        &self,
+        request: RememberImageRequest,
+    ) -> Result<RememberImageResult> {
+        let started_at = Instant::now();
+        let scope_id = request.scope_id.as_str().to_string();
+        let result = async {
+            let asset_store = self
+                .asset_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("asset store is not configured"))?;
+            let RememberImageRequest {
+                scope_id,
+                title,
+                body,
+                bytes,
+                media_type,
+                file_extension,
+                memory_kind,
+                source_refs,
+                visibility,
+                sensitivity,
+            } = request;
+
+            let asset = asset_store.store_bytes(PutAssetRequest {
+                bytes,
+                media_type: media_type.clone(),
+                storage_class: StorageClass::Raw,
+                extension: file_extension,
+                width: None,
+                height: None,
+                duration_ms: None,
+                page_count: None,
+                codec: None,
+            })?;
+            let title_override = title
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| Some(format!("Image asset {}", &asset.reference.sha256[..12])));
+            let artifact = build_image_artifact(
+                scope_id,
+                media_type,
+                body,
+                source_refs,
+                visibility,
+                sensitivity,
+                &asset,
+            )?;
+            let remembered = self
+                .remember_artifact(artifact, title_override.as_deref(), memory_kind)
+                .await?;
+
+            Ok(RememberImageResult {
+                asset,
+                artifact: remembered.artifact,
+                memory: remembered.memory,
+                wrote_pg: remembered.wrote_pg,
+                wrote_markdown: remembered.wrote_markdown,
+            })
+        }
+        .instrument(operation_span(
+            "kernel",
+            "remember_image",
+            Some(&scope_id),
+            Some("remember_image"),
         ))
         .await;
 
@@ -451,6 +584,41 @@ fn artifact_kind_label(kind: ArtifactKind) -> &'static str {
     }
 }
 
+fn build_image_artifact(
+    scope_id: ScopeId,
+    media_type: String,
+    body: Option<String>,
+    mut source_refs: Vec<String>,
+    visibility: Visibility,
+    sensitivity: Sensitivity,
+    asset: &StoredAsset,
+) -> Result<Artifact> {
+    source_refs.push(asset.reference.uri());
+
+    let body = body
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let content_text = match body {
+        Some(note) => format!(
+            "image asset: {}\nmedia_type: {}\nuser_note: {}",
+            asset.reference.uri(),
+            media_type,
+            note
+        ),
+        None => format!(
+            "image asset: {}\nmedia_type: {}\nimage recorded for future memory retrieval.",
+            asset.reference.uri(),
+            media_type
+        ),
+    };
+
+    let mut artifact = Artifact::new(scope_id, ArtifactKind::Image, content_text, source_refs)?;
+    artifact.mime_type = Some(media_type);
+    artifact.visibility = visibility;
+    artifact.sensitivity = sensitivity;
+    Ok(artifact)
+}
+
 fn build_context_graph(scope_id: &ScopeId, memories: &[Memory]) -> (Vec<Entity>, Vec<Relation>) {
     let mut entity_map = std::collections::HashMap::<String, Entity>::new();
     let mut relation_map = std::collections::HashMap::<String, Relation>::new();
@@ -509,8 +677,11 @@ fn visibility_rank(visibility: Visibility) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{Kernel, RememberTextRequest, SearchContextRequest, build_context_graph};
-    use memory_domain::{Memory, MemoryKind, RelationType, ScopeId};
+    use super::{
+        Kernel, RememberImageRequest, RememberTextRequest, SearchContextRequest,
+        build_context_graph,
+    };
+    use memory_domain::{ArtifactKind, Memory, MemoryKind, RelationType, ScopeId};
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -592,6 +763,40 @@ mod tests {
 
         assert!(published.wrote_markdown);
         assert!(raw.contains("visibility: team"));
+    }
+
+    #[tokio::test]
+    async fn remember_image_stores_asset_and_projection() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path().join("markdown"))
+            .unwrap()
+            .with_asset_root(tempdir.path().join("assets"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let scope_id = ScopeId::from_string("scp_kernel_image");
+        let mut request = RememberImageRequest::new(
+            scope_id.clone(),
+            "image/png",
+            vec![137, 80, 78, 71, 13, 10, 26, 10],
+        );
+        request.body = Some("UI reference screenshot".to_string());
+
+        let result = kernel.remember_image(request).await.unwrap();
+        let projection_path = tempdir
+            .path()
+            .join("markdown")
+            .join("default")
+            .join("scopes")
+            .join(scope_id.as_str())
+            .join("MEMORY.md");
+
+        assert!(result.asset.absolute_path.exists());
+        assert_eq!(result.artifact.kind, ArtifactKind::Image);
+        assert_eq!(result.artifact.mime_type.as_deref(), Some("image/png"));
+        assert!(result.memory.body.contains("image asset:"));
+        assert!(projection_path.exists());
     }
 
     #[tokio::test]

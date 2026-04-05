@@ -37,8 +37,8 @@
 
 说明：
 
-- 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性落地”
-- 已具备 Rust workspace、核心领域模型、PG/Markdown 存储层、`memory-kernel` remember/search/publish 编排、entity/relation 抽取、HTTP remember/search/health/metrics 路由、CLI remember/search/serve 入口、MCP remember/search/fetch_context/publish tool 层、内存版 sync oplog/merge baseline、基础配置、脚本、CI skeleton、Dockerfile、compose、本地 pgvector 开发库与 Git hooks
+- 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性 + V1 模型网关基线落地”
+- 已具备 Rust workspace、核心领域模型、PG/Markdown 存储层、`memory-kernel` remember/search/publish 编排、entity/relation 抽取、`memory-models` capability traits + provider/model/route registry、HTTP remember/search/health/metrics 路由、CLI remember/search/serve 入口、MCP remember/search/fetch_context/publish tool 层、内存版 sync oplog/merge baseline、基础配置、脚本、CI skeleton、Dockerfile、compose、本地 pgvector 开发库与 Git hooks
 - 当前最重要的有效输入变成了三类：`docs/` 下的设计文档、`tasks/` 下的执行文档、`crates/` 下的真实工程实现
 
 ## 2. 文件角色索引
@@ -100,8 +100,8 @@
 `config/default.toml`
 
 - 角色：默认运行配置
-- 用途：定义 bind、logging、markdown、postgres、assets、sync、features
-- 当前价值：`memory-app` 已从此文件读取配置
+- 用途：定义 bind、logging、markdown、postgres、assets、models、sync、features
+- 当前价值：`memory-app`、`memory-cli`、`memory-worker` 已从此文件读取并校验模型 registry
 
 `scripts/`
 
@@ -142,63 +142,65 @@
 - HTTP `/healthz`、`/readyz`、`/livez`、`/metrics` 已可用
 - `memory-cli` 已支持 `remember`、`search`、`serve`
 - `memory-mcp` 已支持 tool listing、stdio message handler、HTTP `/mcp/tools`/`/mcp/tools/call`，以及 `memory.remember`、`memory.search`、`memory.fetch_context`、`memory.publish`
+- `memory-models` 已支持 reasoning / extraction / vision / embedding 抽象、provider/model descriptor、fallback route registry
+- `memory-config` 已接入 Gemini / Claude / ChatGPT / 千问 / 豆包 / Minimax / GLM 的 provider catalog 与默认路由配置
+- `memory-assets` 已支持 sha256 寻址、本地文件存储、分类目录、asset metadata 与回读测试
+- `memory-kernel` 已支持 `remember_image`
+- HTTP 已支持 `POST /api/v1/images`，CLI 已支持 `remember-image`
 - `memory-sync` 已支持 `OplogEntry`/`SyncCursor`/`SyncBatch`/`ApplyBatchResult`、`append_oplog_entry`、`merge_ops` 与内存版 replication engine
 - memory-observability 已提供结构化日志字段约定与检索/写入指标快照
-- 最小 app/cli/worker 入口已可编译和运行
+- 最小 app/cli/worker 入口已可编译、运行并在启动期校验模型路由配置
 - docker compose 本地栈已运行并通过健康检查
 - `.env.example`、`justfile`、pre-commit/commit-msg hooks 已补齐
 - 本地 pgvector 目标库已可用
 
-换句话说，当前项目已经从“想清楚”和“拆任务”的阶段，进入了“最小 remember/search 闭环已成型，可以开始做 richer policy/extract/publish/sync”的阶段。
+换句话说，当前项目已经从“想清楚”和“拆任务”的阶段，进入了“文本记忆闭环 + 图片写入闭环已成型，可以开始做最小图片理解与部署收口”的阶段。
 
 ## 4. 当前缺失的关键实现资产
 
 以下资产目前缺失：
 
-- `remember_media` 与多模态后台处理链路
-- 持久化 sync engine、后台消费与 projection refresh job
-- 更完整的 policy/redaction/review 流程
-- 更完整的可观测性扩展（分布式 tracing、sync metrics、告警与 dashboard）
-- 更完整的部署、发布、安全门禁与运维资产
+- `V1-MUL-003`：最小图片理解能力（OCR / caption / vision extraction）
+- `V1-API-004`：Agent 接入说明与接入样例
+- `V1-DEP-001/V1-DEP-002`：本地与云端独立部署收口
+- `V1-QA-001/V1-DOC-001`：V1 验收与文档包
 
-这意味着后续重点已经不再是脚手架、基础存储或最小接口，而是把 `policy -> extract -> publish -> sync -> observability` 做成真实功能。
+这意味着后续重点已经不再是脚手架、基础存储或最小接口，而是把 `vision extraction -> agent docs -> deploy/docs` 做成真实可交付功能。
 
 ## 5. 推荐执行起点
 
 建议执行顺序：
 
-1. 完成 `MM-KER-003`，把媒体资产 ingest 和后台任务挂上
-2. 完成 `MM-SYNC-004/005`，把 worker 消费与 projection refresh 接上
-3. 继续扩展 `MM-OBS-004/005/007`，把 sync/tracing/alerting 补齐
-4. 补 richer policy/redaction/review
-5. 再进入发布、部署、安全与文档收尾
+1. 完成 `V1-MUL-003`，把最小 vision/OCR/caption 派生链路接到模型 registry
+2. 完成 `V1-API-004`，补 Agent 接入文档和最小示例
+3. 完成 `V1-DEP-001/V1-DEP-002`，收口本地与云部署
+4. 完成 `V1-QA-001/V1-DOC-001`，收口验收与用户文档
 
-环境与脚手架阶段已经完成，当前最重要的是避免 kernel/HTTP 之外的 crate 长期停留在 placeholder 状态。
+环境与模型抽象阶段已经完成，当前最重要的是尽快让 V1 的“文本 + 图片”范围闭环。
 
 ## 6. 建议的第一批可执行任务
 
 最先启动的任务建议是：
 
-- `MM-KER-003`
-- `MM-SYNC-004`
-- `MM-OBS-005`
-- `MM-OBS-004`
+- `V1-MUL-003`
+- `V1-API-004`
+- `V1-DEP-001`
+- `V1-QA-001`
 
-这组任务完成后，项目就会从“已具备最小写入与检索闭环”进入“真正可发布、可抽取、可扩展的内核仓库”。
+这组任务完成后，项目就会从“文本记忆闭环”进入“V1 文本 + 图片闭环”。
 
 ## 7. 当前风险与注意事项
 
-- 当前仓库不是成熟代码仓库，任何后续自动化都应先围绕脚手架搭起来
-- 当前大量 crate 仍是占位骨架，必须尽快替换默认模板实现
-- `tasklist.md` 已较细，但仍然是执行规划，不等于具体代码实现
+- 当前仓库仍处于 V1 快速推进阶段，图片理解链路和部署链路尚未闭环
+- 当前图片写入已经可用，但还缺少 OCR/caption/vision extraction，检索质量仍主要依赖用户输入文本
+- `tasklist.md` 已切到版本视图，后续执行与汇报应优先使用 `V1-* / V2-* / V3-*` 编号
 - 若后续目录结构发生变化，应同步更新本文件和 `task-log.md`
-- `docs/meat-memory-scheme-v2.md` 应继续作为主设计依据，避免实现过程漂移回 `v1`
+- `docs/meat-memory-scheme-v2.md` 应继续作为主设计依据，避免实现过程漂移回旧的 `MM-*` 粒度规划
 
 ## 8. 下一步建议
 
 建议下一步直接扩展当前可运行闭环：
 
-1. 给 `memory-kernel` 增加 `remember_media`，推进 `MM-KER-003`。
-2. 给 `memory-worker` 与 `memory-sync` 接上实际消费与 projection refresh，推进 `MM-SYNC-004/005`。
-3. 把 observability 从单节点快照扩展到 tracing/alerting，推进 `MM-OBS-004`、`MM-OBS-005`、`MM-OBS-007`。
-4. 继续补强 policy/redaction/review 与媒体写入，推进 `MM-POL-*`、`MM-KER-003`。
+1. 把 `memory-models` 的 vision route 接到最小 OCR/caption/mock provider，推进 `V1-MUL-003`。
+2. 补 Agent 接入说明与部署 runbook，推进 `V1-API-004`、`V1-DEP-001`、`V1-DEP-002`。
+3. 补图片链路端到端验收与用户文档，推进 `V1-QA-001`、`V1-DOC-001`。

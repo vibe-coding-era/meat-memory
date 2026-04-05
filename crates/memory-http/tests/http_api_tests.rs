@@ -2,6 +2,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::ScopeId;
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::Kernel;
@@ -21,7 +22,9 @@ async fn build_test_app() -> axum::Router {
             .with_postgres_url(&test_database_url())
             .await
             .unwrap()
-            .with_markdown_root(tempdir.path())
+            .with_markdown_root(tempdir.path().join("markdown"))
+            .unwrap()
+            .with_asset_root(tempdir.path().join("assets"))
             .unwrap()
             .build()
             .unwrap(),
@@ -129,4 +132,36 @@ async fn http_denies_forbidden_publish_level_write() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn http_create_image_flow_returns_asset_uri() {
+    let app = build_test_app().await;
+    let scope_id = ScopeId::new();
+    let payload = format!(
+        r#"{{"scope_id":"{}","title":"Search screenshot","body":"Search results for memory graph","media_type":"image/png","image_base64":"{}"}}"#,
+        scope_id.as_str(),
+        STANDARD.encode([137_u8, 80, 78, 71, 13, 10, 26, 10])
+    );
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/images")
+                .header("content-type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+    assert!(
+        body["asset_uri"]
+            .as_str()
+            .unwrap()
+            .starts_with("asset://raw/sha256/")
+    );
 }

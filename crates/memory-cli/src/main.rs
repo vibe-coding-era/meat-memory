@@ -4,12 +4,12 @@ use memory_config::AppConfig;
 use memory_core::{ServiceInfo, log_startup, startup_banner};
 use memory_domain::{ArtifactKind, MemoryKind, ScopeId, Sensitivity, Visibility};
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
-use memory_kernel::{Kernel, RememberTextRequest, SearchContextRequest};
+use memory_kernel::{Kernel, RememberImageRequest, RememberTextRequest, SearchContextRequest};
 use serde_json::json;
 use std::{
     fs,
     io::{self, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -29,6 +29,7 @@ enum Command {
     PrintPlan,
     Serve(ServeArgs),
     Remember(RememberArgs),
+    RememberImage(RememberImageArgs),
     Search(SearchArgs),
 }
 
@@ -50,6 +51,30 @@ struct RememberArgs {
     file: Option<PathBuf>,
     #[arg(long, default_value = "message")]
     artifact_kind: String,
+    #[arg(long)]
+    memory_kind: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    source_refs: Vec<String>,
+    #[arg(long, default_value = "private")]
+    visibility: String,
+    #[arg(long, default_value = "internal")]
+    sensitivity: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct RememberImageArgs {
+    #[arg(long)]
+    scope_id: Option<String>,
+    #[arg(long)]
+    title: Option<String>,
+    #[arg(long)]
+    body: Option<String>,
+    #[arg(long)]
+    file: PathBuf,
+    #[arg(long)]
+    media_type: Option<String>,
     #[arg(long)]
     memory_kind: Option<String>,
     #[arg(long, value_delimiter = ',')]
@@ -88,6 +113,7 @@ async fn main() -> Result<()> {
         }
         Command::Serve(args) => serve_command(args).await,
         Command::Remember(args) => remember_command(args).await,
+        Command::RememberImage(args) => remember_image_command(args).await,
         Command::Search(args) => search_command(args).await,
     }
 }
@@ -160,6 +186,62 @@ async fn remember_command(args: RememberArgs) -> Result<()> {
     Ok(())
 }
 
+async fn remember_image_command(args: RememberImageArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let scope_id = scope_id_or_default(args.scope_id, &service_info);
+    let media_type = detect_image_media_type(&args.file, args.media_type)?;
+    let mut request = RememberImageRequest::new(scope_id, media_type, fs::read(&args.file)?);
+    request.title = args.title;
+    request.body = args.body;
+    request.file_extension = args
+        .file
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(ToOwned::to_owned);
+    request.memory_kind = args
+        .memory_kind
+        .as_deref()
+        .map(parse_memory_kind)
+        .transpose()?;
+    request.source_refs = args.source_refs;
+    request.visibility = parse_visibility(&args.visibility)?;
+    request.sensitivity = parse_sensitivity(&args.sensitivity)?;
+
+    let result = kernel.remember_image(request).await?;
+    let asset_id = result.asset.reference.asset_id.clone();
+    let asset_uri = result.asset.reference.uri();
+
+    if args.json {
+        print_json(json!({
+            "asset_id": asset_id,
+            "asset_uri": asset_uri,
+            "artifact_id": result.artifact.id.as_str(),
+            "memory_id": result.memory.id.as_str(),
+            "scope_id": result.memory.scope_id.as_str(),
+            "title": result.memory.title,
+            "body": result.memory.body,
+            "memory_kind": format!("{:?}", result.memory.kind).to_lowercase(),
+            "memory_state": result.memory.state.as_str(),
+            "evidence_count": result.memory.evidence_count,
+            "wrote_pg": result.wrote_pg,
+            "wrote_markdown": result.wrote_markdown
+        }))?;
+    } else {
+        println!(
+            "Remembered image {} in scope {} (state={}, pg={}, markdown={})",
+            result.memory.id.as_str(),
+            result.memory.scope_id.as_str(),
+            result.memory.state.as_str(),
+            result.wrote_pg,
+            result.wrote_markdown
+        );
+        println!("Asset: {}", result.asset.reference.uri());
+        println!("Title: {}", result.memory.title);
+    }
+
+    Ok(())
+}
+
 async fn search_command(args: SearchArgs) -> Result<()> {
     let (_, kernel, service_info) = bootstrap_runtime().await?;
     let scope_id = scope_id_or_default(args.scope_id, &service_info);
@@ -216,13 +298,14 @@ async fn search_command(args: SearchArgs) -> Result<()> {
 async fn bootstrap_runtime() -> Result<(AppConfig, Kernel, ServiceInfo)> {
     let config = AppConfig::load()?;
     memory_observability::init(&config.logging.level, &config.logging.format)?;
+    validate_model_registry(&config)?;
     let kernel = build_kernel(&config).await?;
     let service_info = ServiceInfo::default();
     Ok((config, kernel, service_info))
 }
 
 async fn build_kernel(config: &AppConfig) -> Result<Kernel> {
-    let mut builder = Kernel::builder();
+    let mut builder = Kernel::builder().with_asset_root(&config.assets.root)?;
     if config.features.enable_pg {
         builder = builder
             .with_postgres_url(&config.postgres.database_url)
@@ -246,6 +329,18 @@ fn api_metadata(config: &AppConfig, service_info: &ServiceInfo) -> ApiMetadata {
             mcp: config.features.enable_mcp,
         },
     }
+}
+
+fn validate_model_registry(config: &AppConfig) -> Result<()> {
+    let registry = config.model_registry()?;
+    tracing::info!(
+        providers = registry.provider_count(),
+        models = registry.model_count(),
+        routes = registry.route_count(),
+        default_locale = %config.models.default_locale,
+        "validated model registry"
+    );
+    Ok(())
 }
 
 fn scope_id_or_default(scope_id: Option<String>, service_info: &ServiceInfo) -> ScopeId {
@@ -278,6 +373,27 @@ fn load_body(body: Option<String>, file: Option<PathBuf>) -> Result<String> {
     }
 
     Ok(buffer)
+}
+
+fn detect_image_media_type(path: &Path, provided: Option<String>) -> Result<String> {
+    if let Some(media_type) = provided {
+        if media_type.trim().is_empty() {
+            bail!("--media-type must not be empty");
+        }
+        return Ok(media_type);
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("png") => Ok("image/png".to_string()),
+        Some("jpg") | Some("jpeg") => Ok("image/jpeg".to_string()),
+        Some("webp") => Ok("image/webp".to_string()),
+        Some("gif") => Ok("image/gif".to_string()),
+        _ => bail!("unable to infer image media type; pass --media-type explicitly"),
+    }
 }
 
 fn print_json(value: serde_json::Value) -> Result<()> {
@@ -342,7 +458,8 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::{
-        load_body, parse_artifact_kind, parse_memory_kind, parse_sensitivity, parse_visibility,
+        detect_image_media_type, load_body, parse_artifact_kind, parse_memory_kind,
+        parse_sensitivity, parse_visibility,
     };
     use memory_domain::{ArtifactKind, MemoryKind, Sensitivity, Visibility};
     use std::path::PathBuf;
@@ -375,5 +492,11 @@ mod tests {
             parse_sensitivity("restricted").unwrap(),
             Sensitivity::Restricted
         );
+    }
+
+    #[test]
+    fn infers_image_media_type_from_path() {
+        let media_type = detect_image_media_type(&PathBuf::from("capture.png"), None).unwrap();
+        assert_eq!(media_type, "image/png");
     }
 }

@@ -10,6 +10,7 @@ use tracing::info;
 async fn main() -> Result<()> {
     let config = AppConfig::load()?;
     memory_observability::init(&config.logging.level, &config.logging.format)?;
+    validate_model_registry(&config)?;
 
     let service_info = ServiceInfo::default();
     log_startup(&service_info);
@@ -45,7 +46,7 @@ async fn main() -> Result<()> {
 }
 
 async fn build_kernel(config: &AppConfig) -> Result<Kernel> {
-    let mut builder = Kernel::builder();
+    let mut builder = Kernel::builder().with_asset_root(&config.assets.root)?;
     if config.features.enable_pg {
         builder = builder
             .with_postgres_url(&config.postgres.database_url)
@@ -55,6 +56,18 @@ async fn build_kernel(config: &AppConfig) -> Result<Kernel> {
         builder = builder.with_markdown_root(&config.markdown.root)?;
     }
     builder.build()
+}
+
+fn validate_model_registry(config: &AppConfig) -> Result<()> {
+    let registry = config.model_registry()?;
+    info!(
+        providers = registry.provider_count(),
+        models = registry.model_count(),
+        routes = registry.route_count(),
+        default_locale = %config.models.default_locale,
+        "validated model registry"
+    );
+    Ok(())
 }
 
 async fn shutdown_signal() {
