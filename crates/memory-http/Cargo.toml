@@ -1,0 +1,18 @@
+[package]
+name = "memory-http"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+memory-domain = { path = "../memory-domain" }
+memory-kernel = { path = "../memory-kernel" }
+memory-observability = { path = "../memory-observability" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3.20.0"
+tokio.workspace = true
+tower = "0.5.2"

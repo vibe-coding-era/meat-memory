@@ -1,0 +1,11 @@
+[package]
+name = "memory-worker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+memory-config = { path = "../memory-config" }
+memory-observability = { path = "../memory-observability" }
+tokio.workspace = true
+tracing.workspace = true

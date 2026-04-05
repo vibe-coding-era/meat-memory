@@ -1,0 +1,9 @@
+[build]
+target-dir = "target"
+
+[env]
+CC = "/usr/bin/clang"
+CXX = "/usr/bin/clang++"
+
+[target.aarch64-apple-darwin]
+linker = "/usr/bin/clang"

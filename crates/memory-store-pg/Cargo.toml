@@ -1,0 +1,13 @@
+[package]
+name = "memory-store-pg"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+memory-domain = { path = "../memory-domain" }
+sqlx.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

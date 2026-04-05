@@ -1,0 +1,26 @@
+[server]
+bind = "0.0.0.0:8080"
+shutdown_grace_period_secs = 10
+
+[logging]
+level = "info"
+format = "pretty"
+
+[markdown]
+root = "/app/docs"
+
+[postgres]
+app_name = "meat-memory"
+database_url = "postgres://postgres:postgres@pgvector:5432/meat_memory_dev"
+
+[assets]
+root = "/app/storage/assets"
+
+[sync]
+mode = "dual_write"
+
+[features]
+enable_pg = true
+enable_markdown = true
+enable_http = true
+enable_mcp = false

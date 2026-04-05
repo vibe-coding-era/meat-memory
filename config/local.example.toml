@@ -1,0 +1,10 @@
+[logging]
+level = "debug"
+
+[postgres]
+database_url = "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev"
+
+[features]
+enable_http = true
+enable_mcp = true
+

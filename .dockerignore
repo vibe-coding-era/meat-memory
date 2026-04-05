@@ -1,0 +1,12 @@
+.git
+.github
+target
+tmp
+dist
+coverage
+.DS_Store
+.idea
+.vscode
+storage
+runtime
+data

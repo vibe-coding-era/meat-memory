@@ -1,0 +1,36 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Rou"]
+repository = "https://example.invalid/meat-memory"
+
+[workspace.dependencies]
+anyhow = "1.0.98"
+async-trait = "0.1.88"
+axum = { version = "0.8.4", features = ["json", "macros"] }
+clap = { version = "4.5.37", features = ["derive", "env"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "time"] }
+thiserror = "2.0.12"
+time = { version = "=0.3.41", features = ["formatting", "macros", "parsing", "serde"] }
+tokio = { version = "1.44.2", features = ["full"] }
+toml = "0.8.22"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "json"] }
+ulid = { version = "1.2.1", features = ["serde"] }
+uuid = { version = "1.16.0", features = ["serde", "v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
