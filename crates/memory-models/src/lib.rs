@@ -3,6 +3,7 @@ use image::{ColorType, DynamicImage, GenericImageView, ImageFormat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fmt;
 use thiserror::Error;
 
@@ -129,6 +130,31 @@ impl ProviderDescriptor {
 
         Ok(())
     }
+
+    fn runtime_unavailability_reason(&self, deployment: DeploymentTarget) -> Option<String> {
+        if !self.enabled {
+            return Some("provider is disabled".to_string());
+        }
+
+        if deployment == DeploymentTarget::Cloud {
+            let missing_key = self
+                .api_key_env
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .filter(|name| {
+                    env::var(name)
+                        .map(|value| value.trim().is_empty())
+                        .unwrap_or(true)
+                });
+
+            if let Some(env_name) = missing_key {
+                return Some(format!("missing environment variable {env_name}"));
+            }
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -199,6 +225,56 @@ impl<'a> ResolvedRoute<'a> {
         models.extend(self.fallbacks.iter().copied());
         models
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct UnavailableModel {
+    pub alias: String,
+    pub display_name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ModelSwitchNotice {
+    pub capability: ModelCapability,
+    pub from_model_alias: String,
+    pub from_model_display_name: String,
+    pub to_model_alias: String,
+    pub to_model_display_name: String,
+    pub reason: String,
+    pub message: String,
+}
+
+impl ModelSwitchNotice {
+    fn new(
+        capability: ModelCapability,
+        from: &ModelDescriptor,
+        to: &ModelDescriptor,
+        reason: impl Into<String>,
+    ) -> Self {
+        let reason = reason.into();
+        Self {
+            capability,
+            from_model_alias: from.alias.clone(),
+            from_model_display_name: from.display_name.clone(),
+            to_model_alias: to.alias.clone(),
+            to_model_display_name: to.display_name.clone(),
+            message: format!(
+                "{} LLM 不可用，已经切换到{}",
+                from.display_name, to.display_name
+            ),
+            reason,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRuntimeRoute<'a> {
+    pub primary: &'a ModelDescriptor,
+    pub selected: &'a ModelDescriptor,
+    pub fallbacks: Vec<&'a ModelDescriptor>,
+    pub unavailable: Vec<UnavailableModel>,
+    pub notice: Option<ModelSwitchNotice>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -331,6 +407,58 @@ impl ModelRegistry {
         Ok(self.resolve(capability)?.primary)
     }
 
+    pub fn resolve_available(
+        &self,
+        capability: ModelCapability,
+    ) -> Result<ResolvedRuntimeRoute<'_>, RegistryError> {
+        let route = self.resolve(capability)?;
+        let mut unavailable = Vec::new();
+
+        for model in route.chain() {
+            if let Some(reason) = self.model_runtime_unavailability_reason(model) {
+                unavailable.push(UnavailableModel {
+                    alias: model.alias.clone(),
+                    display_name: model.display_name.clone(),
+                    reason,
+                });
+                continue;
+            }
+
+            let notice = if model.alias != route.primary.alias {
+                let primary_reason = unavailable
+                    .iter()
+                    .find(|candidate| candidate.alias == route.primary.alias)
+                    .map(|candidate| candidate.reason.clone())
+                    .unwrap_or_else(|| "unknown runtime failure".to_string());
+                Some(ModelSwitchNotice::new(
+                    capability,
+                    route.primary,
+                    model,
+                    primary_reason,
+                ))
+            } else {
+                None
+            };
+
+            return Ok(ResolvedRuntimeRoute {
+                primary: route.primary,
+                selected: model,
+                fallbacks: route.fallbacks,
+                unavailable,
+                notice,
+            });
+        }
+
+        Err(RegistryError::NoAvailableRouteTarget {
+            capability,
+            aliases: route
+                .chain()
+                .into_iter()
+                .map(|model| model.alias.clone())
+                .collect(),
+        })
+    }
+
     fn validate_route(
         capability: ModelCapability,
         route: &CapabilityRoute,
@@ -372,6 +500,15 @@ impl ModelRegistry {
         }
 
         Ok(())
+    }
+
+    fn model_runtime_unavailability_reason(&self, model: &ModelDescriptor) -> Option<String> {
+        if !model.enabled {
+            return Some("model is disabled".to_string());
+        }
+
+        self.provider(model.provider)
+            .and_then(|provider| provider.runtime_unavailability_reason(model.deployment))
     }
 }
 
@@ -420,6 +557,17 @@ impl VisionGateway {
         }
 
         let route = self.registry.resolve(ModelCapability::Vision)?;
+        let runtime_route = self
+            .registry
+            .resolve_available(ModelCapability::Vision)
+            .ok();
+        let selected_model = runtime_route
+            .as_ref()
+            .map(|resolved| resolved.selected)
+            .unwrap_or(route.primary);
+        let switch_notice = runtime_route
+            .as_ref()
+            .and_then(|resolved| resolved.notice.clone());
         let locale = if request.locale.trim().is_empty() {
             self.default_locale.clone()
         } else {
@@ -430,9 +578,15 @@ impl VisionGateway {
             "asset_uri": request.asset_uri,
             "media_type": request.media_type,
             "locale": locale,
-            "provider": route.primary.provider.as_str(),
-            "model_alias": route.primary.alias,
+            "provider": selected_model.provider.as_str(),
+            "model_alias": selected_model.alias,
+            "requested_model_alias": route.primary.alias,
             "fallback_chain": route.fallbacks.iter().map(|model| model.alias.as_str()).collect::<Vec<_>>(),
+            "unavailable_models": runtime_route
+                .as_ref()
+                .map(|resolved| resolved.unavailable.clone())
+                .unwrap_or_default(),
+            "switch_notice": switch_notice.as_ref().map(|notice| notice.message.as_str()),
             "profile": request.profile,
             "byte_size": request.byte_size,
             "user_note": request.prompt.as_deref().map(str::trim).filter(|value| !value.is_empty()),
@@ -441,7 +595,8 @@ impl VisionGateway {
         Ok(VisionResponse {
             caption,
             structured,
-            model_alias: route.primary.alias.clone(),
+            model_alias: selected_model.alias.clone(),
+            switch_notice,
         })
     }
 }
@@ -666,6 +821,8 @@ pub struct VisionResponse {
     #[serde(default)]
     pub structured: Value,
     pub model_alias: String,
+    #[serde(default)]
+    pub switch_notice: Option<ModelSwitchNotice>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -737,6 +894,11 @@ pub enum RegistryError {
     DuplicateModelAlias(String),
     #[error("route for capability '{0}' is missing")]
     MissingRoute(ModelCapability),
+    #[error("no available route target for capability '{capability}': {aliases:?}")]
+    NoAvailableRouteTarget {
+        capability: ModelCapability,
+        aliases: Vec<String>,
+    },
     #[error("route for capability '{0}' is defined more than once")]
     DuplicateRouteConfig(ModelCapability),
     #[error("route for capability '{0}' has an empty primary alias")]
@@ -768,13 +930,169 @@ pub enum RegistryError {
 #[cfg(test)]
 mod tests {
     use super::{
-        CapabilityRoute, DeploymentTarget, ImageProfile, ModelCapability, ModelDescriptor,
-        ModelRegistry, Provider, ProviderDescriptor, RegistryError, VisionGateway, VisionRequest,
-        inspect_image,
+        CapabilityRoute, DeploymentTarget, ExtractionRequest, ImageProfile, ModelCapability,
+        ModelDescriptor, ModelError, ModelRegistry, Provider, ProviderDescriptor, ReasoningRequest,
+        RegistryError, VisionGateway, VisionRequest, brightness_hint, color_mode_label,
+        english_brightness_hint, english_orientation_hint, format_for_media_type, inspect_image,
+        orientation_hint, profile_from_image,
     };
-    use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
-    use std::collections::BTreeSet;
+    use image::{ColorType, DynamicImage, ImageFormat, Rgb, RgbImage, Rgba, RgbaImage};
+    use serde_json::{from_value, json};
+    use std::collections::{BTreeMap, BTreeSet};
     use std::io::Cursor;
+
+    #[test]
+    fn renders_capability_provider_and_deployment_labels() {
+        let capabilities = [
+            (ModelCapability::Reasoning, "reasoning"),
+            (ModelCapability::Extraction, "extraction"),
+            (ModelCapability::Vision, "vision"),
+            (ModelCapability::Embedding, "embedding"),
+        ];
+        for (capability, expected) in capabilities {
+            assert_eq!(capability.as_str(), expected);
+            assert_eq!(capability.to_string(), expected);
+        }
+
+        let providers = [
+            (Provider::OpenAI, "openai"),
+            (Provider::Anthropic, "anthropic"),
+            (Provider::Gemini, "gemini"),
+            (Provider::Qwen, "qwen"),
+            (Provider::Doubao, "doubao"),
+            (Provider::MiniMax, "minimax"),
+            (Provider::Glm, "glm"),
+        ];
+        for (provider, expected) in providers {
+            assert_eq!(provider.as_str(), expected);
+            assert_eq!(provider.to_string(), expected);
+        }
+
+        let deployments = [
+            (DeploymentTarget::Cloud, "cloud"),
+            (DeploymentTarget::Local, "local"),
+            (DeploymentTarget::HybridReady, "hybrid_ready"),
+        ];
+        for (target, expected) in deployments {
+            assert_eq!(target.as_str(), expected);
+            assert_eq!(target.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn serde_defaults_apply_to_descriptors_and_requests() {
+        let provider: ProviderDescriptor = from_value(json!({
+            "provider": "openai",
+            "display_name": "ChatGPT"
+        }))
+        .expect("provider descriptor should deserialize");
+        assert!(provider.enabled);
+
+        let model: ModelDescriptor = from_value(json!({
+            "alias": "chatgpt_reasoning",
+            "provider": "openai",
+            "remote_model_id": "gpt-5-mini",
+            "display_name": "ChatGPT Reasoning",
+            "capabilities": ["reasoning", "extraction"],
+            "deployment": "cloud"
+        }))
+        .expect("model descriptor should deserialize");
+        assert_eq!(model.locale, "zh-CN");
+        assert!(model.enabled);
+
+        let reasoning: ReasoningRequest = from_value(json!({
+            "prompt": "Summarize this"
+        }))
+        .expect("reasoning request should deserialize");
+        let extraction: ExtractionRequest = from_value(json!({
+            "content": "Extract entities"
+        }))
+        .expect("extraction request should deserialize");
+        let vision: VisionRequest = from_value(json!({
+            "asset_uri": "asset://demo.png",
+            "media_type": "image/png"
+        }))
+        .expect("vision request should deserialize");
+
+        assert_eq!(reasoning.locale, "zh-CN");
+        assert_eq!(extraction.locale, "zh-CN");
+        assert_eq!(vision.locale, "zh-CN");
+    }
+
+    #[test]
+    fn descriptor_validation_rejects_empty_fields() {
+        let provider_error = ProviderDescriptor {
+            provider: Provider::OpenAI,
+            display_name: "  ".to_string(),
+            base_url: None,
+            api_key_env: None,
+            enabled: true,
+        }
+        .validate()
+        .expect_err("empty provider name should fail");
+        assert_eq!(
+            provider_error,
+            RegistryError::EmptyProviderDisplayName(Provider::OpenAI)
+        );
+
+        let empty_alias = build_model("  ", Provider::OpenAI, [ModelCapability::Reasoning]);
+        assert_eq!(
+            empty_alias.validate().expect_err("empty alias should fail"),
+            RegistryError::EmptyModelAlias
+        );
+
+        let mut empty_id = build_model(
+            "chatgpt_reasoning",
+            Provider::OpenAI,
+            [ModelCapability::Reasoning],
+        );
+        empty_id.remote_model_id = " ".to_string();
+        assert_eq!(
+            empty_id
+                .validate()
+                .expect_err("empty remote model id should fail"),
+            RegistryError::EmptyModelId("chatgpt_reasoning".to_string())
+        );
+
+        let mut empty_display = build_model(
+            "chatgpt_reasoning",
+            Provider::OpenAI,
+            [ModelCapability::Reasoning],
+        );
+        empty_display.display_name = "".to_string();
+        assert_eq!(
+            empty_display
+                .validate()
+                .expect_err("empty display name should fail"),
+            RegistryError::EmptyModelDisplayName("chatgpt_reasoning".to_string())
+        );
+
+        let mut empty_capabilities = build_model(
+            "chatgpt_reasoning",
+            Provider::OpenAI,
+            [ModelCapability::Reasoning],
+        );
+        empty_capabilities.capabilities.clear();
+        assert_eq!(
+            empty_capabilities
+                .validate()
+                .expect_err("empty capability set should fail"),
+            RegistryError::EmptyCapabilitySet("chatgpt_reasoning".to_string())
+        );
+
+        let mut empty_locale = build_model(
+            "chatgpt_reasoning",
+            Provider::OpenAI,
+            [ModelCapability::Reasoning],
+        );
+        empty_locale.locale = " ".to_string();
+        assert_eq!(
+            empty_locale
+                .validate()
+                .expect_err("empty locale should fail"),
+            RegistryError::EmptyModelLocale("chatgpt_reasoning".to_string())
+        );
+    }
 
     #[test]
     fn renders_provider_name() {
@@ -894,6 +1212,489 @@ mod tests {
     }
 
     #[test]
+    fn registry_lookup_helpers_and_resolved_chain_work() {
+        let registry = demo_registry().expect("registry should build");
+        let route = registry
+            .resolve(ModelCapability::Reasoning)
+            .expect("reasoning route should resolve");
+        let chain = route.chain();
+
+        assert_eq!(registry.route_count(), 4);
+        assert_eq!(
+            registry
+                .provider(Provider::OpenAI)
+                .expect("provider should exist")
+                .display_name,
+            "ChatGPT"
+        );
+        assert_eq!(
+            registry
+                .model("chatgpt_vision")
+                .expect("vision model should exist")
+                .remote_model_id,
+            "gpt-4.1-mini"
+        );
+        assert_eq!(registry.models_for_provider(Provider::OpenAI).len(), 3);
+        assert_eq!(
+            registry
+                .resolve_primary(ModelCapability::Embedding)
+                .expect("embedding primary should resolve")
+                .alias,
+            "chatgpt_embedding"
+        );
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].alias, "chatgpt_reasoning");
+        assert_eq!(chain[1].alias, "claude_reasoning");
+    }
+
+    #[test]
+    fn resolve_available_skips_unavailable_primary_and_returns_switch_notice() {
+        let registry = ModelRegistry::build(
+            vec![
+                ProviderDescriptor {
+                    provider: Provider::OpenAI,
+                    display_name: "ChatGPT".to_string(),
+                    base_url: Some("https://api.openai.com/v1".to_string()),
+                    api_key_env: Some("MEAT_MEMORY_TEST_PRIMARY_MISSING".to_string()),
+                    enabled: true,
+                },
+                ProviderDescriptor {
+                    provider: Provider::Anthropic,
+                    display_name: "Claude".to_string(),
+                    base_url: Some("https://api.anthropic.com".to_string()),
+                    api_key_env: None,
+                    enabled: true,
+                },
+            ],
+            vec![
+                ModelDescriptor {
+                    display_name: "ChatGPT Reasoning".to_string(),
+                    ..build_model(
+                        "chatgpt_reasoning",
+                        Provider::OpenAI,
+                        [ModelCapability::Reasoning, ModelCapability::Extraction],
+                    )
+                },
+                ModelDescriptor {
+                    display_name: "Claude Reasoning".to_string(),
+                    ..build_model(
+                        "claude_reasoning",
+                        Provider::Anthropic,
+                        [ModelCapability::Reasoning, ModelCapability::Extraction],
+                    )
+                },
+                ModelDescriptor {
+                    display_name: "Claude Vision".to_string(),
+                    ..build_model(
+                        "claude_vision",
+                        Provider::Anthropic,
+                        [ModelCapability::Vision],
+                    )
+                },
+                ModelDescriptor {
+                    display_name: "Claude Embedding".to_string(),
+                    ..build_model(
+                        "claude_embedding",
+                        Provider::Anthropic,
+                        [ModelCapability::Embedding],
+                    )
+                },
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: vec!["claude_reasoning".to_string()],
+                    },
+                ),
+                (
+                    ModelCapability::Extraction,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: vec!["claude_reasoning".to_string()],
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "claude_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "claude_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect("registry should build");
+
+        let resolved = registry
+            .resolve_available(ModelCapability::Reasoning)
+            .expect("runtime route should resolve");
+
+        assert_eq!(resolved.primary.alias, "chatgpt_reasoning");
+        assert_eq!(resolved.selected.alias, "claude_reasoning");
+        assert_eq!(resolved.unavailable.len(), 1);
+        assert_eq!(resolved.unavailable[0].alias, "chatgpt_reasoning");
+        assert_eq!(
+            resolved.unavailable[0].reason,
+            "missing environment variable MEAT_MEMORY_TEST_PRIMARY_MISSING"
+        );
+        assert_eq!(
+            resolved
+                .notice
+                .as_ref()
+                .expect("switch notice should exist")
+                .message,
+            "ChatGPT Reasoning LLM 不可用，已经切换到Claude Reasoning"
+        );
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_missing_and_disabled_configs() {
+        let duplicate_provider = ModelRegistry::build(
+            vec![
+                build_provider(Provider::OpenAI, "ChatGPT", true),
+                build_provider(Provider::OpenAI, "ChatGPT Again", true),
+            ],
+            vec![],
+            [],
+        )
+        .expect_err("duplicate provider should fail");
+        assert_eq!(
+            duplicate_provider,
+            RegistryError::DuplicateProvider(Provider::OpenAI)
+        );
+
+        let missing_provider = ModelRegistry::build(
+            vec![build_provider(Provider::Anthropic, "Claude", true)],
+            vec![build_model(
+                "chatgpt_reasoning",
+                Provider::OpenAI,
+                [ModelCapability::Reasoning, ModelCapability::Extraction],
+            )],
+            [],
+        )
+        .expect_err("missing provider should fail");
+        assert_eq!(
+            missing_provider,
+            RegistryError::MissingProviderForModel {
+                alias: "chatgpt_reasoning".to_string(),
+                provider: Provider::OpenAI,
+            }
+        );
+
+        let disabled_provider = ModelRegistry::build(
+            vec![build_provider(Provider::OpenAI, "ChatGPT", false)],
+            vec![build_model(
+                "chatgpt_reasoning",
+                Provider::OpenAI,
+                [ModelCapability::Reasoning, ModelCapability::Extraction],
+            )],
+            [],
+        )
+        .expect_err("disabled provider should fail");
+        assert_eq!(
+            disabled_provider,
+            RegistryError::DisabledProviderForModel {
+                alias: "chatgpt_reasoning".to_string(),
+                provider: Provider::OpenAI,
+            }
+        );
+
+        let duplicate_model = ModelRegistry::build(
+            vec![build_provider(Provider::OpenAI, "ChatGPT", true)],
+            vec![
+                build_model(
+                    "chatgpt_reasoning",
+                    Provider::OpenAI,
+                    [ModelCapability::Reasoning, ModelCapability::Extraction],
+                ),
+                build_model(
+                    "chatgpt_reasoning",
+                    Provider::OpenAI,
+                    [ModelCapability::Vision],
+                ),
+            ],
+            [],
+        )
+        .expect_err("duplicate model should fail");
+        assert_eq!(
+            duplicate_model,
+            RegistryError::DuplicateModelAlias("chatgpt_reasoning".to_string())
+        );
+    }
+
+    #[test]
+    fn route_validation_rejects_invalid_targets() {
+        let models = BTreeMap::from([
+            (
+                "vision_enabled".to_string(),
+                build_model(
+                    "vision_enabled",
+                    Provider::OpenAI,
+                    [ModelCapability::Vision],
+                ),
+            ),
+            (
+                "vision_disabled".to_string(),
+                ModelDescriptor {
+                    enabled: false,
+                    ..build_model(
+                        "vision_disabled",
+                        Provider::OpenAI,
+                        [ModelCapability::Vision],
+                    )
+                },
+            ),
+        ]);
+
+        let empty_primary = ModelRegistry::validate_route(
+            ModelCapability::Vision,
+            &CapabilityRoute {
+                primary: " ".to_string(),
+                fallbacks: Vec::new(),
+            },
+            &models,
+        )
+        .expect_err("empty primary should fail");
+        assert_eq!(
+            empty_primary,
+            RegistryError::EmptyRoutePrimary(ModelCapability::Vision)
+        );
+
+        let unknown_model = ModelRegistry::validate_route(
+            ModelCapability::Vision,
+            &CapabilityRoute {
+                primary: "missing".to_string(),
+                fallbacks: Vec::new(),
+            },
+            &models,
+        )
+        .expect_err("unknown model should fail");
+        assert_eq!(
+            unknown_model,
+            RegistryError::UnknownRouteModel {
+                capability: ModelCapability::Vision,
+                alias: "missing".to_string(),
+            }
+        );
+
+        let duplicate_target = ModelRegistry::validate_route(
+            ModelCapability::Vision,
+            &CapabilityRoute {
+                primary: "vision_enabled".to_string(),
+                fallbacks: vec!["vision_enabled".to_string()],
+            },
+            &models,
+        )
+        .expect_err("duplicate target should fail");
+        assert_eq!(
+            duplicate_target,
+            RegistryError::DuplicateRouteTarget {
+                capability: ModelCapability::Vision,
+                alias: "vision_enabled".to_string(),
+            }
+        );
+
+        let disabled_model = ModelRegistry::validate_route(
+            ModelCapability::Vision,
+            &CapabilityRoute {
+                primary: "vision_disabled".to_string(),
+                fallbacks: Vec::new(),
+            },
+            &models,
+        )
+        .expect_err("disabled model should fail");
+        assert_eq!(
+            disabled_model,
+            RegistryError::DisabledRouteModel {
+                capability: ModelCapability::Vision,
+                alias: "vision_disabled".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn build_rejects_duplicate_and_missing_routes() {
+        let duplicate_route = ModelRegistry::build(
+            vec![build_provider(Provider::OpenAI, "ChatGPT", true)],
+            vec![
+                build_model(
+                    "chatgpt_reasoning",
+                    Provider::OpenAI,
+                    [ModelCapability::Reasoning, ModelCapability::Extraction],
+                ),
+                build_model(
+                    "chatgpt_vision",
+                    Provider::OpenAI,
+                    [ModelCapability::Vision],
+                ),
+                build_model(
+                    "chatgpt_embedding",
+                    Provider::OpenAI,
+                    [ModelCapability::Embedding],
+                ),
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "chatgpt_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "chatgpt_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect_err("duplicate route should fail");
+        assert_eq!(
+            duplicate_route,
+            RegistryError::DuplicateRouteConfig(ModelCapability::Reasoning)
+        );
+
+        let missing_route = ModelRegistry::build(
+            vec![build_provider(Provider::OpenAI, "ChatGPT", true)],
+            vec![
+                build_model(
+                    "chatgpt_reasoning",
+                    Provider::OpenAI,
+                    [ModelCapability::Reasoning, ModelCapability::Extraction],
+                ),
+                build_model(
+                    "chatgpt_vision",
+                    Provider::OpenAI,
+                    [ModelCapability::Vision],
+                ),
+                build_model(
+                    "chatgpt_embedding",
+                    Provider::OpenAI,
+                    [ModelCapability::Embedding],
+                ),
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "chatgpt_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "chatgpt_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect_err("missing extraction route should fail");
+        assert_eq!(
+            missing_route,
+            RegistryError::MissingRoute(ModelCapability::Extraction)
+        );
+    }
+
+    #[test]
+    fn resolve_reports_missing_routes_and_unknown_models() {
+        let empty_registry = ModelRegistry::default();
+        assert_eq!(
+            empty_registry
+                .resolve(ModelCapability::Vision)
+                .expect_err("missing route should fail"),
+            RegistryError::MissingRoute(ModelCapability::Vision)
+        );
+        assert_eq!(
+            empty_registry
+                .resolve_primary(ModelCapability::Embedding)
+                .expect_err("missing primary should fail"),
+            RegistryError::MissingRoute(ModelCapability::Embedding)
+        );
+
+        let registry = ModelRegistry {
+            providers: BTreeMap::new(),
+            models: BTreeMap::new(),
+            routes: BTreeMap::from([(
+                ModelCapability::Vision,
+                CapabilityRoute {
+                    primary: "missing_primary".to_string(),
+                    fallbacks: vec!["missing_fallback".to_string()],
+                },
+            )]),
+        };
+        assert_eq!(
+            registry
+                .resolve(ModelCapability::Vision)
+                .expect_err("unknown primary should fail"),
+            RegistryError::UnknownRouteModel {
+                capability: ModelCapability::Vision,
+                alias: "missing_primary".to_string(),
+            }
+        );
+
+        let registry = ModelRegistry {
+            providers: BTreeMap::new(),
+            models: BTreeMap::from([(
+                "vision_primary".to_string(),
+                build_model(
+                    "vision_primary",
+                    Provider::Gemini,
+                    [ModelCapability::Vision],
+                ),
+            )]),
+            routes: BTreeMap::from([(
+                ModelCapability::Vision,
+                CapabilityRoute {
+                    primary: "vision_primary".to_string(),
+                    fallbacks: vec!["missing_fallback".to_string()],
+                },
+            )]),
+        };
+        assert_eq!(
+            registry
+                .resolve(ModelCapability::Vision)
+                .expect_err("unknown fallback should fail"),
+            RegistryError::UnknownRouteModel {
+                capability: ModelCapability::Vision,
+                alias: "missing_fallback".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn rejects_route_to_model_without_capability() {
         let error = ModelRegistry::build(
             vec![ProviderDescriptor {
@@ -974,6 +1775,73 @@ mod tests {
     }
 
     #[test]
+    fn image_helper_functions_cover_supported_formats_and_hints() {
+        assert_eq!(
+            format_for_media_type("image/png").unwrap(),
+            ImageFormat::Png
+        );
+        assert_eq!(
+            format_for_media_type("image/jpeg").unwrap(),
+            ImageFormat::Jpeg
+        );
+        assert_eq!(
+            format_for_media_type("image/gif").unwrap(),
+            ImageFormat::Gif
+        );
+        assert_eq!(
+            format_for_media_type("image/webp").unwrap(),
+            ImageFormat::WebP
+        );
+        assert!(matches!(
+            format_for_media_type("image/svg+xml"),
+            Err(ModelError::UnsupportedImageMediaType(media_type)) if media_type == "image/svg+xml"
+        ));
+
+        assert_eq!(color_mode_label(ColorType::L8), "grayscale");
+        assert_eq!(color_mode_label(ColorType::Rgb8), "rgb");
+        assert_eq!(color_mode_label(ColorType::Rgba8), "rgba");
+
+        assert_eq!(orientation_hint(1920, 1080), "横向");
+        assert_eq!(orientation_hint(1080, 1920), "纵向");
+        assert_eq!(orientation_hint(512, 512), "近方形");
+        assert_eq!(english_orientation_hint(1920, 1080), "landscape");
+        assert_eq!(english_orientation_hint(1080, 1920), "portrait");
+        assert_eq!(english_orientation_hint(512, 512), "square");
+
+        assert_eq!(brightness_hint(32), "偏暗");
+        assert_eq!(brightness_hint(120), "亮度中等");
+        assert_eq!(brightness_hint(220), "偏亮");
+        assert_eq!(english_brightness_hint(32), "dark");
+        assert_eq!(english_brightness_hint(120), "balanced");
+        assert_eq!(english_brightness_hint(220), "bright");
+    }
+
+    #[test]
+    fn profile_from_image_detects_rgb_and_rgba_modes() {
+        let rgba =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(2, 1, Rgba([240, 240, 240, 128])));
+        let rgb = DynamicImage::ImageRgb8(RgbImage::from_pixel(1, 2, Rgb([20, 40, 60])));
+
+        let rgba_profile = profile_from_image(&rgba);
+        let rgb_profile = profile_from_image(&rgb);
+
+        assert_eq!(
+            rgba_profile,
+            ImageProfile {
+                width: 2,
+                height: 1,
+                has_alpha: true,
+                average_luma: 240,
+                color_mode: "rgba".to_string(),
+            }
+        );
+        assert_eq!(rgb_profile.width, 1);
+        assert_eq!(rgb_profile.height, 2);
+        assert!(!rgb_profile.has_alpha);
+        assert_eq!(rgb_profile.color_mode, "rgb");
+    }
+
+    #[test]
     fn inspects_png_dimensions_and_profile() {
         let bytes = tiny_png_bytes([240, 240, 240, 255]);
         let profile = inspect_image(&bytes, "image/png").expect("png should decode");
@@ -988,6 +1856,22 @@ mod tests {
                 color_mode: "rgba".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn inspect_image_rejects_empty_unsupported_and_invalid_payloads() {
+        assert!(matches!(
+            inspect_image(&[], "image/png"),
+            Err(ModelError::EmptyInput)
+        ));
+        assert!(matches!(
+            inspect_image(b"not-an-image", "image/svg+xml"),
+            Err(ModelError::UnsupportedImageMediaType(media_type)) if media_type == "image/svg+xml"
+        ));
+        assert!(matches!(
+            inspect_image(b"not-an-image", "image/png"),
+            Err(ModelError::ImageDecode(_))
+        ));
     }
 
     #[tokio::test]
@@ -1092,6 +1976,259 @@ mod tests {
         assert_eq!(response.structured["provider"], "gemini");
     }
 
+    #[tokio::test]
+    async fn vision_gateway_switches_to_fallback_model_and_exposes_notice() {
+        let registry = ModelRegistry::build(
+            vec![
+                ProviderDescriptor {
+                    provider: Provider::Gemini,
+                    display_name: "Gemini".to_string(),
+                    base_url: Some("https://generativelanguage.googleapis.com".to_string()),
+                    api_key_env: Some("MEAT_MEMORY_TEST_GEMINI_MISSING".to_string()),
+                    enabled: true,
+                },
+                ProviderDescriptor {
+                    provider: Provider::Anthropic,
+                    display_name: "Claude".to_string(),
+                    base_url: Some("https://api.anthropic.com".to_string()),
+                    api_key_env: None,
+                    enabled: true,
+                },
+            ],
+            vec![
+                ModelDescriptor {
+                    alias: "gemini_reasoning".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Reasoning".to_string(),
+                    capabilities: BTreeSet::from([
+                        ModelCapability::Reasoning,
+                        ModelCapability::Extraction,
+                    ]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "gemini_vision".to_string(),
+                    provider: Provider::Gemini,
+                    remote_model_id: "gemini-2.5-flash".to_string(),
+                    display_name: "Gemini Vision".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Vision]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 100,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "claude_reasoning".to_string(),
+                    provider: Provider::Anthropic,
+                    remote_model_id: "claude-sonnet-4-5".to_string(),
+                    display_name: "Claude Reasoning".to_string(),
+                    capabilities: BTreeSet::from([
+                        ModelCapability::Reasoning,
+                        ModelCapability::Extraction,
+                    ]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 90,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "claude_vision".to_string(),
+                    provider: Provider::Anthropic,
+                    remote_model_id: "claude-sonnet-4-5".to_string(),
+                    display_name: "Claude Vision".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Vision]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 90,
+                    enabled: true,
+                },
+                ModelDescriptor {
+                    alias: "claude_embedding".to_string(),
+                    provider: Provider::Anthropic,
+                    remote_model_id: "text-embedding-3-large".to_string(),
+                    display_name: "Claude Embedding".to_string(),
+                    capabilities: BTreeSet::from([ModelCapability::Embedding]),
+                    deployment: DeploymentTarget::Cloud,
+                    locale: "zh-CN".to_string(),
+                    priority: 90,
+                    enabled: true,
+                },
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: vec!["claude_reasoning".to_string()],
+                    },
+                ),
+                (
+                    ModelCapability::Extraction,
+                    CapabilityRoute {
+                        primary: "gemini_reasoning".to_string(),
+                        fallbacks: vec!["claude_reasoning".to_string()],
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "gemini_vision".to_string(),
+                        fallbacks: vec!["claude_vision".to_string()],
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "claude_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .expect("registry should build");
+        let gateway = VisionGateway::new(registry, "zh-CN").expect("gateway should build");
+
+        let response = gateway
+            .analyze(VisionRequest {
+                asset_uri: "asset://raw/sha256/demo.png".to_string(),
+                media_type: "image/png".to_string(),
+                profile: Some(ImageProfile {
+                    width: 640,
+                    height: 480,
+                    has_alpha: false,
+                    average_luma: 128,
+                    color_mode: "rgb".to_string(),
+                }),
+                byte_size: Some(2048),
+                prompt: Some("控制台截图".to_string()),
+                locale: "zh-CN".to_string(),
+            })
+            .await
+            .expect("vision analysis should succeed");
+
+        assert_eq!(response.model_alias, "claude_vision");
+        assert_eq!(
+            response
+                .switch_notice
+                .as_ref()
+                .expect("switch notice should exist")
+                .message,
+            "Gemini Vision LLM 不可用，已经切换到Claude Vision"
+        );
+        assert_eq!(response.structured["provider"], "anthropic");
+        assert_eq!(response.structured["model_alias"], "claude_vision");
+        assert_eq!(
+            response.structured["requested_model_alias"],
+            "gemini_vision"
+        );
+        assert_eq!(
+            response.structured["switch_notice"],
+            "Gemini Vision LLM 不可用，已经切换到Claude Vision"
+        );
+    }
+
+    #[tokio::test]
+    async fn vision_gateway_covers_default_locale_and_english_caption_paths() {
+        let gateway = VisionGateway::new(demo_registry().expect("registry should build"), "zh-CN")
+            .expect("gateway should build");
+        let zh_profile = inspect_image(&tiny_jpeg_bytes([220, 220, 220]), "image/jpeg")
+            .expect("jpeg should decode");
+        let en_profile = profile_from_image(&DynamicImage::ImageRgb8(RgbImage::from_pixel(
+            1,
+            2,
+            Rgb([20, 40, 60]),
+        )));
+
+        let zh_response = gateway
+            .analyze(VisionRequest {
+                asset_uri: "asset://raw/cover.jpg".to_string(),
+                media_type: "image/jpeg".to_string(),
+                profile: Some(zh_profile),
+                byte_size: None,
+                prompt: None,
+                locale: " ".to_string(),
+            })
+            .await
+            .expect("default locale branch should succeed");
+        assert!(zh_response.caption.contains("已生成可检索视觉摘要"));
+        assert!(zh_response.caption.contains("整体偏亮"));
+
+        let en_response = gateway
+            .analyze(VisionRequest {
+                asset_uri: "asset://raw/portrait.jpg".to_string(),
+                media_type: "image/jpeg".to_string(),
+                profile: Some(en_profile),
+                byte_size: Some(42),
+                prompt: Some("landing page".to_string()),
+                locale: "en-US".to_string(),
+            })
+            .await
+            .expect("english branch should succeed");
+        assert!(en_response.caption.contains("Detected a image/jpeg image"));
+        assert!(en_response.caption.contains("portrait composition"));
+        assert!(en_response.caption.contains("User note: landing page"));
+
+        let raw_response = gateway
+            .analyze(VisionRequest {
+                asset_uri: "asset://raw/no-profile.png".to_string(),
+                media_type: "image/png".to_string(),
+                profile: None,
+                byte_size: Some(11),
+                prompt: None,
+                locale: "en-US".to_string(),
+            })
+            .await
+            .expect("raw asset branch should succeed");
+        assert!(raw_response.caption.contains("recorded the raw asset"));
+    }
+
+    #[tokio::test]
+    async fn vision_gateway_validates_registry_and_request_inputs() {
+        assert!(matches!(
+            VisionGateway::new(ModelRegistry::default(), "zh-CN"),
+            Err(ModelError::Registry(RegistryError::MissingRoute(
+                ModelCapability::Vision
+            )))
+        ));
+        assert!(matches!(
+            VisionGateway::new(demo_registry().expect("registry should build"), " "),
+            Err(ModelError::EmptyInput)
+        ));
+
+        let gateway = VisionGateway::new(demo_registry().expect("registry should build"), "zh-CN")
+            .expect("gateway should build");
+        assert!(matches!(
+            gateway
+                .analyze(VisionRequest {
+                    asset_uri: " ".to_string(),
+                    media_type: "image/png".to_string(),
+                    profile: None,
+                    byte_size: None,
+                    prompt: None,
+                    locale: "zh-CN".to_string(),
+                })
+                .await,
+            Err(ModelError::EmptyInput)
+        ));
+        assert!(matches!(
+            gateway
+                .analyze(VisionRequest {
+                    asset_uri: "asset://raw/empty.png".to_string(),
+                    media_type: " ".to_string(),
+                    profile: None,
+                    byte_size: None,
+                    prompt: None,
+                    locale: "zh-CN".to_string(),
+                })
+                .await,
+            Err(ModelError::EmptyInput)
+        ));
+    }
+
     fn tiny_png_bytes(pixel: [u8; 4]) -> Vec<u8> {
         let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba(pixel)));
         let mut buffer = Cursor::new(Vec::new());
@@ -1099,5 +2236,121 @@ mod tests {
             .write_to(&mut buffer, ImageFormat::Png)
             .expect("png should encode");
         buffer.into_inner()
+    }
+
+    fn tiny_jpeg_bytes(pixel: [u8; 3]) -> Vec<u8> {
+        let image = DynamicImage::ImageRgb8(RgbImage::from_pixel(1, 1, Rgb(pixel)));
+        let mut buffer = Cursor::new(Vec::new());
+        image
+            .write_to(&mut buffer, ImageFormat::Jpeg)
+            .expect("jpeg should encode");
+        buffer.into_inner()
+    }
+
+    fn build_provider(provider: Provider, display_name: &str, enabled: bool) -> ProviderDescriptor {
+        ProviderDescriptor {
+            provider,
+            display_name: display_name.to_string(),
+            base_url: Some(format!("https://{}.example.com", provider.as_str())),
+            api_key_env: Some(format!("{}_API_KEY", provider.as_str().to_uppercase())),
+            enabled,
+        }
+    }
+
+    fn build_model(
+        alias: &str,
+        provider: Provider,
+        capabilities: impl IntoIterator<Item = ModelCapability>,
+    ) -> ModelDescriptor {
+        ModelDescriptor {
+            alias: alias.to_string(),
+            provider,
+            remote_model_id: format!("{alias}_remote"),
+            display_name: alias.replace('_', " "),
+            capabilities: capabilities.into_iter().collect(),
+            deployment: DeploymentTarget::Cloud,
+            locale: "zh-CN".to_string(),
+            priority: 100,
+            enabled: true,
+        }
+    }
+
+    fn demo_registry() -> Result<ModelRegistry, RegistryError> {
+        ModelRegistry::build(
+            vec![
+                build_provider(Provider::OpenAI, "ChatGPT", true),
+                build_provider(Provider::Anthropic, "Claude", true),
+            ],
+            vec![
+                ModelDescriptor {
+                    remote_model_id: "gpt-5-mini".to_string(),
+                    display_name: "ChatGPT Reasoning".to_string(),
+                    ..build_model(
+                        "chatgpt_reasoning",
+                        Provider::OpenAI,
+                        [ModelCapability::Reasoning, ModelCapability::Extraction],
+                    )
+                },
+                ModelDescriptor {
+                    remote_model_id: "claude-sonnet-4-5".to_string(),
+                    display_name: "Claude Reasoning".to_string(),
+                    locale: "en-US".to_string(),
+                    priority: 90,
+                    ..build_model(
+                        "claude_reasoning",
+                        Provider::Anthropic,
+                        [ModelCapability::Reasoning],
+                    )
+                },
+                ModelDescriptor {
+                    remote_model_id: "text-embedding-3-large".to_string(),
+                    display_name: "ChatGPT Embedding".to_string(),
+                    ..build_model(
+                        "chatgpt_embedding",
+                        Provider::OpenAI,
+                        [ModelCapability::Embedding],
+                    )
+                },
+                ModelDescriptor {
+                    remote_model_id: "gpt-4.1-mini".to_string(),
+                    display_name: "ChatGPT Vision".to_string(),
+                    ..build_model(
+                        "chatgpt_vision",
+                        Provider::OpenAI,
+                        [ModelCapability::Vision],
+                    )
+                },
+            ],
+            [
+                (
+                    ModelCapability::Reasoning,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: vec!["claude_reasoning".to_string()],
+                    },
+                ),
+                (
+                    ModelCapability::Extraction,
+                    CapabilityRoute {
+                        primary: "chatgpt_reasoning".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Vision,
+                    CapabilityRoute {
+                        primary: "chatgpt_vision".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+                (
+                    ModelCapability::Embedding,
+                    CapabilityRoute {
+                        primary: "chatgpt_embedding".to_string(),
+                        fallbacks: Vec::new(),
+                    },
+                ),
+            ],
+        )
     }
 }

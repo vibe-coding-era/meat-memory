@@ -44,6 +44,18 @@ cargo run -p memory-cli -- remember-image \
 - `asset_uri`
 - `vision_caption`
 - `vision_model_alias`
+- `llm_notice`
+
+如果主视觉 LLM 不可用且自动切到了 fallback，CLI 会：
+
+- 在 JSON 输出里返回 `llm_notice`
+- 在文本输出里追加 `LLM Notice: ...`
+
+提示文案格式：
+
+```text
+{某}LLM 不可用，已经切换到{新}LLM
+```
 
 ## 4. 搜索
 

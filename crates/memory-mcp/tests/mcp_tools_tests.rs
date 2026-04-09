@@ -144,6 +144,59 @@ async fn mcp_http_transport_accepts_tool_calls() {
 }
 
 #[tokio::test]
+async fn mcp_supports_chinese_memory_search_and_publish_flow() {
+    let tempdir = tempdir().unwrap();
+    let server = build_test_server(tempdir.path()).await;
+    let scope_id = ScopeId::new();
+
+    let remember = server
+        .dispatch(ToolCallRequest {
+            name: "memory.remember".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "title": "中文验收约定",
+                "body": "项目 `服务网关` 依赖 `PostgreSQL`，`服务网关` 记录 `发布手册`。发布前必须通过回归与验收。",
+                "memory_kind": "procedure"
+            }),
+        })
+        .await
+        .unwrap();
+    let memory_id = remember.data["memory_id"].as_str().unwrap().to_string();
+
+    let search = server
+        .dispatch(ToolCallRequest {
+            name: "memory.search".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "query": "回归 验收",
+                "limit": 5
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(search.data["memory_count"], 1);
+    assert!(search.data["entity_count"].as_u64().unwrap() >= 2);
+    assert!(search.data["relation_count"].as_u64().unwrap() >= 1);
+
+    let publish = server
+        .dispatch(ToolCallRequest {
+            name: "memory.publish".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "memory_id": memory_id,
+                "target_visibility": "project"
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(publish.data["visibility"], "project");
+    assert_eq!(publish.data["wrote_pg"], true);
+    assert_eq!(publish.data["wrote_markdown"], true);
+}
+
+#[tokio::test]
 async fn mcp_stdio_transport_serializes_errors() {
     let tempdir = tempdir().unwrap();
     let server = build_test_server(tempdir.path()).await;

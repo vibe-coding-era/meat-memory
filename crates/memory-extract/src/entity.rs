@@ -265,3 +265,182 @@ fn trim_token(token: &str) -> &str {
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        capture_contextual_entities, capture_title_case_phrases, capture_wrapped, extract_entities,
+        infer_entity_type, insert_candidate, is_title_case_token, trim_token,
+    };
+    use memory_domain::{EntityType, ScopeId};
+    use std::collections::HashMap;
+
+    #[test]
+    fn extract_entities_merges_sources_and_sorts_by_confidence() {
+        let scope_id = ScopeId::from_string("scp_extract_entities");
+        let candidates = extract_entities(
+            &scope_id,
+            "project Meat Memory, service Gateway Api, workspace Alpha Lab, \
+             repository Memory Core. 团队平台组。服务记忆中台。 \
+             Use `GatewayClient` for all requests.",
+        );
+
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0].entity.entity_type, EntityType::CodeSymbol);
+        assert_eq!(candidates[0].entity.canonical_name, "GatewayClient");
+        assert_eq!(candidates[0].evidence_text, "GatewayClient");
+
+        let by_key = candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    candidate.entity.normalized_key.clone(),
+                    (candidate.entity.entity_type, candidate.confidence),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(by_key["meatmemory"].0, EntityType::Project);
+        assert_eq!(by_key["gatewayapi"].0, EntityType::Service);
+        assert_eq!(by_key["memorycore"].0, EntityType::Repository);
+        assert_eq!(by_key["alphalab"].0, EntityType::Workspace);
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.entity.canonical_name == "平台组")
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.entity.canonical_name == "记忆中台")
+        );
+        assert!((by_key["gatewayclient"].1 - 0.95).abs() < f32::EPSILON);
+        assert!((by_key["meatmemory"].1 - 0.88).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn insert_candidate_skips_invalid_values_and_keeps_highest_confidence() {
+        let scope_id = ScopeId::from_string("scp_insert_candidate");
+        let mut candidates = HashMap::new();
+
+        insert_candidate(
+            &mut candidates,
+            &scope_id,
+            EntityType::Topic,
+            "   ",
+            0.5,
+            "blank",
+        );
+        insert_candidate(
+            &mut candidates,
+            &scope_id,
+            EntityType::Topic,
+            "AI",
+            0.9,
+            "too short",
+        );
+        assert!(candidates.is_empty());
+
+        insert_candidate(
+            &mut candidates,
+            &scope_id,
+            EntityType::Project,
+            "Meat Memory",
+            0.7,
+            "low",
+        );
+        insert_candidate(
+            &mut candidates,
+            &scope_id,
+            EntityType::Project,
+            "Meat Memory",
+            0.6,
+            "lower",
+        );
+        insert_candidate(
+            &mut candidates,
+            &scope_id,
+            EntityType::Project,
+            "Meat Memory",
+            0.91,
+            "higher",
+        );
+
+        let candidate = candidates.get("meatmemory").unwrap();
+        assert_eq!(candidate.entity.entity_type, EntityType::Project);
+        assert!((candidate.confidence - 0.91).abs() < f32::EPSILON);
+        assert_eq!(candidate.evidence_text, "higher");
+    }
+
+    #[test]
+    fn helper_extractors_cover_wrapped_title_case_and_contextual_patterns() {
+        assert_eq!(
+            capture_wrapped(
+                "Use `GatewayClient` and `MemorySync`; ignore `` and `open",
+                '`',
+                '`'
+            ),
+            vec!["GatewayClient".to_string(), "MemorySync".to_string()]
+        );
+        assert_eq!(
+            capture_title_case_phrases(
+                "the Meat Memory platform integrates Service Gateway and leaves api lowercase"
+            ),
+            vec!["Meat Memory".to_string(), "Service Gateway".to_string()]
+        );
+
+        let contextual = capture_contextual_entities(
+            "project Meat Memory, service Gateway Api, repository Memory Core, \
+             repo Edge Sync, team Platform Infra, organization Memory Org, workspace Alpha Lab. \
+             project AI should skip. 项目记忆系统。 服务记忆网关。 仓库核心仓。 团队平台组。 团队 A",
+        );
+        let names = contextual
+            .iter()
+            .map(|hint| (hint.entity_type, hint.name.clone()))
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&(EntityType::Project, "Meat Memory".to_string())));
+        assert!(names.contains(&(EntityType::Service, "Gateway Api".to_string())));
+        assert!(names.contains(&(EntityType::Repository, "Memory Core".to_string())));
+        assert!(names.contains(&(EntityType::Repository, "Edge Sync".to_string())));
+        assert!(names.contains(&(EntityType::Team, "Platform Infra".to_string())));
+        assert!(names.contains(&(EntityType::Organization, "Memory Org".to_string())));
+        assert!(names.contains(&(EntityType::Workspace, "Alpha Lab".to_string())));
+        assert!(names.contains(&(EntityType::Project, "记忆系统".to_string())));
+        assert!(names.contains(&(EntityType::Service, "记忆网关".to_string())));
+        assert!(names.contains(&(EntityType::Repository, "核心仓".to_string())));
+        assert!(names.contains(&(EntityType::Team, "平台组".to_string())));
+        assert!(!names.iter().any(|(_, name)| name == "AI"));
+        assert!(!names.iter().any(|(_, name)| name == "A"));
+    }
+
+    #[test]
+    fn infer_entity_type_and_token_helpers_cover_fallbacks() {
+        assert_eq!(
+            infer_entity_type(
+                "project Meat Memory uses service Gateway Api",
+                "Meat Memory"
+            ),
+            EntityType::Project
+        );
+        assert_eq!(
+            infer_entity_type("service Gateway Api handles routing", "Gateway Api"),
+            EntityType::Service
+        );
+        assert_eq!(
+            infer_entity_type("repo Memory Core stores state", "Memory Core"),
+            EntityType::Repository
+        );
+        assert_eq!(
+            infer_entity_type("general topic mention", "Loose Topic"),
+            EntityType::Topic
+        );
+
+        assert!(is_title_case_token("Gateway"));
+        assert!(!is_title_case_token(""));
+        assert!(!is_title_case_token("gateway"));
+        assert!(!is_title_case_token("API"));
+        assert_eq!(trim_token("（Meat Memory），"), "Meat Memory");
+        assert_eq!(trim_token("[Gateway Api]."), "Gateway Api");
+    }
+}

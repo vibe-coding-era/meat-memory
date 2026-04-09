@@ -74,12 +74,15 @@ V1 图片返回会额外包含：
 - `asset_uri`
 - `vision_caption`
 - `vision_model_alias`
+- `llm_notice`
 
 说明：
 
 - V1 使用“本地最小 vision derivation + model route attribution”。
 - 也就是说，当前不会强依赖真实云视觉 SDK 才能完成图片记忆写入。
 - 但返回里的 `vision_model_alias` 仍会标注当前命中的视觉路由别名，便于后续真实 SDK 对接。
+- 当主视觉 LLM 不可用且命中 fallback 时，`llm_notice` 会返回类似：
+  `Gemini Vision LLM 不可用，已经切换到Claude Vision`
 
 ## 4. 搜索上下文
 

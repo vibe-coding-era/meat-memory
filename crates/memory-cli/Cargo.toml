@@ -20,4 +20,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 assert_cmd = "2.1.1"
+memory-assets = { path = "../memory-assets" }
+memory-models = { path = "../memory-models" }
 tempfile = "3.20.0"
+time.workspace = true
+tower = "0.5.2"

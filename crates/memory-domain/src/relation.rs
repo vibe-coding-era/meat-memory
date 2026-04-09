@@ -68,11 +68,27 @@ impl Relation {
 #[cfg(test)]
 mod tests {
     use super::{Relation, RelationType};
-    use crate::EntityId;
+    use crate::{EntityId, EvidenceId, RelationState};
 
     #[test]
     fn refuses_to_activate_without_evidence() {
         let mut relation = Relation::new(RelationType::DependsOn, EntityId::new(), EntityId::new());
         assert!(relation.activate().is_err());
+    }
+
+    #[test]
+    fn activates_after_adding_evidence() {
+        let subject = EntityId::from_string("ent_subject");
+        let object = EntityId::from_string("ent_object");
+        let mut relation = Relation::new(RelationType::Implements, subject.clone(), object.clone());
+        relation.add_evidence(EvidenceId::from_string("evd_1"));
+
+        relation.activate().expect("relation should activate");
+
+        assert_eq!(relation.subject_entity_id, subject);
+        assert_eq!(relation.object_entity_id, object);
+        assert_eq!(relation.state, RelationState::Active);
+        assert_eq!(relation.evidence_ids.len(), 1);
+        assert_eq!(relation.evidence_ids[0].as_str(), "evd_1");
     }
 }

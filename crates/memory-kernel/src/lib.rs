@@ -327,6 +327,19 @@ impl Kernel {
                 ),
                 None => None,
             };
+            if let Some(notice) = vision
+                .as_ref()
+                .and_then(|response| response.switch_notice.as_ref())
+            {
+                tracing::warn!(
+                    from_model = notice.from_model_alias.as_str(),
+                    to_model = notice.to_model_alias.as_str(),
+                    capability = notice.capability.as_str(),
+                    reason = notice.reason.as_str(),
+                    message = notice.message.as_str(),
+                    "vision llm failover triggered"
+                );
+            }
             let title_override = title
                 .filter(|value| !value.trim().is_empty())
                 .or_else(|| vision.as_ref().map(|response| response.caption.clone()))
@@ -741,16 +754,51 @@ fn visibility_rank(visibility: Visibility) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        Kernel, RememberImageRequest, RememberTextRequest, SearchContextRequest,
-        build_context_graph,
+        ImageArtifactInput, Kernel, RememberImageRequest, RememberTextRequest,
+        SearchContextRequest, artifact_kind_label, build_context_graph, build_image_artifact,
+        relation_type_label, visibility_rank,
     };
+    use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
+    use memory_core::MemoryService;
+    use memory_domain::{Artifact, MemoryId, Sensitivity, Visibility};
     use memory_domain::{ArtifactKind, Memory, MemoryKind, RelationType, ScopeId};
     use memory_models::{
-        CapabilityRoute, DeploymentTarget, ModelCapability, ModelDescriptor, ModelRegistry,
-        Provider, ProviderDescriptor,
+        CapabilityRoute, DeploymentTarget, ImageProfile, ModelCapability, ModelDescriptor,
+        ModelRegistry, Provider, ProviderDescriptor, VisionResponse,
     };
+    use serde_json::json;
     use std::collections::BTreeSet;
+    use std::path::PathBuf;
     use tempfile::tempdir;
+
+    fn sample_stored_asset() -> StoredAsset {
+        let reference = AssetRef::new(
+            "asset_kernel",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "image/png",
+            StorageClass::Raw,
+            "raw/sha256/01/23/sample.png",
+        )
+        .unwrap();
+
+        StoredAsset {
+            reference,
+            metadata: AssetMetadata {
+                asset_id: "asset_kernel".to_string(),
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+                size_bytes: 128,
+                mime_type: "image/png".to_string(),
+                storage_class: StorageClass::Raw,
+                width: Some(640),
+                height: Some(480),
+                duration_ms: None,
+                page_count: None,
+                codec: None,
+            },
+            absolute_path: PathBuf::from("/tmp/raw/sha256/01/23/sample.png"),
+        }
+    }
 
     #[tokio::test]
     async fn remember_text_writes_markdown_projection() {
@@ -779,6 +827,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn kernel_builder_and_service_trait_cover_local_defaults() {
+        let tempdir = tempdir().unwrap();
+        let scope_id = ScopeId::from_string("scp_kernel_trait");
+
+        assert!(super::KernelBuilder::default().build().is_err());
+
+        let kernel = Kernel::builder()
+            .with_markdown_tenant(tempdir.path(), "tenant_x")
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert!(!kernel.has_postgres());
+        assert!(kernel.has_markdown());
+        assert!(!kernel.has_asset_store());
+        assert!(!kernel.has_vision_gateway());
+        assert!(
+            kernel
+                .get_memory(scope_id.clone(), MemoryId::from_string("mem_missing"))
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let remembered = <Kernel as MemoryService>::remember(
+            &kernel,
+            Artifact::new(
+                scope_id.clone(),
+                ArtifactKind::Document,
+                "Decision log for Meat Memory",
+                vec![],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+        let bundle =
+            <Kernel as MemoryService>::fetch_context(&kernel, "Decision", scope_id.clone())
+                .await
+                .unwrap();
+        let publish_error = kernel
+            .publish_memory_by_id(
+                scope_id.clone(),
+                MemoryId::from_string("mem_missing"),
+                Visibility::Team,
+            )
+            .await
+            .expect_err("missing memory should fail");
+
+        assert_eq!(remembered.evidence_count, 1);
+        assert_eq!(bundle.query, "decision");
+        assert!(bundle.memories.is_empty());
+        assert!(publish_error.to_string().contains("memory not found"));
+    }
+
+    #[tokio::test]
     async fn search_without_postgres_returns_empty_bundle() {
         let tempdir = tempdir().unwrap();
         let kernel = Kernel::builder()
@@ -797,6 +901,72 @@ mod tests {
 
         assert!(bundle.memories.is_empty());
         assert_eq!(bundle.query, "postgres");
+    }
+
+    #[tokio::test]
+    async fn remember_and_publish_cover_error_and_policy_paths() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let scope_id = ScopeId::from_string("scp_kernel_policy");
+
+        let remember_error = kernel
+            .remember_text(RememberTextRequest::new(scope_id.clone(), "   "))
+            .await
+            .expect_err("blank body should fail");
+        assert!(remember_error.to_string().contains("artifact.content_text"));
+
+        let mut review_memory = Memory::new(
+            scope_id.clone(),
+            MemoryKind::Decision,
+            "Review gate",
+            "restricted but team-visible",
+        )
+        .unwrap();
+        review_memory.activate().unwrap();
+        review_memory.sensitivity = Sensitivity::Restricted;
+        let reviewed = kernel
+            .publish_memory(review_memory, Visibility::Team)
+            .await
+            .unwrap();
+        assert_eq!(reviewed.memory.visibility, Visibility::Team);
+
+        let mut denied_memory = Memory::new(
+            scope_id.clone(),
+            MemoryKind::Decision,
+            "Denied gate",
+            "restricted and org-visible",
+        )
+        .unwrap();
+        denied_memory.activate().unwrap();
+        denied_memory.sensitivity = Sensitivity::Restricted;
+        let denied = kernel
+            .publish_memory(denied_memory, Visibility::Organization)
+            .await
+            .expect_err("org+restricted should be denied");
+        assert!(denied.to_string().contains("write denied by policy"));
+
+        let mut narrower_memory = Memory::new(
+            scope_id,
+            MemoryKind::Decision,
+            "Narrow publish",
+            "cannot narrow visibility",
+        )
+        .unwrap();
+        narrower_memory.activate().unwrap();
+        narrower_memory.visibility = Visibility::Team;
+        let narrower = kernel
+            .publish_memory(narrower_memory, Visibility::Project)
+            .await
+            .expect_err("narrower publish should fail");
+        assert!(
+            narrower
+                .to_string()
+                .contains("broader than current visibility")
+        );
     }
 
     #[tokio::test]
@@ -831,6 +1001,57 @@ mod tests {
 
         assert!(published.wrote_markdown);
         assert!(raw.contains("visibility: team"));
+    }
+
+    #[tokio::test]
+    async fn remember_image_covers_missing_asset_store_and_no_vision_fallback() {
+        let tempdir = tempdir().unwrap();
+        let scope_id = ScopeId::from_string("scp_kernel_image_fallback");
+
+        let markdown_only = Kernel::builder()
+            .with_markdown_root(tempdir.path().join("markdown-only"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let missing_asset = markdown_only
+            .remember_image(RememberImageRequest::new(
+                scope_id.clone(),
+                "image/png",
+                vec![1, 2, 3],
+            ))
+            .await
+            .expect_err("missing asset store should fail");
+        assert!(
+            missing_asset
+                .to_string()
+                .contains("asset store is not configured")
+        );
+
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path().join("markdown"))
+            .unwrap()
+            .with_asset_root(tempdir.path().join("assets"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let result = kernel
+            .remember_image(RememberImageRequest::new(
+                scope_id.clone(),
+                "image/png",
+                vec![1, 2, 3],
+            ))
+            .await
+            .unwrap();
+
+        assert!(result.vision.is_none());
+        assert!(result.memory.title.starts_with("Image asset "));
+        assert!(
+            result
+                .memory
+                .body
+                .contains("image recorded for future memory retrieval.")
+        );
+        assert!(!result.memory.body.contains("vision_caption:"));
     }
 
     #[tokio::test]
@@ -872,6 +1093,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn memory_service_rejects_empty_artifact_after_normalization() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let scope_id = ScopeId::from_string("scp_kernel_empty_artifact");
+        let mut artifact =
+            Artifact::new(scope_id, ArtifactKind::Message, "placeholder", vec![]).unwrap();
+        artifact.content_text = "   ".to_string();
+
+        let error = <Kernel as MemoryService>::remember(&kernel, artifact)
+            .await
+            .expect_err("normalized empty artifact should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("artifact text is empty after normalization")
+        );
+    }
+
+    #[tokio::test]
     async fn build_context_graph_extracts_entities_and_relations_from_memories() {
         let scope_id = ScopeId::from_string("scp_kernel_graph");
         let mut memory = Memory::new(
@@ -900,6 +1144,123 @@ mod tests {
             relations
                 .iter()
                 .any(|relation| relation.relation_type == RelationType::Uses)
+        );
+
+        let empty = build_context_graph(&scope_id, &[]);
+        assert!(empty.0.is_empty());
+        assert!(empty.1.is_empty());
+    }
+
+    #[test]
+    fn helper_functions_cover_labels_ranks_and_image_artifact_branches() {
+        let asset = sample_stored_asset();
+        let scope_id = ScopeId::from_string("scp_kernel_helpers");
+
+        for (kind, label) in [
+            (ArtifactKind::Message, "message"),
+            (ArtifactKind::Document, "document"),
+            (ArtifactKind::CodeDiff, "code_diff"),
+            (ArtifactKind::CodeFileSnapshot, "code_file_snapshot"),
+            (ArtifactKind::TerminalOutput, "terminal_output"),
+            (ArtifactKind::Image, "image"),
+            (ArtifactKind::Audio, "audio"),
+            (ArtifactKind::Video, "video"),
+            (ArtifactKind::ToolResult, "tool_result"),
+            (ArtifactKind::WebPage, "web_page"),
+        ] {
+            assert_eq!(artifact_kind_label(kind), label);
+        }
+
+        for (relation_type, label) in [
+            (RelationType::MemberOf, "member_of"),
+            (RelationType::BelongsTo, "belongs_to"),
+            (RelationType::Owns, "owns"),
+            (RelationType::DependsOn, "depends_on"),
+            (RelationType::Uses, "uses"),
+            (RelationType::Implements, "implements"),
+            (RelationType::References, "references"),
+            (RelationType::DerivedFrom, "derived_from"),
+            (RelationType::Documents, "documents"),
+        ] {
+            assert_eq!(relation_type_label(relation_type), label);
+        }
+
+        assert_eq!(visibility_rank(Visibility::Private), 0);
+        assert_eq!(visibility_rank(Visibility::Project), 1);
+        assert_eq!(visibility_rank(Visibility::Team), 2);
+        assert_eq!(visibility_rank(Visibility::Organization), 3);
+
+        let rich_artifact = build_image_artifact(
+            ImageArtifactInput {
+                scope_id: scope_id.clone(),
+                media_type: "image/png".to_string(),
+                body: Some("  user supplied note  ".to_string()),
+                source_refs: vec!["image://1".to_string()],
+                visibility: Visibility::Project,
+                sensitivity: Sensitivity::Private,
+                image_profile: Some(ImageProfile {
+                    width: 640,
+                    height: 480,
+                    has_alpha: true,
+                    average_luma: 127,
+                    color_mode: "rgba".to_string(),
+                }),
+                vision: Some(VisionResponse {
+                    caption: "登录页截图".to_string(),
+                    structured: json!({"scene": "login"}),
+                    model_alias: "mock-vision".to_string(),
+                    switch_notice: None,
+                }),
+            },
+            &asset,
+        )
+        .unwrap();
+        let minimal_artifact = build_image_artifact(
+            ImageArtifactInput {
+                scope_id,
+                media_type: "image/png".to_string(),
+                body: None,
+                source_refs: Vec::new(),
+                visibility: Visibility::Private,
+                sensitivity: Sensitivity::Internal,
+                image_profile: None,
+                vision: None,
+            },
+            &asset,
+        )
+        .unwrap();
+
+        assert!(
+            rich_artifact
+                .content_text
+                .contains("image_dimensions: 640x480")
+        );
+        assert!(
+            rich_artifact
+                .content_text
+                .contains("image_color_mode: rgba")
+        );
+        assert!(
+            rich_artifact
+                .content_text
+                .contains("vision_model: mock-vision")
+        );
+        assert!(
+            rich_artifact
+                .content_text
+                .contains("user_note: user supplied note")
+        );
+        assert_eq!(rich_artifact.mime_type.as_deref(), Some("image/png"));
+        assert!(
+            minimal_artifact
+                .content_text
+                .contains("image recorded for future memory retrieval.")
+        );
+        assert!(
+            minimal_artifact
+                .source_refs
+                .iter()
+                .any(|source| source.starts_with("asset://raw/sha256/"))
         );
     }
 

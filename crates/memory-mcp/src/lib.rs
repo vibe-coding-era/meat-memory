@@ -643,11 +643,19 @@ fn relation_state_label(state: RelationState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        McpServer, McpTransport, TOOL_SPECS, ToolCallRequest, build_router, tool_supported,
+        McpServer, McpTransport, TOOL_SPECS, ToolCallRequest, build_router, context_bundle_payload,
+        entity_type_label, map_kernel_error, memory_kind_label, parse_arguments,
+        parse_artifact_kind, parse_memory_kind, parse_sensitivity, parse_visibility,
+        relation_state_label, relation_type_label, sensitivity_label, tool_supported,
+        visibility_label,
     };
     use axum::{body::Body, http::Request};
-    use memory_domain::ScopeId;
+    use memory_domain::{
+        ArtifactKind, ContextBundle, Entity, EntityType, Memory, MemoryKind, Relation,
+        RelationState, RelationType, ScopeId, Sensitivity, Visibility,
+    };
     use memory_kernel::Kernel;
+    use serde::Deserialize;
     use std::sync::Arc;
     use tempfile::tempdir;
     use tower::ServiceExt;
@@ -667,6 +675,37 @@ mod tests {
             "0.1.0",
             kernel,
         )
+    }
+
+    fn sample_bundle() -> ContextBundle {
+        let scope_id = ScopeId::from_string("scp_mcp_bundle");
+        let mut memory = Memory::new(
+            scope_id.clone(),
+            MemoryKind::Summary,
+            "V1 测试覆盖率",
+            "继续补齐单测",
+        )
+        .expect("memory should build");
+        memory.id = memory_domain::MemoryId::from_string("mem_mcp_bundle");
+        memory.state = memory_domain::MemoryState::Active;
+        memory.visibility = Visibility::Team;
+        memory.sensitivity = Sensitivity::Restricted;
+        memory.evidence_count = 2;
+
+        let entity =
+            Entity::new(scope_id.clone(), EntityType::Project, "Meat Memory").expect("entity");
+        let mut relation = Relation::new(
+            RelationType::DependsOn,
+            entity.id.clone(),
+            memory_domain::EntityId::from_string("ent_other"),
+        );
+        relation.state = RelationState::Active;
+
+        let mut bundle = ContextBundle::empty("测试覆盖率", scope_id);
+        bundle.memories.push(memory);
+        bundle.entities.push(entity);
+        bundle.relations.push(relation);
+        bundle
     }
 
     #[test]
@@ -712,5 +751,267 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.status, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn dispatch_remember_returns_markdown_write_payload() {
+        let tempdir = tempdir().unwrap();
+        let server = test_server(tempdir.path());
+
+        let response = server
+            .dispatch(ToolCallRequest {
+                name: "memory.remember".to_string(),
+                arguments: serde_json::json!({
+                    "scope_id": "scp_mcp_default",
+                    "title": "记住 V1 覆盖率",
+                    "body": "优先提升 unit coverage",
+                    "artifact_kind": "message",
+                    "memory_kind": "summary",
+                    "visibility": "private",
+                    "sensitivity": "internal"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.tool, "memory.remember");
+        assert_eq!(response.data["scope_id"], "scp_mcp_default");
+        assert_eq!(response.data["title"], "记住 V1 覆盖率");
+        assert_eq!(response.data["memory_kind"], "summary");
+        assert_eq!(response.data["wrote_markdown"], true);
+        assert_eq!(response.data["wrote_pg"], false);
+    }
+
+    #[tokio::test]
+    async fn dispatch_search_and_fetch_context_return_empty_bundle_without_pg() {
+        let tempdir = tempdir().unwrap();
+        let server = test_server(tempdir.path());
+
+        let search = server
+            .dispatch(ToolCallRequest {
+                name: "memory.search".to_string(),
+                arguments: serde_json::json!({
+                    "scope_id": "scp_mcp_default",
+                    "query": "覆盖率",
+                    "limit": 5
+                }),
+            })
+            .await
+            .unwrap();
+        let fetch_context = server
+            .dispatch(ToolCallRequest {
+                name: "memory.fetch_context".to_string(),
+                arguments: serde_json::json!({
+                    "scope_id": "scp_mcp_default",
+                    "query": "覆盖率"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(search.tool, "memory.search");
+        assert_eq!(search.data["query"], "覆盖率");
+        assert_eq!(search.data["memory_count"], 0);
+        assert_eq!(search.data["entity_count"], 0);
+        assert_eq!(fetch_context.tool, "memory.fetch_context");
+        assert_eq!(fetch_context.data["scope_id"], "scp_mcp_default");
+        assert_eq!(fetch_context.data["memory_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_publish_returns_not_found_when_memory_is_missing() {
+        let tempdir = tempdir().unwrap();
+        let server = test_server(tempdir.path());
+
+        let error = server
+            .dispatch(ToolCallRequest {
+                name: "memory.publish".to_string(),
+                arguments: serde_json::json!({
+                    "scope_id": "scp_mcp_default",
+                    "memory_id": "mem_missing",
+                    "target_visibility": "team"
+                }),
+            })
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.status, axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(error.code, "not_found");
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct ParseFixture {
+        value: usize,
+    }
+
+    #[test]
+    fn parse_helpers_cover_all_variants() {
+        let artifact_cases = [
+            ("message", ArtifactKind::Message),
+            ("document", ArtifactKind::Document),
+            ("code_diff", ArtifactKind::CodeDiff),
+            ("code_file_snapshot", ArtifactKind::CodeFileSnapshot),
+            ("terminal_output", ArtifactKind::TerminalOutput),
+            ("image", ArtifactKind::Image),
+            ("audio", ArtifactKind::Audio),
+            ("video", ArtifactKind::Video),
+            ("tool_result", ArtifactKind::ToolResult),
+            ("web_page", ArtifactKind::WebPage),
+        ];
+        for (raw, expected) in artifact_cases {
+            assert_eq!(parse_artifact_kind(raw).unwrap(), expected);
+        }
+        assert!(parse_artifact_kind("unknown").is_err());
+
+        let memory_kind_cases = [
+            ("fact", MemoryKind::Fact),
+            ("preference", MemoryKind::Preference),
+            ("decision", MemoryKind::Decision),
+            ("procedure", MemoryKind::Procedure),
+            ("constraint", MemoryKind::Constraint),
+            ("risk", MemoryKind::Risk),
+            ("summary", MemoryKind::Summary),
+            ("insight", MemoryKind::Insight),
+        ];
+        for (raw, expected) in memory_kind_cases {
+            assert_eq!(parse_memory_kind(raw).unwrap(), expected);
+            assert_eq!(memory_kind_label(expected), raw);
+        }
+        assert!(parse_memory_kind("unknown").is_err());
+
+        let visibility_cases = [
+            ("private", Visibility::Private),
+            ("project", Visibility::Project),
+            ("team", Visibility::Team),
+            ("organization", Visibility::Organization),
+        ];
+        for (raw, expected) in visibility_cases {
+            assert_eq!(parse_visibility(raw).unwrap(), expected);
+            assert_eq!(visibility_label(expected), raw);
+        }
+        assert!(parse_visibility("unknown").is_err());
+
+        let sensitivity_cases = [
+            ("public", Sensitivity::Public),
+            ("internal", Sensitivity::Internal),
+            ("private", Sensitivity::Private),
+            ("restricted", Sensitivity::Restricted),
+        ];
+        for (raw, expected) in sensitivity_cases {
+            assert_eq!(parse_sensitivity(raw).unwrap(), expected);
+            assert_eq!(sensitivity_label(expected), raw);
+        }
+        assert!(parse_sensitivity("unknown").is_err());
+    }
+
+    #[test]
+    fn payload_helpers_cover_all_entity_and_relation_labels() {
+        let entity_type_cases = [
+            (EntityType::Person, "person"),
+            (EntityType::Team, "team"),
+            (EntityType::Organization, "organization"),
+            (EntityType::Workspace, "workspace"),
+            (EntityType::Project, "project"),
+            (EntityType::Repository, "repository"),
+            (EntityType::Service, "service"),
+            (EntityType::Document, "document"),
+            (EntityType::Task, "task"),
+            (EntityType::Topic, "topic"),
+            (EntityType::CodeSymbol, "code_symbol"),
+        ];
+        for (entity_type, expected) in entity_type_cases {
+            assert_eq!(entity_type_label(entity_type), expected);
+        }
+
+        let relation_type_cases = [
+            (RelationType::MemberOf, "member_of"),
+            (RelationType::BelongsTo, "belongs_to"),
+            (RelationType::Owns, "owns"),
+            (RelationType::DependsOn, "depends_on"),
+            (RelationType::Uses, "uses"),
+            (RelationType::Implements, "implements"),
+            (RelationType::References, "references"),
+            (RelationType::DerivedFrom, "derived_from"),
+            (RelationType::Documents, "documents"),
+        ];
+        for (relation_type, expected) in relation_type_cases {
+            assert_eq!(relation_type_label(relation_type), expected);
+        }
+
+        let relation_state_cases = [
+            (RelationState::Candidate, "candidate"),
+            (RelationState::Active, "active"),
+            (RelationState::Rejected, "rejected"),
+            (RelationState::Archived, "archived"),
+        ];
+        for (state, expected) in relation_state_cases {
+            assert_eq!(relation_state_label(state), expected);
+        }
+    }
+
+    #[test]
+    fn parse_arguments_and_kernel_error_mapping_behave_as_expected() {
+        assert_eq!(
+            parse_arguments::<ParseFixture>(serde_json::json!({ "value": 7 })).unwrap(),
+            ParseFixture { value: 7 }
+        );
+        assert!(parse_arguments::<ParseFixture>(serde_json::json!({ "bad": 7 })).is_err());
+
+        let forbidden = map_kernel_error(anyhow::anyhow!("denied by policy: blocked"));
+        assert_eq!(forbidden.status, axum::http::StatusCode::FORBIDDEN);
+
+        let missing = map_kernel_error(anyhow::anyhow!("memory not found"));
+        assert_eq!(missing.status, axum::http::StatusCode::NOT_FOUND);
+
+        let invalid = map_kernel_error(anyhow::anyhow!("unsupported memory_kind"));
+        assert_eq!(invalid.status, axum::http::StatusCode::BAD_REQUEST);
+
+        let internal = map_kernel_error(anyhow::anyhow!("database unavailable"));
+        assert_eq!(
+            internal.status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn context_bundle_payload_includes_graph_counts_and_labels() {
+        let payload = context_bundle_payload(&sample_bundle());
+
+        assert_eq!(payload["query"], "测试覆盖率");
+        assert_eq!(payload["scope_id"], "scp_mcp_bundle");
+        assert_eq!(payload["memory_count"], 1);
+        assert_eq!(payload["entity_count"], 1);
+        assert_eq!(payload["relation_count"], 1);
+        assert_eq!(payload["memories"][0]["memory_kind"], "summary");
+        assert_eq!(payload["memories"][0]["visibility"], "team");
+        assert_eq!(payload["memories"][0]["sensitivity"], "restricted");
+        assert_eq!(payload["entities"][0]["entity_type"], "project");
+        assert_eq!(payload["relations"][0]["relation_type"], "depends_on");
+        assert_eq!(payload["relations"][0]["state"], "active");
+    }
+
+    #[tokio::test]
+    async fn stdio_message_returns_invalid_arguments_envelope_for_bad_json() {
+        let tempdir = tempdir().unwrap();
+        let server = test_server(tempdir.path());
+
+        let response = server.handle_stdio_message("not-json").await;
+
+        assert!(response.contains("\"code\":\"invalid_arguments\""));
+    }
+
+    #[tokio::test]
+    async fn stdio_message_returns_success_envelope_for_remember() {
+        let tempdir = tempdir().unwrap();
+        let server = test_server(tempdir.path());
+
+        let response = server
+            .handle_stdio_message(
+                r#"{"name":"memory.remember","arguments":{"scope_id":"scp_mcp_default","title":"标题","body":"正文","memory_kind":"fact"}}"#,
+            )
+            .await;
+
+        assert!(response.contains("\"tool\":\"memory.remember\""));
+        assert!(response.contains("\"wrote_markdown\":true"));
     }
 }

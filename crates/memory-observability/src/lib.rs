@@ -265,7 +265,10 @@ fn rate(part: u64, total: u64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{LatencyReservoir, metrics_snapshot, percentile, rate};
+    use super::{
+        LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
+        record_search_failure, record_search_success, record_write_failure, record_write_success,
+    };
     use std::time::Duration;
 
     #[test]
@@ -283,6 +286,20 @@ mod tests {
     }
 
     #[test]
+    fn latency_reservoir_discards_oldest_samples_when_full() {
+        let mut reservoir = LatencyReservoir::new(2);
+        reservoir.record(Duration::from_millis(10));
+        reservoir.record(Duration::from_millis(20));
+        reservoir.record(Duration::from_millis(30));
+
+        let snapshot = reservoir.snapshot();
+        assert_eq!(snapshot.sample_count, 2);
+        assert_eq!(snapshot.p50_ms, 30);
+        assert_eq!(snapshot.p95_ms, 30);
+        assert_eq!(snapshot.max_ms, 30);
+    }
+
+    #[test]
     fn percentile_returns_zero_for_empty_input() {
         assert_eq!(percentile(&[], 0.95), 0);
     }
@@ -290,6 +307,104 @@ mod tests {
     #[test]
     fn rate_handles_zero_totals() {
         assert_eq!(rate(1, 0), 0.0);
+    }
+
+    #[test]
+    fn rate_computes_fraction_for_non_zero_totals() {
+        assert_eq!(rate(2, 4), 0.5);
+    }
+
+    #[test]
+    fn operation_span_uses_expected_metadata() {
+        let span = operation_span("kernel", "search", None, None);
+        let _guard = span.enter();
+    }
+
+    #[test]
+    fn init_supports_json_then_reports_duplicate_pretty_setup() {
+        init("info", "json").expect("first tracing init should succeed");
+        assert!(init("info", "pretty").is_err());
+    }
+
+    #[test]
+    fn record_functions_update_metrics_counters() {
+        let before = metrics_snapshot();
+
+        record_search_success(2, Duration::from_millis(8));
+        record_search_success(0, Duration::from_millis(16));
+        record_search_failure(Duration::from_millis(32));
+        record_write_success(true, false, Duration::from_millis(4));
+        record_write_success(false, true, Duration::from_millis(12));
+        record_write_failure(Duration::from_millis(20));
+
+        let after = metrics_snapshot();
+
+        assert!(
+            after
+                .search
+                .total_queries
+                .saturating_sub(before.search.total_queries)
+                >= 3
+        );
+        assert!(
+            after
+                .search
+                .successful_queries
+                .saturating_sub(before.search.successful_queries)
+                >= 2
+        );
+        assert!(
+            after
+                .search
+                .failed_queries
+                .saturating_sub(before.search.failed_queries)
+                >= 1
+        );
+        assert!(
+            after
+                .search
+                .hit_queries
+                .saturating_sub(before.search.hit_queries)
+                >= 1
+        );
+        assert!(
+            after
+                .search
+                .empty_queries
+                .saturating_sub(before.search.empty_queries)
+                >= 1
+        );
+        assert!(
+            after
+                .write
+                .total_requests
+                .saturating_sub(before.write.total_requests)
+                >= 3
+        );
+        assert!(
+            after
+                .write
+                .successful_requests
+                .saturating_sub(before.write.successful_requests)
+                >= 2
+        );
+        assert!(
+            after
+                .write
+                .failed_requests
+                .saturating_sub(before.write.failed_requests)
+                >= 1
+        );
+        assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);
+        assert!(
+            after
+                .write
+                .markdown_writes
+                .saturating_sub(before.write.markdown_writes)
+                >= 1
+        );
+        assert!(after.search.latency.sample_count >= before.search.latency.sample_count + 3);
+        assert!(after.write.latency.sample_count >= before.write.latency.sample_count + 3);
     }
 
     #[test]

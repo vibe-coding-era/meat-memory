@@ -1,6 +1,6 @@
 # Meat Memory 项目索引
 
-更新时间：2026-04-05
+更新时间：2026-04-10
 
 索引范围：`/Users/Rou/dev_projects/meat-memory`
 
@@ -16,6 +16,7 @@
 ├── crates/
 ├── docs/
 │   ├── meat-memory-prompt.md
+│   ├── release-notes-v1.md
 │   ├── meat-memory-scheme-v1.md
 │   └── meat-memory-scheme-v2.md
 ├── infra/
@@ -37,7 +38,7 @@
 
 说明：
 
-- 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性 + V1 模型网关与图片理解基线 + 部署/文档/验收收口”。
+- 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性 + V1 模型网关与图片理解基线 + 部署/文档/验收收口 + 中文系统化回归补齐 + V1 封板完成”。
 - 已具备 Rust workspace、核心领域模型、PG/Markdown 存储层、`memory-kernel` remember/search/publish 编排、entity/relation 抽取、`memory-models` capability traits + provider/model/route registry + 本地 vision gateway、HTTP remember/search/health/metrics 路由、CLI remember/search/serve 入口、MCP remember/search/fetch_context/publish tool 层、内存版 sync oplog/merge baseline、基础配置、脚本、CI skeleton、Dockerfile、compose、本地 pgvector 开发库、Helm chart、V1 文档包、V1 验收脚本与 Git hooks。
 - 当前最重要的有效输入变成了三类：`docs/` 下的设计文档、`tasks/` 下的执行文档、`crates/` 下的真实工程实现
 
@@ -62,6 +63,12 @@
 - 角色：细化后的架构设计主文档
 - 用途：定义对象模型、写入/检索链路、存储分层、同步、协议、Rust workspace 设计
 - 当前价值：后续实现的主依据
+
+`docs/release-notes-v1.md`
+
+- 角色：V1 封板说明
+- 用途：沉淀 V1 交付边界、验收摘要、递延范围和操作入口
+- 当前价值：作为 V1 对外交付与内部交接的统一摘要
 
 ### 2.2 `tasks/`
 
@@ -145,6 +152,7 @@
 - memory-extract 已提供 distill/entity/relation 抽取与独立测试
 - memory-kernel 已实现 publish_memory 与 PG+Markdown remember→search→publish 集成测试
 - HTTP `POST /api/v1/memories`、`POST /api/v1/images` 与 `POST /api/v1/context/search` 已可用
+- HTTP `GET /` Browser Console 首页已可用
 - HTTP `/healthz`、`/readyz`、`/livez`、`/metrics` 已可用
 - `memory-cli` 已支持 `remember`、`search`、`serve`
 - `memory-mcp` 已支持 tool listing、stdio message handler、HTTP `/mcp/tools`/`/mcp/tools/call`，以及 `memory.remember`、`memory.search`、`memory.fetch_context`、`memory.publish`
@@ -164,35 +172,34 @@
 - 本地 pgvector 目标库已可用
 - V1 用户文档包已补齐：Agent 接入、HTTP/MCP/CLI、local/cloud runbook、acceptance
 - V1 验收脚本 `./scripts/v1-acceptance.sh` 已补齐并通过
+- V1 中文系统化验收语料已补齐：`tests/integration/v1-zh-acceptance.md`
+- 中文 remember/search/publish 回归已覆盖 kernel / HTTP / MCP / CLI
+- Browser Console 首页与图片 failover `llm_notice` 已纳入回归入口
+- V1 release notes、CHANGELOG 与 README 边界说明已补齐
 
-换句话说，当前项目已经从“想清楚”和“拆任务”的阶段，进入了“文本 + 图片最小闭环已成型，可以开始做 Agent 接入、部署和验收收口”的阶段。
+换句话说，当前项目已经从“想清楚”和“拆任务”的阶段，进入了“V1 已完成并可交付，后续进入 V2 准备”的阶段。
 
-## 4. 当前缺失的关键实现资产
+## 4. 当前剩余的关键工作
 
-以下资产目前仍是主要缺口：
+以下工作目前仍需继续推进：
 
-- `V1-ZH-001`：中文优先的系统化验收语料和回归集
 - V2 范围内的多团队/个人隔离与中英双语扩展
 
-这意味着项目已经从“把 V1 做成可交付”推进到“补齐 V1 中文验收集，并准备 V2”的阶段。
+这意味着项目已经从“收口 V1 版本边界”推进到“准备 V2”的阶段。
 
 ## 5. 推荐执行起点
 
 建议执行顺序：
 
-1. 完成 `V1-ZH-001`，把中文语料与回归入口系统化
-2. 固化 V1 版本提交、标签和 release notes
-3. 准备 V2 的 scope 与多语言扩展
+1. 准备 V2 的 scope 与多语言扩展
 
 ## 6. 建议的第一批可执行任务
 
 最先启动的任务建议是：
 
-- `V1-ZH-001`
-- V1 提交与版本封板
 - V2 规划准备
 
-当前项目已经处在“V1 可交付版本”的状态。
+当前项目已经处在“V1 已完成、可交付、可试跑”的状态。
 
 ## 7. 当前风险与注意事项
 
@@ -206,5 +213,4 @@
 
 建议下一步直接扩展当前可运行闭环：
 
-1. 做 `V1-ZH-001`，把中文样例、中文检索和中文图谱回归集补齐。
-2. 固化当前 V1 交付版本并准备提交。
+1. 进入 V2 的 scope/多语言规划准备。

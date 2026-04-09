@@ -154,3 +154,212 @@ fn episode_kind_to_str(kind: memory_domain::EpisodeKind) -> &'static str {
         memory_domain::EpisodeKind::Incident => "incident",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        EpisodeFrontmatter, MemoryFrontmatter, MemoryFrontmatterScores, episode_kind_to_str,
+        format_timestamp, memory_kind_to_str, render_frontmatter, sensitivity_to_str,
+        visibility_to_str,
+    };
+    use memory_domain::{
+        Episode, EpisodeKind, Memory, MemoryKind, MemoryScores, ScopeId, Sensitivity, Visibility,
+    };
+    use time::macros::datetime;
+
+    fn sample_memory(kind: MemoryKind) -> Memory {
+        let mut memory = Memory::new(
+            ScopeId::from_string("scp_frontmatter"),
+            kind,
+            "记忆标题",
+            "记忆正文",
+        )
+        .expect("memory should build");
+        memory.id = memory_domain::MemoryId::from_string("mem_frontmatter");
+        memory.created_at = datetime!(2025-01-02 03:04:05 UTC);
+        memory.updated_at = datetime!(2025-01-03 04:05:06 UTC);
+        memory.scores = MemoryScores {
+            confidence: 0.8,
+            importance: 0.7,
+            stability: 0.6,
+            freshness: 0.5,
+        };
+        memory.evidence_count = 2;
+        memory
+    }
+
+    fn sample_episode(kind: EpisodeKind) -> Episode {
+        let mut episode = Episode::new(ScopeId::from_string("scp_frontmatter"), kind, "迭代回顾")
+            .expect("episode should build");
+        episode.id = memory_domain::EpisodeId::from_string("epi_frontmatter");
+        episode.started_at = datetime!(2025-01-02 03:04:05 UTC);
+        episode
+    }
+
+    #[test]
+    fn render_frontmatter_wraps_serialized_yaml() {
+        let rendered = render_frontmatter(&MemoryFrontmatterScores {
+            confidence: 0.9,
+            importance: 0.8,
+            stability: 0.7,
+            freshness: 0.6,
+        })
+        .expect("frontmatter should render");
+
+        assert!(rendered.starts_with("---\n"));
+        assert!(rendered.ends_with("---\n"));
+        assert!(rendered.contains("confidence: 0.9"));
+    }
+
+    #[test]
+    fn memory_frontmatter_from_memory_maps_all_fields() {
+        let memory_kinds = [
+            (MemoryKind::Fact, "fact"),
+            (MemoryKind::Preference, "preference"),
+            (MemoryKind::Decision, "decision"),
+            (MemoryKind::Procedure, "procedure"),
+            (MemoryKind::Constraint, "constraint"),
+            (MemoryKind::Risk, "risk"),
+            (MemoryKind::Summary, "summary"),
+            (MemoryKind::Insight, "insight"),
+        ];
+        let visibilities = [
+            (Visibility::Private, "private"),
+            (Visibility::Project, "project"),
+            (Visibility::Team, "team"),
+            (Visibility::Organization, "organization"),
+        ];
+        let sensitivities = [
+            (Sensitivity::Public, "public"),
+            (Sensitivity::Internal, "internal"),
+            (Sensitivity::Private, "private"),
+            (Sensitivity::Restricted, "restricted"),
+        ];
+
+        for (index, (kind, kind_label)) in memory_kinds.into_iter().enumerate() {
+            let mut memory = sample_memory(kind);
+            let (visibility, visibility_label) = visibilities[index % visibilities.len()];
+            let (sensitivity, sensitivity_label) = sensitivities[index % sensitivities.len()];
+            memory.visibility = visibility;
+            memory.sensitivity = sensitivity;
+
+            let frontmatter =
+                MemoryFrontmatter::from_memory(&memory, "tenant-a").expect("memory should map");
+
+            assert_eq!(frontmatter.id, "mem_frontmatter");
+            assert_eq!(frontmatter.kind, "memory");
+            assert_eq!(frontmatter.tenant, "tenant-a");
+            assert_eq!(frontmatter.scope, "scp_frontmatter");
+            assert_eq!(frontmatter.memory_kind, kind_label);
+            assert_eq!(frontmatter.title, "记忆标题");
+            assert_eq!(frontmatter.status, "candidate");
+            assert_eq!(frontmatter.visibility, visibility_label);
+            assert_eq!(frontmatter.sensitivity, sensitivity_label);
+            assert_eq!(frontmatter.created_at, "2025-01-02T03:04:05Z");
+            assert_eq!(frontmatter.updated_at, "2025-01-03T04:05:06Z");
+            assert!(frontmatter.source_refs.is_empty());
+            assert!(frontmatter.evidence.is_empty());
+            assert!(frontmatter.entities.is_empty());
+            assert!(frontmatter.tags.is_empty());
+            assert_eq!(frontmatter.scores.confidence, 0.8);
+            assert_eq!(frontmatter.evidence_count, 2);
+        }
+    }
+
+    #[test]
+    fn episode_frontmatter_from_episode_maps_all_fields() {
+        let episode_kinds = [
+            (EpisodeKind::ChatSession, "chat_session"),
+            (EpisodeKind::CodingTask, "coding_task"),
+            (EpisodeKind::Meeting, "meeting"),
+            (EpisodeKind::ResearchRun, "research_run"),
+            (EpisodeKind::AutomationRun, "automation_run"),
+            (EpisodeKind::Incident, "incident"),
+        ];
+
+        for (index, (kind, expected_kind)) in episode_kinds.into_iter().enumerate() {
+            let mut episode = sample_episode(kind);
+            episode.participants = vec!["rou".to_string(), "agent".to_string()];
+            if index % 2 == 0 {
+                episode.ended_at = Some(datetime!(2025-01-02 05:06:07 UTC));
+            }
+
+            let frontmatter =
+                EpisodeFrontmatter::from_episode(&episode, "tenant-a").expect("episode maps");
+
+            assert_eq!(frontmatter.id, "epi_frontmatter");
+            assert_eq!(frontmatter.kind, "episode");
+            assert_eq!(frontmatter.tenant, "tenant-a");
+            assert_eq!(frontmatter.scope, "scp_frontmatter");
+            assert_eq!(frontmatter.episode_kind, expected_kind);
+            assert_eq!(frontmatter.title, "迭代回顾");
+            assert_eq!(frontmatter.status, "open");
+            assert_eq!(frontmatter.started_at, "2025-01-02T03:04:05Z");
+            assert_eq!(frontmatter.participants.len(), 2);
+            if index % 2 == 0 {
+                assert_eq!(
+                    frontmatter.ended_at.as_deref(),
+                    Some("2025-01-02T05:06:07Z")
+                );
+            } else {
+                assert_eq!(frontmatter.ended_at, None);
+            }
+        }
+    }
+
+    #[test]
+    fn helper_label_functions_cover_all_variants() {
+        let memory_kind_cases = [
+            (MemoryKind::Fact, "fact"),
+            (MemoryKind::Preference, "preference"),
+            (MemoryKind::Decision, "decision"),
+            (MemoryKind::Procedure, "procedure"),
+            (MemoryKind::Constraint, "constraint"),
+            (MemoryKind::Risk, "risk"),
+            (MemoryKind::Summary, "summary"),
+            (MemoryKind::Insight, "insight"),
+        ];
+        for (kind, expected) in memory_kind_cases {
+            assert_eq!(memory_kind_to_str(kind), expected);
+        }
+
+        let visibility_cases = [
+            (Visibility::Private, "private"),
+            (Visibility::Project, "project"),
+            (Visibility::Team, "team"),
+            (Visibility::Organization, "organization"),
+        ];
+        for (visibility, expected) in visibility_cases {
+            assert_eq!(visibility_to_str(visibility), expected);
+        }
+
+        let sensitivity_cases = [
+            (Sensitivity::Public, "public"),
+            (Sensitivity::Internal, "internal"),
+            (Sensitivity::Private, "private"),
+            (Sensitivity::Restricted, "restricted"),
+        ];
+        for (sensitivity, expected) in sensitivity_cases {
+            assert_eq!(sensitivity_to_str(sensitivity), expected);
+        }
+
+        let episode_kind_cases = [
+            (EpisodeKind::ChatSession, "chat_session"),
+            (EpisodeKind::CodingTask, "coding_task"),
+            (EpisodeKind::Meeting, "meeting"),
+            (EpisodeKind::ResearchRun, "research_run"),
+            (EpisodeKind::AutomationRun, "automation_run"),
+            (EpisodeKind::Incident, "incident"),
+        ];
+        for (kind, expected) in episode_kind_cases {
+            assert_eq!(episode_kind_to_str(kind), expected);
+        }
+    }
+
+    #[test]
+    fn format_timestamp_emits_rfc3339() {
+        let formatted =
+            format_timestamp(datetime!(2025-01-02 03:04:05 UTC)).expect("timestamp should format");
+        assert_eq!(formatted, "2025-01-02T03:04:05Z");
+    }
+}

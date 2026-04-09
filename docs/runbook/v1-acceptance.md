@@ -9,6 +9,7 @@ V1 需要确认以下闭环：
 | 存储 | PG 主存 + Markdown projection 同步写入 |
 | 文本 | remember / search / publish 可用 |
 | 图片 | remember-image 可写入、可返回资产 URI 和 vision 元数据 |
+| 中文优先 | 中文文本可写入/检索，中文图谱样例可产出实体与关系，中文图片 caption 与 failover 提示可回归 |
 | Agent 接入 | HTTP / CLI / MCP 都有可执行入口 |
 | 模型抽象 | provider/model/route registry 可命中 mock provider 配置 |
 | 部署 | compose 本地栈和 Docker/Helm 云部署骨架可运行 |
@@ -32,20 +33,28 @@ just acceptance
 - `memory-mcp` 集成流
 - `memory-cli` 端到端流
 
+中文系统化验收语料见：
+
+- `tests/integration/v1-zh-acceptance.md`
+
 ## 3. 覆盖范围说明
 
 ### 3.1 HTTP
 
 - 文本写入
 - 搜索
+- 浏览器首页 `/`
 - 图片写入
 - vision caption 返回
+- failover `llm_notice` 返回
 
 ### 3.2 CLI
 
 - 文本 remember/search
 - 图片 remember-image
 - mock provider registry 命中 `vision_model_alias`
+- failover `llm_notice`
+- 中文 remember/search 回归
 
 ### 3.3 MCP
 
@@ -53,6 +62,12 @@ just acceptance
 - `memory.search`
 - `memory.fetch_context`
 - `memory.publish`
+- 中文 remember/search/publish 回归
+
+### 3.4 Kernel
+
+- 中文 remember/search/publish 回归
+- 中文图谱关系样例：`依赖`、`记录`
 
 ## 4. V1 对图片的验收口径
 
@@ -69,3 +84,4 @@ V1 不要求真实云视觉 SDK 全接入，验收口径是：
 
 1. `docker compose up -d --build` 后检查 `/mcp/tools` 与 `/api/v1/meta`
 2. `helm lint infra/helm/meat-memory`，确认 chart 模板可解析
+3. 浏览器打开 `http://127.0.0.1:8080/`，确认 Browser Console 可访问

@@ -301,3 +301,33 @@
   key_output: 补齐 `docs/agent-integration-v1.md`、HTTP/MCP/CLI 使用文档、本地与云部署 runbook、`config/cloud.example.toml`、`infra/helm/meat-memory`、`scripts/v1-acceptance.sh`、CLI E2E 测试，并将 MCP HTTP 路由真实接入 `memory-app` 与 `memory-cli serve`
   issues_decisions: 本轮在部署 smoke 中发现 `.cargo/config.toml` 全局固定 `/usr/bin/clang` 会导致 Linux Docker 构建失败，因此改为只对 Apple target 固定 clang；同时统一 `memory-worker` 二进制命名，修正 Dockerfile/compose/justfile 的入口不一致问题；云部署包在 V1 采用“单实例 app + worker 默认关闭 + Helm 最小闭环”的保守策略，避免误导为已完成共享卷集群形态
   next_action: 继续推进 `V1-ZH-001` 中文系统化验收集，随后整理 V1 提交与 release 收口
+
+- timestamp: 2026-04-09 (Asia/Shanghai)
+  task_id: V1-QA-001/P0/P1
+  executor: Codex
+  duration: 1.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 修复 `memory-kernel` 测试依赖缺口，为 `crates/memory-kernel/Cargo.toml` 补充 `serde_json.workspace = true`，恢复 `cargo test -p memory-kernel --lib --quiet` 与 `cargo test --workspace --lib --bins --quiet` 全绿；重跑单元覆盖率并生成 `target/coverage/unit-pass5/`，当前快照提升到 Line `95.46%`、Function `91.79%`、Region `87.91%`；同步回写 `tasks/tasklist.md` 与 `test-task.md`
+  issues_decisions: 继续沿用“带覆盖率插桩的测试二进制直接执行”方案，显式使用绝对 `LLVM_PROFILE_FILE` 路径，并改用 Rust toolchain 自带 `llvm-profdata` / `llvm-cov`，规避当前环境的相对路径 quirk 与 PATH 缺失问题
+  next_action: 继续推进 `V1-ZH-001` 中文系统化验收语料收口，并把剩余覆盖率热点聚焦到 `memory-worker`、`memory-app`、`memory-store-pg` 等文件
+
+- timestamp: 2026-04-09 21:49:08 CST
+  task_id: V1-ZH-001/V1-REL-001/V1-REL-002
+  executor: Codex
+  duration: 1.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 补齐 `tests/integration/v1-zh-acceptance.md` 中文系统化验收语料，并在 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 增加中文回归；同时把 Browser Console 首页 `/` 与图片 failover `llm_notice` 纳入回归，确认 `cargo test -p memory-extract --lib --quiet`、`cargo test -p memory-kernel --test kernel_flow_tests --quiet`、`cargo test -p memory-http --test http_api_tests --quiet`、`cargo test -p memory-mcp --test mcp_tools_tests --quiet`、`cargo test -p memory-cli --test cli_e2e --quiet`、`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh` 全部通过，并清理根目录 `*.profraw` 残留、更新 `.gitignore`
+  issues_decisions: 中文关系抽取验收样例采用“重复显式主语”的稳定写法，以规避当前抽取器对省略主语跨分句推断的不确定性；CLI failover 回归沿用“从首个 `{` 开始解析 JSON”的兼容策略，避免日志前缀影响断言；覆盖率原始产物继续视为临时噪音，不纳入长期项目记忆
+  next_action: 收口 V1 版本提交边界、整理 release 说明，并开始准备 V2 的 scope/多语言规划
+
+- timestamp: 2026-04-10 00:15:00 CST
+  task_id: V1-REL-003
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 补齐 `docs/release-notes-v1.md`，同步更新 `CHANGELOG.md`、`README.md`、`docs/README.md`、`tasks/tasklist.md`、`tasks/project-index.md`，将仓库状态从“V1 封板中”收口到“V1 已完成”；同时复核 `docker compose config --quiet` 与 `helm lint infra/helm/meat-memory` 作为 V1 部署边界验收入口
+  issues_decisions: V1 版本号继续维持 `0.1.0`，把 2026-04-09 作为当前封板日期；封板文档只声明 V1 已交付的文本+图片、中文优先、HTTP/CLI/MCP、本地/云独立部署和混合部署预留接口，不把团队隔离、中英双语、音视频链路提前纳入 V1 口径
+  next_action: V1 已完成，后续进入 `V2-SCP-*`、`V2-LNG-*`、`V2-SYN-*` 范围准备

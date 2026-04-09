@@ -1002,7 +1002,9 @@ dependencies = [
  "memory-mcp",
  "memory-observability",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tower",
  "tracing",
 ]
 
@@ -1023,16 +1025,20 @@ dependencies = [
  "assert_cmd",
  "axum",
  "clap",
+ "memory-assets",
  "memory-config",
  "memory-core",
  "memory-domain",
  "memory-http",
  "memory-kernel",
  "memory-mcp",
+ "memory-models",
  "memory-observability",
  "serde_json",
  "tempfile",
+ "time",
  "tokio",
+ "tower",
  "tracing",
 ]
 
@@ -1115,6 +1121,7 @@ dependencies = [
  "memory-policy",
  "memory-store-md",
  "memory-store-pg",
+ "serde_json",
  "tempfile",
  "time",
  "tokio",

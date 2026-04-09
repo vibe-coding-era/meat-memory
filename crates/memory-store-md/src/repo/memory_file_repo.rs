@@ -163,3 +163,185 @@ fn extract_entry(existing: &str, memory_id: &str) -> Option<String> {
     let end = existing.find(&end_marker)? + end_marker.len();
     Some(existing[start..end].to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        MarkdownStore, ROLLUP_HEADER, extract_entry, render_memory_markdown, sanitize_segment,
+        scope_directory, upsert_entry,
+    };
+    use memory_domain::{Episode, EpisodeId, EpisodeKind, Memory, MemoryId, MemoryKind, ScopeId};
+    use std::fs;
+    use tempfile::tempdir;
+    use time::macros::datetime;
+
+    fn sample_memory() -> Memory {
+        let mut memory = Memory::new(
+            ScopeId::from_string("scp_store"),
+            MemoryKind::Decision,
+            "保留 PG 与 MD 双写",
+            "首版继续双写，便于回放与排查",
+        )
+        .expect("memory should build");
+        memory.id = MemoryId::from_string("mem_store");
+        memory.created_at = datetime!(2025-01-02 03:04:05 UTC);
+        memory.updated_at = datetime!(2025-01-03 04:05:06 UTC);
+        memory
+    }
+
+    fn sample_episode() -> Episode {
+        let mut episode = Episode::new(
+            ScopeId::from_string("scp_store"),
+            EpisodeKind::CodingTask,
+            "补测试",
+        )
+        .expect("episode should build");
+        episode.id = EpisodeId::from_string("epi_store");
+        episode.started_at = datetime!(2025-01-02 03:04:05 UTC);
+        episode
+    }
+
+    #[test]
+    fn markdown_store_validates_root_and_tenant() {
+        assert!(MarkdownStore::with_tenant(std::path::PathBuf::new(), "tenant-a").is_err());
+        assert!(MarkdownStore::with_tenant("/tmp", "   ").is_err());
+    }
+
+    #[test]
+    fn markdown_store_sanitizes_tenant_and_computes_rollup_path() {
+        let store = MarkdownStore::with_tenant("/tmp/meat-memory", "tenant alpha")
+            .expect("store should build");
+        let scope_id = ScopeId::from_string("scp_store");
+
+        assert_eq!(store.tenant(), "tenant-alpha");
+        assert_eq!(store.root(), std::path::Path::new("/tmp/meat-memory"));
+        assert_eq!(
+            scope_directory(store.root(), store.tenant(), &scope_id),
+            std::path::Path::new("/tmp/meat-memory")
+                .join("tenant-alpha")
+                .join("scopes")
+                .join("scp_store")
+        );
+        assert_eq!(
+            store.scope_memory_rollup_path(&scope_id),
+            std::path::Path::new("/tmp/meat-memory")
+                .join("tenant-alpha")
+                .join("scopes")
+                .join("scp_store")
+                .join("MEMORY.md")
+        );
+    }
+
+    #[test]
+    fn sanitize_segment_replaces_unsafe_characters() {
+        assert_eq!(sanitize_segment(" tenant.alpha "), "tenant.alpha");
+        assert_eq!(sanitize_segment("tenant / alpha"), "tenant---alpha");
+        assert_eq!(sanitize_segment("///tenant///"), "tenant");
+    }
+
+    #[test]
+    fn render_memory_markdown_wraps_entry_markers_and_body() {
+        let rendered =
+            render_memory_markdown(&sample_memory(), "tenant-a").expect("markdown should render");
+
+        assert!(rendered.starts_with("<!-- memory-entry:start mem_store -->\n---\n"));
+        assert!(rendered.contains("kind: memory"));
+        assert!(rendered.contains("tenant: tenant-a"));
+        assert!(rendered.ends_with("<!-- memory-entry:end mem_store -->\n"));
+    }
+
+    #[test]
+    fn upsert_entry_bootstraps_and_replaces_rollup_entries() {
+        let original = "<!-- memory-entry:start mem_store -->\nold\n<!-- memory-entry:end mem_store -->\n\n<!-- memory-entry:start mem_other -->\nkeep\n<!-- memory-entry:end mem_other -->\n";
+        let replacement =
+            "<!-- memory-entry:start mem_store -->\nnew\n<!-- memory-entry:end mem_store -->\n";
+        let updated = upsert_entry(original, "mem_store", replacement);
+
+        assert!(updated.contains("new"));
+        assert!(updated.contains("keep"));
+        assert_eq!(
+            upsert_entry("", "mem_store", replacement),
+            format!("{ROLLUP_HEADER}\n{replacement}")
+        );
+    }
+
+    #[test]
+    fn extract_entry_returns_only_requested_block() {
+        let existing = "<!-- memory-entry:start mem_store -->\nblock\n<!-- memory-entry:end mem_store -->\n\n<!-- memory-entry:start mem_other -->\nother\n<!-- memory-entry:end mem_other -->\n";
+
+        let entry = extract_entry(existing, "mem_store").expect("entry should exist");
+
+        assert!(entry.contains("mem_store"));
+        assert!(!entry.contains("mem_other"));
+        assert_eq!(extract_entry(existing, "missing"), None);
+    }
+
+    #[test]
+    fn write_and_read_memory_markdown_round_trips_and_upserts() {
+        let root = tempdir().expect("tempdir should build");
+        let store =
+            MarkdownStore::with_tenant(root.path(), "tenant-a").expect("store should build");
+        let mut memory = sample_memory();
+
+        let path = store
+            .write_memory_markdown(&memory)
+            .expect("first write should work");
+        assert!(path.exists());
+
+        let parsed = store
+            .read_memory_markdown(&memory.scope_id, &memory.id)
+            .expect("read should work")
+            .expect("entry should exist");
+        assert_eq!(parsed.body, "首版继续双写，便于回放与排查");
+
+        memory.title = "只保留最新正文".to_string();
+        memory.body = "更新后的正文".to_string();
+        store
+            .write_memory_markdown(&memory)
+            .expect("second write should work");
+
+        let raw = fs::read_to_string(store.scope_memory_rollup_path(&memory.scope_id))
+            .expect("rollup file should exist");
+        assert_eq!(
+            raw.matches("<!-- memory-entry:start mem_store -->").count(),
+            1
+        );
+        assert_eq!(
+            raw.matches("<!-- memory-entry:end mem_store -->").count(),
+            1
+        );
+        assert!(raw.contains("更新后的正文"));
+        assert!(!raw.contains("首版继续双写，便于回放与排查"));
+    }
+
+    #[test]
+    fn read_memory_markdown_returns_none_when_rollup_is_missing() {
+        let root = tempdir().expect("tempdir should build");
+        let store =
+            MarkdownStore::with_tenant(root.path(), "tenant-a").expect("store should build");
+
+        let result = store
+            .read_memory_markdown(
+                &ScopeId::from_string("scp_missing"),
+                &MemoryId::from_string("mem_missing"),
+            )
+            .expect("read should succeed");
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn store_delegates_episode_markdown_writes() {
+        let root = tempdir().expect("tempdir should build");
+        let store =
+            MarkdownStore::with_tenant(root.path(), "tenant-a").expect("store should build");
+        let episode = sample_episode();
+
+        let path = store
+            .write_episode_markdown(&episode)
+            .expect("episode write should work");
+
+        assert!(path.exists());
+        assert!(path.ends_with("epi_store.md"));
+    }
+}

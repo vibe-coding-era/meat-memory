@@ -45,3 +45,32 @@ pub fn log_startup(service_info: &ServiceInfo) {
         "memory kernel initialized"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ServiceInfo, log_startup, startup_banner};
+
+    #[test]
+    fn default_service_info_exposes_local_defaults() {
+        let service_info = ServiceInfo::default();
+
+        assert_eq!(service_info.name, "meat-memory");
+        assert_eq!(service_info.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(service_info.default_scope.as_str(), "scp_default_local");
+    }
+
+    #[test]
+    fn startup_banner_includes_name_version_and_scope() {
+        let service_info = ServiceInfo::default();
+        let banner = startup_banner(&service_info);
+
+        assert!(banner.contains("meat-memory"));
+        assert!(banner.contains(env!("CARGO_PKG_VERSION")));
+        assert!(banner.contains("scp_default_local"));
+    }
+
+    #[test]
+    fn log_startup_accepts_service_info() {
+        log_startup(&ServiceInfo::default());
+    }
+}

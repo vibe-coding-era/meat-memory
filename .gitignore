@@ -18,13 +18,15 @@
 *.pid
 *.out
 *.swp
+*.profraw
+*.profdata
 
 config/local.toml
 config/*.local.toml
+/meat-memory-log.md
 
 data/
 runtime/
 storage/
 
 node_modules/
-

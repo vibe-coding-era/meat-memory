@@ -313,13 +313,50 @@ pub fn can_retry(state: SyncState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        InMemoryReplicationEngine, MergeDecision, OplogEntry, OplogOperation, SyncObjectKind,
-        SyncState, append_oplog_entry, can_retry, merge_ops,
+        InMemoryReplicationEngine, MergeDecision, OplogEntry, OplogOperation, SyncCursor,
+        SyncObjectKind, SyncState, append_oplog_entry, can_retry, merge_ops,
     };
+    use crate::{ReplicationEngine, SyncBatch};
+    use time::OffsetDateTime;
+
+    #[test]
+    fn oplog_entry_new_sets_metadata_and_identity() {
+        let before = OffsetDateTime::now_utc();
+        let entry = OplogEntry::new(
+            OplogOperation::CreateObject,
+            SyncObjectKind::Memory,
+            "mem_meta",
+            "node-a",
+            "actor-a",
+            0,
+            1,
+            serde_json::json!({"title":"hello"}),
+        );
+        let after = OffsetDateTime::now_utc();
+
+        assert!(entry.op_id.starts_with("op_"));
+        assert_eq!(entry.object_id, "mem_meta");
+        assert_eq!(entry.source_node_id, "node-a");
+        assert_eq!(entry.actor_id, "actor-a");
+        assert_eq!(entry.base_version, 0);
+        assert_eq!(entry.next_version, 1);
+        assert!(entry.created_at >= before);
+        assert!(entry.created_at <= after);
+    }
+
+    #[test]
+    fn sync_cursor_defaults_to_first_page_of_hundred() {
+        let cursor = SyncCursor::default();
+
+        assert_eq!(cursor.after_op_id, None);
+        assert_eq!(cursor.limit, 100);
+    }
 
     #[test]
     fn only_retry_active_states() {
         assert!(can_retry(SyncState::Queued));
+        assert!(can_retry(SyncState::InFlight));
+        assert!(!can_retry(SyncState::Acked));
         assert!(!can_retry(SyncState::DeadLetter));
     }
 
@@ -351,6 +388,88 @@ mod tests {
         assert_eq!(merged.merged_entry.next_version, 3);
     }
 
+    #[test]
+    fn merge_keeps_local_for_identical_entries() {
+        let local = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_same",
+            "node-local",
+            "actor-local",
+            1,
+            2,
+            serde_json::json!({"title":"same"}),
+        );
+        let incoming = local.clone();
+
+        let merged = merge_ops(&local, &incoming);
+
+        assert_eq!(merged.decision, MergeDecision::KeepLocal);
+        assert_eq!(merged.conflict_reason, None);
+        assert_eq!(merged.merged_entry.op_id, local.op_id);
+    }
+
+    #[test]
+    fn merge_keeps_local_when_local_is_ahead() {
+        let local = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_local_ahead",
+            "node-local",
+            "actor-local",
+            3,
+            5,
+            serde_json::json!({"title":"newer-local"}),
+        );
+        let incoming = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_local_ahead",
+            "node-remote",
+            "actor-remote",
+            1,
+            2,
+            serde_json::json!({"title":"older-remote"}),
+        );
+
+        let merged = merge_ops(&local, &incoming);
+
+        assert_eq!(merged.decision, MergeDecision::KeepLocal);
+        assert_eq!(merged.merged_entry.next_version, 5);
+    }
+
+    #[test]
+    fn merge_reports_conflict_for_object_identity_mismatch() {
+        let local = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_one",
+            "node-local",
+            "actor-local",
+            1,
+            2,
+            serde_json::json!({"title":"left"}),
+        );
+        let incoming = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Entity,
+            "ent_one",
+            "node-remote",
+            "actor-remote",
+            1,
+            2,
+            serde_json::json!({"title":"right"}),
+        );
+
+        let merged = merge_ops(&local, &incoming);
+
+        assert_eq!(merged.decision, MergeDecision::Conflict);
+        assert_eq!(
+            merged.conflict_reason.as_deref(),
+            Some("object identity mismatch")
+        );
+    }
+
     #[tokio::test]
     async fn append_helper_persists_into_engine() {
         let engine = InMemoryReplicationEngine::default();
@@ -370,5 +489,87 @@ mod tests {
 
         assert_eq!(engine.entries().len(), 1);
         assert_eq!(engine.entries()[0].op_id, entry.op_id);
+    }
+
+    #[tokio::test]
+    async fn pull_uses_default_start_when_cursor_is_missing_and_limit_is_zero() {
+        let engine = InMemoryReplicationEngine::default();
+        let first = append_oplog_entry(
+            &engine,
+            OplogOperation::CreateObject,
+            SyncObjectKind::Memory,
+            "mem_pull_1",
+            "node-a",
+            "actor-a",
+            0,
+            1,
+            serde_json::json!({"title":"one"}),
+        )
+        .await
+        .unwrap();
+        append_oplog_entry(
+            &engine,
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_pull_1",
+            "node-a",
+            "actor-a",
+            1,
+            2,
+            serde_json::json!({"title":"two"}),
+        )
+        .await
+        .unwrap();
+
+        let batch = engine
+            .pull(SyncCursor {
+                after_op_id: Some("missing-op".to_string()),
+                limit: 0,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(batch.entries.len(), 1);
+        assert_eq!(batch.entries[0].op_id, first.op_id);
+        assert_eq!(batch.next_cursor.as_deref(), Some(first.op_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn apply_accepts_new_entries_and_tracks_last_op_id() {
+        let engine = InMemoryReplicationEngine::default();
+        let first = OplogEntry::new(
+            OplogOperation::CreateObject,
+            SyncObjectKind::Memory,
+            "mem_apply_new",
+            "node-a",
+            "actor-a",
+            0,
+            1,
+            serde_json::json!({"title":"first"}),
+        );
+        let second = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_apply_new",
+            "node-a",
+            "actor-a",
+            1,
+            2,
+            serde_json::json!({"title":"second"}),
+        );
+
+        let result = engine
+            .apply(SyncBatch {
+                entries: vec![first.clone(), second.clone()],
+                next_cursor: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.applied, 2);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.conflicts, 0);
+        assert_eq!(result.last_op_id.as_deref(), Some(second.op_id.as_str()));
+        assert_eq!(engine.entries().len(), 2);
     }
 }
