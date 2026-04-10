@@ -2,7 +2,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Mutex;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use time::OffsetDateTime;
 use ulid::Ulid;
 
@@ -122,6 +126,22 @@ pub struct MergeResult {
     pub conflict_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConflictRecord {
+    pub conflict_id: String,
+    pub local_entry: OplogEntry,
+    pub incoming_entry: OplogEntry,
+    pub reason: String,
+    pub detected_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStatus {
+    pub entry_count: usize,
+    pub conflict_count: usize,
+    pub last_op_id: Option<String>,
+}
+
 #[async_trait]
 pub trait ReplicationEngine: Send + Sync {
     async fn append(&self, entry: OplogEntry) -> Result<()>;
@@ -132,11 +152,26 @@ pub trait ReplicationEngine: Send + Sync {
 #[derive(Debug, Default)]
 pub struct InMemoryReplicationEngine {
     entries: Mutex<Vec<OplogEntry>>,
+    conflicts: Mutex<Vec<ConflictRecord>>,
 }
 
 impl InMemoryReplicationEngine {
     pub fn entries(&self) -> Vec<OplogEntry> {
         self.entries.lock().unwrap().clone()
+    }
+
+    pub fn conflicts(&self) -> Vec<ConflictRecord> {
+        self.conflicts.lock().unwrap().clone()
+    }
+
+    pub fn status(&self) -> SyncStatus {
+        let entries = self.entries.lock().unwrap();
+        let conflicts = self.conflicts.lock().unwrap();
+        SyncStatus {
+            entry_count: entries.len(),
+            conflict_count: conflicts.len(),
+            last_op_id: entries.last().map(|entry| entry.op_id.clone()),
+        }
     }
 }
 
@@ -149,87 +184,78 @@ impl ReplicationEngine for InMemoryReplicationEngine {
 
     async fn pull(&self, cursor: SyncCursor) -> Result<SyncBatch> {
         let entries = self.entries.lock().unwrap();
-        let start = cursor
-            .after_op_id
-            .as_deref()
-            .and_then(|target| entries.iter().position(|entry| entry.op_id == target))
-            .map(|index| index + 1)
-            .unwrap_or(0);
-        let limit = cursor.limit.max(1);
-        let slice = entries
-            .iter()
-            .skip(start)
-            .take(limit)
-            .cloned()
-            .collect::<Vec<_>>();
-        let next_cursor = slice.last().map(|entry| entry.op_id.clone());
-
-        Ok(SyncBatch {
-            entries: slice,
-            next_cursor,
-        })
+        Ok(pull_entries(&entries, cursor))
     }
 
     async fn apply(&self, batch: SyncBatch) -> Result<ApplyBatchResult> {
         let mut entries = self.entries.lock().unwrap();
-        let mut applied = 0usize;
-        let mut conflicts = 0usize;
-        let mut skipped = 0usize;
-        let mut last_op_id = None;
+        let mut conflicts = self.conflicts.lock().unwrap();
+        Ok(apply_entries(&mut entries, &mut conflicts, batch))
+    }
+}
 
-        for incoming in batch.entries {
-            last_op_id = Some(incoming.op_id.clone());
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+struct PersistentReplicationState {
+    entries: Vec<OplogEntry>,
+    conflicts: Vec<ConflictRecord>,
+}
 
-            if entries
-                .iter()
-                .any(|existing| existing.op_id == incoming.op_id)
-            {
-                skipped += 1;
-                continue;
-            }
+#[derive(Debug)]
+pub struct FileReplicationEngine {
+    path: PathBuf,
+    state: Mutex<PersistentReplicationState>,
+}
 
-            if let Some(existing) = entries
-                .iter()
-                .rev()
-                .find(|existing| {
-                    existing.object_kind == incoming.object_kind
-                        && existing.object_id == incoming.object_id
-                })
-                .cloned()
-            {
-                match merge_ops(&existing, &incoming) {
-                    MergeResult {
-                        decision: MergeDecision::UseIncoming,
-                        ..
-                    } => {
-                        entries.push(incoming);
-                        applied += 1;
-                    }
-                    MergeResult {
-                        decision: MergeDecision::KeepLocal,
-                        ..
-                    } => {
-                        skipped += 1;
-                    }
-                    MergeResult {
-                        decision: MergeDecision::Conflict,
-                        ..
-                    } => {
-                        conflicts += 1;
-                    }
-                }
-            } else {
-                entries.push(incoming);
-                applied += 1;
-            }
-        }
-
-        Ok(ApplyBatchResult {
-            applied,
-            conflicts,
-            skipped,
-            last_op_id,
+impl FileReplicationEngine {
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
+        let state = load_state(&path)?;
+        Ok(Self {
+            path,
+            state: Mutex::new(state),
         })
+    }
+
+    pub fn entries(&self) -> Vec<OplogEntry> {
+        self.state.lock().unwrap().entries.clone()
+    }
+
+    pub fn conflicts(&self) -> Vec<ConflictRecord> {
+        self.state.lock().unwrap().conflicts.clone()
+    }
+
+    pub fn status(&self) -> SyncStatus {
+        let state = self.state.lock().unwrap();
+        SyncStatus {
+            entry_count: state.entries.len(),
+            conflict_count: state.conflicts.len(),
+            last_op_id: state.entries.last().map(|entry| entry.op_id.clone()),
+        }
+    }
+
+    fn flush(&self, state: &PersistentReplicationState) -> Result<()> {
+        persist_state(&self.path, state)
+    }
+}
+
+#[async_trait]
+impl ReplicationEngine for FileReplicationEngine {
+    async fn append(&self, entry: OplogEntry) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        state.entries.push(entry);
+        self.flush(&state)
+    }
+
+    async fn pull(&self, cursor: SyncCursor) -> Result<SyncBatch> {
+        let state = self.state.lock().unwrap();
+        Ok(pull_entries(&state.entries, cursor))
+    }
+
+    async fn apply(&self, batch: SyncBatch) -> Result<ApplyBatchResult> {
+        let mut state = self.state.lock().unwrap();
+        let result = apply_state(&mut state, batch);
+        self.flush(&state)?;
+        Ok(result)
     }
 }
 
@@ -310,11 +336,127 @@ pub fn can_retry(state: SyncState) -> bool {
     matches!(state, SyncState::Queued | SyncState::InFlight)
 }
 
+fn pull_entries(entries: &[OplogEntry], cursor: SyncCursor) -> SyncBatch {
+    let start = cursor
+        .after_op_id
+        .as_deref()
+        .and_then(|target| entries.iter().position(|entry| entry.op_id == target))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let limit = if cursor.limit == 0 { 100 } else { cursor.limit };
+    let slice = entries
+        .iter()
+        .skip(start)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next_cursor = slice.last().map(|entry| entry.op_id.clone());
+
+    SyncBatch {
+        entries: slice,
+        next_cursor,
+    }
+}
+
+fn apply_entries(
+    entries: &mut Vec<OplogEntry>,
+    conflicts: &mut Vec<ConflictRecord>,
+    batch: SyncBatch,
+) -> ApplyBatchResult {
+    let mut applied = 0usize;
+    let mut conflict_count = 0usize;
+    let mut skipped = 0usize;
+    let mut last_op_id = None;
+
+    for incoming in batch.entries {
+        last_op_id = Some(incoming.op_id.clone());
+
+        if entries
+            .iter()
+            .any(|existing| existing.op_id == incoming.op_id)
+        {
+            skipped += 1;
+            continue;
+        }
+
+        if let Some(existing) = entries
+            .iter()
+            .rev()
+            .find(|existing| {
+                existing.object_kind == incoming.object_kind
+                    && existing.object_id == incoming.object_id
+            })
+            .cloned()
+        {
+            match merge_ops(&existing, &incoming) {
+                MergeResult {
+                    decision: MergeDecision::UseIncoming,
+                    ..
+                } => {
+                    entries.push(incoming);
+                    applied += 1;
+                }
+                MergeResult {
+                    decision: MergeDecision::KeepLocal,
+                    ..
+                } => skipped += 1,
+                MergeResult {
+                    decision: MergeDecision::Conflict,
+                    conflict_reason,
+                    ..
+                } => {
+                    conflicts.push(ConflictRecord {
+                        conflict_id: format!("conf_{}", Ulid::new()),
+                        local_entry: existing,
+                        incoming_entry: incoming,
+                        reason: conflict_reason.unwrap_or_else(|| "unknown conflict".to_string()),
+                        detected_at: OffsetDateTime::now_utc(),
+                    });
+                    conflict_count += 1;
+                }
+            }
+        } else {
+            entries.push(incoming);
+            applied += 1;
+        }
+    }
+
+    ApplyBatchResult {
+        applied,
+        conflicts: conflict_count,
+        skipped,
+        last_op_id,
+    }
+}
+
+fn apply_state(state: &mut PersistentReplicationState, batch: SyncBatch) -> ApplyBatchResult {
+    apply_entries(&mut state.entries, &mut state.conflicts, batch)
+}
+
+fn load_state(path: &Path) -> Result<PersistentReplicationState> {
+    match fs::read_to_string(path) {
+        Ok(raw) => Ok(serde_json::from_str(&raw)?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(PersistentReplicationState::default())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn persist_state(path: &Path, state: &PersistentReplicationState) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, serde_json::to_vec_pretty(state)?)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        InMemoryReplicationEngine, MergeDecision, OplogEntry, OplogOperation, SyncCursor,
-        SyncObjectKind, SyncState, append_oplog_entry, can_retry, merge_ops,
+        FileReplicationEngine, InMemoryReplicationEngine, MergeDecision, OplogEntry,
+        OplogOperation, SyncCursor, SyncObjectKind, SyncState, append_oplog_entry, can_retry,
+        merge_ops,
     };
     use crate::{ReplicationEngine, SyncBatch};
     use time::OffsetDateTime;
@@ -523,53 +665,118 @@ mod tests {
 
         let batch = engine
             .pull(SyncCursor {
-                after_op_id: Some("missing-op".to_string()),
+                after_op_id: Some("missing".to_string()),
                 limit: 0,
             })
             .await
             .unwrap();
 
-        assert_eq!(batch.entries.len(), 1);
+        assert_eq!(batch.entries.len(), 2);
         assert_eq!(batch.entries[0].op_id, first.op_id);
-        assert_eq!(batch.next_cursor.as_deref(), Some(first.op_id.as_str()));
+        assert_eq!(
+            batch.next_cursor,
+            batch.entries.last().map(|entry| entry.op_id.clone())
+        );
     }
 
     #[tokio::test]
-    async fn apply_accepts_new_entries_and_tracks_last_op_id() {
+    async fn apply_accepts_new_entries_and_tracks_conflicts() {
         let engine = InMemoryReplicationEngine::default();
-        let first = OplogEntry::new(
+        let existing = append_oplog_entry(
+            &engine,
             OplogOperation::CreateObject,
             SyncObjectKind::Memory,
-            "mem_apply_new",
+            "mem_apply",
             "node-a",
             "actor-a",
             0,
             1,
-            serde_json::json!({"title":"first"}),
-        );
-        let second = OplogEntry::new(
+            serde_json::json!({"title":"initial"}),
+        )
+        .await
+        .unwrap();
+
+        let conflict = OplogEntry::new(
             OplogOperation::UpdateObject,
             SyncObjectKind::Memory,
-            "mem_apply_new",
-            "node-a",
-            "actor-a",
+            "mem_apply",
+            "node-b",
+            "actor-b",
+            0,
+            1,
+            serde_json::json!({"title":"fork"}),
+        );
+        let forward = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_apply",
+            "node-b",
+            "actor-b",
             1,
             2,
-            serde_json::json!({"title":"second"}),
+            serde_json::json!({"title":"forward"}),
         );
 
         let result = engine
             .apply(SyncBatch {
-                entries: vec![first.clone(), second.clone()],
+                entries: vec![existing.clone(), conflict, forward],
                 next_cursor: None,
             })
             .await
             .unwrap();
 
-        assert_eq!(result.applied, 2);
-        assert_eq!(result.skipped, 0);
-        assert_eq!(result.conflicts, 0);
-        assert_eq!(result.last_op_id.as_deref(), Some(second.op_id.as_str()));
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.conflicts, 1);
+        assert_eq!(result.applied, 1);
         assert_eq!(engine.entries().len(), 2);
+        assert_eq!(engine.conflicts().len(), 1);
+        assert_eq!(engine.status().last_op_id, result.last_op_id);
+    }
+
+    #[tokio::test]
+    async fn file_engine_persists_entries_and_conflicts() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path().join("sync-state.json");
+        let engine = FileReplicationEngine::open(&path).unwrap();
+        let existing = append_oplog_entry(
+            &engine,
+            OplogOperation::CreateObject,
+            SyncObjectKind::Memory,
+            "mem_file",
+            "node-a",
+            "actor-a",
+            0,
+            1,
+            serde_json::json!({"title":"v1"}),
+        )
+        .await
+        .unwrap();
+
+        let conflict = OplogEntry::new(
+            OplogOperation::UpdateObject,
+            SyncObjectKind::Memory,
+            "mem_file",
+            "node-b",
+            "actor-b",
+            0,
+            1,
+            serde_json::json!({"title":"fork"}),
+        );
+
+        let result = engine
+            .apply(SyncBatch {
+                entries: vec![existing, conflict],
+                next_cursor: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.conflicts, 1);
+        assert_eq!(engine.status().conflict_count, 1);
+
+        let reopened = FileReplicationEngine::open(&path).unwrap();
+        assert_eq!(reopened.entries().len(), 1);
+        assert_eq!(reopened.conflicts().len(), 1);
     }
 }

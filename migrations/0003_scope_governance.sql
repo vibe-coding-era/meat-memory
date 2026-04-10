@@ -1,0 +1,4 @@
+ALTER TABLE scopes
+  ADD COLUMN IF NOT EXISTS owner_principal_id TEXT REFERENCES principals(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS inherit_policy TEXT NOT NULL DEFAULT 'inherit',
+  ADD COLUMN IF NOT EXISTS sync_policy TEXT NOT NULL DEFAULT 'replicated';

@@ -1,4 +1,6 @@
-use memory_domain::{Artifact, ArtifactKind, Memory, MemoryKind, ScopeId};
+use memory_domain::{
+    Artifact, ArtifactKind, Memory, MemoryKind, Scope, ScopeId, ScopeType, Visibility,
+};
 use memory_store_pg::PgStore;
 
 fn test_database_url() -> String {
@@ -13,14 +15,16 @@ async fn pg_store_can_migrate_insert_and_search() {
     store.migrate().await.unwrap();
 
     let scope_id = ScopeId::new();
-    store
-        .seed_scope(
-            &scope_id,
-            "Integration Scope",
-            &format!("integration/{}", scope_id.as_str()),
-        )
-        .await
-        .unwrap();
+    let scope = Scope::new_with_id(
+        scope_id.clone(),
+        ScopeType::Project,
+        "Integration Scope",
+        format!("integration/{}", scope_id.as_str()),
+        None,
+    )
+    .unwrap()
+    .with_default_visibility(Visibility::Project);
+    store.seed_scope_definition(&scope).await.unwrap();
 
     let artifact = Artifact::new(
         scope_id.clone(),

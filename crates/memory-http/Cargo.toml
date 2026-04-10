@@ -12,6 +12,7 @@ memory-kernel = { path = "../memory-kernel" }
 memory-observability = { path = "../memory-observability" }
 serde.workspace = true
 serde_json.workspace = true
+time.workspace = true
 
 [dev-dependencies]
 memory-models = { path = "../memory-models" }

@@ -70,6 +70,10 @@ pub struct ModelRoutingConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SyncConfig {
     pub mode: String,
+    #[serde(default = "default_sync_node_id")]
+    pub node_id: String,
+    #[serde(default = "default_sync_state_path")]
+    pub state_path: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -82,6 +86,14 @@ pub struct FeaturesConfig {
 
 fn default_locale() -> String {
     "zh-CN".to_string()
+}
+
+fn default_sync_node_id() -> String {
+    "node-local".to_string()
+}
+
+fn default_sync_state_path() -> String {
+    "./storage/sync/state.json".to_string()
 }
 
 impl AppConfig {
@@ -188,6 +200,8 @@ mod tests {
         assert_eq!(from_file.server.bind, "127.0.0.1:8080");
         assert_eq!(loaded.assets.root, "./storage/assets");
         assert_eq!(loaded.sync.mode, "dual_write");
+        assert_eq!(loaded.sync.node_id, "node-main");
+        assert_eq!(loaded.sync.state_path, "./storage/sync/main.json");
 
         let _ = fs::remove_file(path);
     }
@@ -251,6 +265,8 @@ root = "./storage/assets"
 
 [sync]
 mode = "dual_write"
+node_id = "node-main"
+state_path = "./storage/sync/main.json"
 
 [features]
 enable_pg = true

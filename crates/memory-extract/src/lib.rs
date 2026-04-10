@@ -42,6 +42,11 @@ pub fn distill_candidate_memory(
         title,
         artifact.content_text.clone(),
     )?;
+    memory.owner_scope_id = artifact.scope_id.clone();
+    memory.language_code = artifact
+        .language_code
+        .clone()
+        .or_else(|| detect_language_code(&artifact.content_text));
     memory.visibility = artifact.visibility;
     memory.sensitivity = artifact.sensitivity;
     Ok(memory)
@@ -67,13 +72,31 @@ fn infer_memory_kind(artifact: &Artifact) -> MemoryKind {
     if normalized.contains("prefer") || normalized.contains("preference") {
         return MemoryKind::Preference;
     }
+    if artifact.content_text.contains("偏好") || artifact.content_text.contains("更喜欢") {
+        return MemoryKind::Preference;
+    }
     if normalized.contains("decide") || normalized.contains("decision") {
         return MemoryKind::Decision;
+    }
+    if artifact.content_text.contains("决定") || artifact.content_text.contains("决策") {
+        return MemoryKind::Decision;
+    }
+    if normalized.contains("procedure") || normalized.contains("runbook") {
+        return MemoryKind::Procedure;
+    }
+    if artifact.content_text.contains("步骤") || artifact.content_text.contains("流程") {
+        return MemoryKind::Procedure;
     }
     if normalized.contains("must") || normalized.contains("constraint") {
         return MemoryKind::Constraint;
     }
+    if artifact.content_text.contains("必须") || artifact.content_text.contains("约束") {
+        return MemoryKind::Constraint;
+    }
     if normalized.contains("risk") {
+        return MemoryKind::Risk;
+    }
+    if artifact.content_text.contains("风险") {
         return MemoryKind::Risk;
     }
 
@@ -86,9 +109,36 @@ fn infer_memory_kind(artifact: &Artifact) -> MemoryKind {
     }
 }
 
+pub fn detect_language_code(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut ascii_letters = 0usize;
+    let mut cjk_chars = 0usize;
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphabetic() {
+            ascii_letters += 1;
+        } else if ('\u{4E00}'..='\u{9FFF}').contains(&ch) {
+            cjk_chars += 1;
+        }
+    }
+
+    if cjk_chars > ascii_letters {
+        Some("zh-CN".to_string())
+    } else if ascii_letters > 0 {
+        Some("en".to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ExtractionEnvelope, distill_candidate_memory, should_extract};
+    use super::{
+        ExtractionEnvelope, detect_language_code, distill_candidate_memory, should_extract,
+    };
     use memory_domain::{Artifact, ArtifactKind, MemoryKind, ScopeId};
 
     #[test]
@@ -111,5 +161,22 @@ mod tests {
 
         assert_eq!(memory.kind, MemoryKind::Decision);
         assert!(memory.title.contains("We decided"));
+        assert_eq!(memory.language_code.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn detects_cjk_and_procedure_keywords() {
+        let artifact = Artifact::new(
+            ScopeId::new(),
+            ArtifactKind::Document,
+            "发布流程：先执行 smoke，再执行回滚检查。",
+            vec!["session://2".to_string()],
+        )
+        .unwrap();
+
+        let memory = distill_candidate_memory(&artifact, None, None).unwrap();
+        assert_eq!(memory.kind, MemoryKind::Procedure);
+        assert_eq!(memory.language_code.as_deref(), Some("zh-CN"));
+        assert_eq!(detect_language_code("hello world").as_deref(), Some("en"));
     }
 }

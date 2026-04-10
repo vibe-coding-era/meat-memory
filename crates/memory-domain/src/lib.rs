@@ -18,4 +18,4 @@ pub use error::DomainError;
 pub use ids::{ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId, RelationId, ScopeId};
 pub use memory::{Memory, MemoryKind, MemoryScores, MemoryState};
 pub use relation::{Relation, RelationState, RelationType};
-pub use scope::{Scope, ScopeHierarchyValidator, ScopeType};
+pub use scope::{InheritPolicy, Scope, ScopeHierarchyValidator, ScopeType, SyncPolicy};

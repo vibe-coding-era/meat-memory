@@ -115,8 +115,9 @@ async fn http_root_route_serves_browser_console() {
     let body = String::from_utf8(bytes.to_vec()).unwrap();
 
     assert!(body.contains("Browser Console"));
-    assert!(body.contains("Write Text Memory"));
-    assert!(body.contains("/api/v1/context/search"));
+    assert!(body.contains("AI 对话区"));
+    assert!(body.contains("/api/v1/explorer/memories"));
+    assert!(body.contains("/api/v1/assistant/chat"));
 }
 
 #[tokio::test]

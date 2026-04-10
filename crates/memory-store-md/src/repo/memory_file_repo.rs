@@ -94,6 +94,58 @@ impl MarkdownStore {
         entry.as_deref().map(parse_memory_markdown).transpose()
     }
 
+    pub fn list_memories_by_scope(&self, scope_id: &ScopeId) -> Result<Vec<Memory>> {
+        let path = self.scope_memory_rollup_path(scope_id);
+        let raw = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to read {}", path.display()));
+            }
+        };
+
+        parse_memory_entries(&raw)
+    }
+
+    pub fn list_all_memories(&self) -> Result<Vec<Memory>> {
+        let scopes_root = self.root.join(&self.tenant).join("scopes");
+        let entries = match fs::read_dir(&scopes_root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to read {}", scopes_root.display()));
+            }
+        };
+
+        let mut memories = Vec::new();
+        for entry in entries {
+            let entry = entry.with_context(|| {
+                format!("failed to read scope entry under {}", scopes_root.display())
+            })?;
+            let file_type = entry.file_type().with_context(|| {
+                format!("failed to inspect scope entry {}", entry.path().display())
+            })?;
+            if !file_type.is_dir() {
+                continue;
+            }
+
+            let rollup_path = entry.path().join("MEMORY.md");
+            let raw = match fs::read_to_string(&rollup_path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("failed to read {}", rollup_path.display()));
+                }
+            };
+            memories.extend(parse_memory_entries(&raw)?);
+        }
+
+        memories.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        Ok(memories)
+    }
+
     pub fn write_episode_markdown(&self, episode: &memory_domain::Episode) -> Result<PathBuf> {
         write_episode_markdown(&self.root, &self.tenant, episode)
     }
@@ -164,11 +216,48 @@ fn extract_entry(existing: &str, memory_id: &str) -> Option<String> {
     Some(existing[start..end].to_string())
 }
 
+fn parse_memory_entries(raw: &str) -> Result<Vec<Memory>> {
+    let entries = extract_entries(raw);
+    let mut memories = entries
+        .iter()
+        .map(|entry| parse_memory_markdown(entry).and_then(ParsedMemoryMarkdown::into_memory))
+        .collect::<Result<Vec<_>>>()?;
+    memories.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    Ok(memories)
+}
+
+fn extract_entries(raw: &str) -> Vec<String> {
+    let mut entries = Vec::new();
+    let mut current = Vec::new();
+    let mut in_entry = false;
+
+    for line in raw.lines() {
+        if line.starts_with(ENTRY_START_PREFIX) {
+            current.clear();
+            in_entry = true;
+        }
+
+        if in_entry {
+            current.push(line);
+        }
+
+        if in_entry && line.starts_with(ENTRY_END_PREFIX) {
+            let mut entry = current.join("\n");
+            entry.push('\n');
+            entries.push(entry);
+            current.clear();
+            in_entry = false;
+        }
+    }
+
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        MarkdownStore, ROLLUP_HEADER, extract_entry, render_memory_markdown, sanitize_segment,
-        scope_directory, upsert_entry,
+        MarkdownStore, ROLLUP_HEADER, extract_entries, extract_entry, parse_memory_entries,
+        render_memory_markdown, sanitize_segment, scope_directory, upsert_entry,
     };
     use memory_domain::{Episode, EpisodeId, EpisodeKind, Memory, MemoryId, MemoryKind, ScopeId};
     use std::fs;
@@ -277,6 +366,55 @@ mod tests {
     }
 
     #[test]
+    fn extract_entries_collects_multiple_memory_blocks() {
+        let raw = format!(
+            "{}\n{}",
+            render_memory_markdown(&sample_memory(), "tenant-a").unwrap(),
+            render_memory_markdown(
+                &Memory::new(
+                    ScopeId::from_string("scp_store"),
+                    MemoryKind::Summary,
+                    "第二条",
+                    "第二条正文",
+                )
+                .unwrap(),
+                "tenant-a",
+            )
+            .unwrap()
+        );
+
+        let entries = extract_entries(&raw);
+
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].contains("mem_store"));
+        assert!(entries[1].contains("第二条"));
+    }
+
+    #[test]
+    fn parse_memory_entries_returns_memories_sorted_by_updated_at() {
+        let older = sample_memory();
+        let mut newer = Memory::new(
+            ScopeId::from_string("scp_store"),
+            MemoryKind::Summary,
+            "较新",
+            "较新的正文",
+        )
+        .unwrap();
+        newer.updated_at = datetime!(2025-01-04 05:06:07 UTC);
+        let raw = format!(
+            "{}\n{}",
+            render_memory_markdown(&older, "tenant-a").unwrap(),
+            render_memory_markdown(&newer, "tenant-a").unwrap()
+        );
+
+        let memories = parse_memory_entries(&raw).unwrap();
+
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0].title, "较新");
+        assert_eq!(memories[1].title, "保留 PG 与 MD 双写");
+    }
+
+    #[test]
     fn write_and_read_memory_markdown_round_trips_and_upserts() {
         let root = tempdir().expect("tempdir should build");
         let store =
@@ -328,6 +466,45 @@ mod tests {
             .expect("read should succeed");
 
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn markdown_store_lists_memories_across_scopes() {
+        let root = tempdir().expect("tempdir should build");
+        let store =
+            MarkdownStore::with_tenant(root.path(), "tenant-a").expect("store should build");
+        let first = sample_memory();
+        let second = Memory::new(
+            ScopeId::from_string("scp_other"),
+            MemoryKind::Summary,
+            "跨 scope",
+            "第二个 scope 的正文",
+        )
+        .unwrap();
+
+        store.write_memory_markdown(&first).unwrap();
+        store.write_memory_markdown(&second).unwrap();
+
+        let memories = store.list_all_memories().unwrap();
+
+        assert_eq!(memories.len(), 2);
+        assert!(
+            memories
+                .iter()
+                .any(|memory| memory.scope_id.as_str() == "scp_store")
+        );
+        assert!(
+            memories
+                .iter()
+                .any(|memory| memory.scope_id.as_str() == "scp_other")
+        );
+        assert_eq!(
+            store
+                .list_memories_by_scope(&ScopeId::from_string("scp_store"))
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

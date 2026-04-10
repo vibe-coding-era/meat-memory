@@ -67,10 +67,13 @@ impl MemoryScores {
 pub struct Memory {
     pub id: MemoryId,
     pub scope_id: ScopeId,
+    pub owner_scope_id: ScopeId,
+    pub published_from_scope_id: Option<ScopeId>,
     pub kind: MemoryKind,
     pub state: MemoryState,
     pub title: String,
     pub body: String,
+    pub language_code: Option<String>,
     pub scores: MemoryScores,
     pub visibility: Visibility,
     pub sensitivity: Sensitivity,
@@ -97,11 +100,14 @@ impl Memory {
 
         Ok(Self {
             id: MemoryId::new(),
+            owner_scope_id: scope_id.clone(),
             scope_id,
+            published_from_scope_id: None,
             kind,
             state: MemoryState::Candidate,
             title,
             body: body.into(),
+            language_code: None,
             scores: MemoryScores::default(),
             visibility: Visibility::Private,
             sensitivity: Sensitivity::Internal,
@@ -115,6 +121,30 @@ impl Memory {
         self.scores = scores.validate()?;
         self.updated_at = OffsetDateTime::now_utc();
         Ok(self)
+    }
+
+    pub fn with_language_code(
+        mut self,
+        language_code: impl Into<String>,
+    ) -> Result<Self, DomainError> {
+        let language_code = language_code.into();
+        if language_code.trim().is_empty() {
+            return Err(DomainError::EmptyField {
+                field: "memory.language_code",
+            });
+        }
+        self.language_code = Some(language_code);
+        self.updated_at = OffsetDateTime::now_utc();
+        Ok(self)
+    }
+
+    pub fn publish_into(&self, target_scope_id: ScopeId, target_visibility: Visibility) -> Self {
+        let mut published = self.clone();
+        published.scope_id = target_scope_id;
+        published.published_from_scope_id = Some(self.scope_id.clone());
+        published.visibility = target_visibility;
+        published.updated_at = OffsetDateTime::now_utc();
+        published
     }
 
     pub fn activate(&mut self) -> Result<(), DomainError> {

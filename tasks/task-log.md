@@ -331,3 +331,23 @@
   key_output: 补齐 `docs/release-notes-v1.md`，同步更新 `CHANGELOG.md`、`README.md`、`docs/README.md`、`tasks/tasklist.md`、`tasks/project-index.md`，将仓库状态从“V1 封板中”收口到“V1 已完成”；同时复核 `docker compose config --quiet` 与 `helm lint infra/helm/meat-memory` 作为 V1 部署边界验收入口
   issues_decisions: V1 版本号继续维持 `0.1.0`，把 2026-04-09 作为当前封板日期；封板文档只声明 V1 已交付的文本+图片、中文优先、HTTP/CLI/MCP、本地/云独立部署和混合部署预留接口，不把团队隔离、中英双语、音视频链路提前纳入 V1 口径
   next_action: V1 已完成，后续进入 `V2-SCP-*`、`V2-LNG-*`、`V2-SYN-*` 范围准备
+
+- timestamp: 2026-04-10 00:58:00 CST
+  task_id: V2-SCP-001
+  executor: Codex
+  duration: 0.9h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 将 `memory-domain` 的 `Scope` 扩展为 V2 基线对象，新增 `owner_principal_id`、`inherit_policy`、`sync_policy` 与层级/路径校验；为 `memory-store-pg` 新增 `0003_scope_governance.sql`、`seed_scope_definition` 与 richer scope 落库路径；`memory-kernel` 改为按正式 `Scope` 对象 seed project scope，并补齐 domain / store / kernel 定向测试
+  issues_decisions: 本轮先收口 `V2-SCP-001` 的 domain + persistence 基线，不提前把 `V2-SCP-002` 的 publish/review/redaction policy 混进来；默认策略采用 `project/team/org -> replicated`、`user -> shared`、`session -> local_only` 的保守分层，后续可在 policy engine 中继续细化
+  next_action: 继续推进 `V2-SCP-001` 的 runtime 接入面与 owner/principal 使用链路，然后进入 `V2-SCP-002` 的 publish/review/shared policy 工作流
+
+- timestamp: 2026-04-10 02:40:00 CST
+  task_id: V2-SCP-001/V2-SCP-002/V2-MRG-001/V2-SYN-001/V2-SYN-002/V2-LNG-001/V2-LNG-002
+  executor: Codex
+  duration: 3.0h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 完成 V2 主线实现收口：为 `Memory` 增加 `owner_scope_id` / `published_from_scope_id` / `language_code` 并贯通 PG+Markdown；`memory-policy` 增加 scope-aware publish policy 与 redaction；`memory-kernel` 增加 `promote_memory`、markdown fallback `get_memory` 与语言透传；`memory-http` / `memory-mcp` 增加 promote 入口；`memory-sync` 增加 `FileReplicationEngine`、`ConflictRecord`、`SyncStatus`；`memory-config` / `memory-worker` 增加 sync `node_id` / `state_path` runtime 配置；新增 `tests/integration/v2-bilingual-acceptance.md`
+  issues_decisions: V2 的同步持久化先采用本地 file-backed state，而不是一次性绑定数据库表或远端协议，实现目标是先把 pull/apply/conflict/audit 语义坐实；跨 scope promotion 采用“生成新 memory + 保留 owner_scope/published_from_scope + 按策略进入 active/candidate”的保守实现，避免直接改写原对象归属
+  next_action: V2 已完成，后续主线进入 `V3-MM-*` 全多模态范围

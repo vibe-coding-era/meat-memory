@@ -28,10 +28,16 @@ impl ParsedMemoryMarkdown {
         Ok(Memory {
             id: MemoryId::from_string(self.frontmatter.id),
             scope_id: ScopeId::from_string(self.frontmatter.scope),
+            owner_scope_id: ScopeId::from_string(self.frontmatter.owner_scope),
+            published_from_scope_id: self
+                .frontmatter
+                .published_from_scope
+                .map(ScopeId::from_string),
             kind: parse_memory_kind(&self.frontmatter.memory_kind)?,
             state: parse_memory_state(&self.frontmatter.status)?,
             title: self.frontmatter.title,
             body: self.body,
+            language_code: self.frontmatter.language_code,
             scores,
             visibility: parse_visibility(&self.frontmatter.visibility)?,
             sensitivity: parse_sensitivity(&self.frontmatter.sensitivity)?,
@@ -148,9 +154,12 @@ mod tests {
                 kind: "memory".to_string(),
                 tenant: "tenant-a".to_string(),
                 scope: "scp_parser".to_string(),
+                owner_scope: "scp_parser".to_string(),
+                published_from_scope: None,
                 memory_kind: "fact".to_string(),
                 title: "解析成功".to_string(),
                 status: "active".to_string(),
+                language_code: Some("zh-CN".to_string()),
                 visibility: "team".to_string(),
                 sensitivity: "internal".to_string(),
                 created_at: "2025-01-02T03:04:05Z".to_string(),
@@ -179,10 +188,13 @@ mod tests {
 
         assert_eq!(memory.id.as_str(), "mem_parser");
         assert_eq!(memory.scope_id.as_str(), "scp_parser");
+        assert_eq!(memory.owner_scope_id.as_str(), "scp_parser");
+        assert_eq!(memory.published_from_scope_id, None);
         assert_eq!(memory.kind, MemoryKind::Fact);
         assert_eq!(memory.state, MemoryState::Active);
         assert_eq!(memory.title, "解析成功");
         assert_eq!(memory.body, "这是正文");
+        assert_eq!(memory.language_code.as_deref(), Some("zh-CN"));
         assert_eq!(memory.visibility, Visibility::Team);
         assert_eq!(memory.sensitivity, Sensitivity::Internal);
         assert_eq!(memory.evidence_count, 3);

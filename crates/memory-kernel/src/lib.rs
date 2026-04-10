@@ -3,12 +3,12 @@ use async_trait::async_trait;
 use memory_assets::{FileSystemAssetStore, PutAssetRequest, StorageClass, StoredAsset};
 use memory_core::MemoryService;
 use memory_domain::{
-    Artifact, ArtifactKind, ContextBundle, Entity, Memory, MemoryId, MemoryKind, Relation, ScopeId,
-    Sensitivity, Visibility,
+    Artifact, ArtifactKind, ContextBundle, Entity, Memory, MemoryId, MemoryKind, Relation, Scope,
+    ScopeId, ScopeType, Sensitivity, Visibility,
 };
 use memory_extract::{
-    ExtractionEnvelope, distill_candidate_memory, extract_entities, extract_relations,
-    should_extract,
+    ExtractionEnvelope, detect_language_code, distill_candidate_memory, extract_entities,
+    extract_relations, should_extract,
 };
 use memory_index::{SearchQuery, normalize_query};
 use memory_models::{
@@ -18,7 +18,10 @@ use memory_observability::{
     operation_span, record_search_failure, record_search_success, record_write_failure,
     record_write_success,
 };
-use memory_policy::{PolicyDecision, WritePolicyInput, evaluate_write_policy};
+use memory_policy::{
+    PolicyDecision, PublishPolicyInput, WritePolicyInput, evaluate_publish_policy,
+    evaluate_write_policy, redact_for_shared_scope,
+};
 use memory_store_md::MarkdownStore;
 use memory_store_pg::PgStore;
 use std::path::PathBuf;
@@ -117,6 +120,14 @@ pub struct PublishMemoryResult {
     pub memory: Memory,
     pub wrote_pg: bool,
     pub wrote_markdown: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromoteMemoryRequest {
+    pub source_scope_type: ScopeType,
+    pub target_scope_id: ScopeId,
+    pub target_scope_type: ScopeType,
+    pub target_visibility: Visibility,
 }
 
 #[derive(Debug, Clone)]
@@ -243,8 +254,39 @@ impl Kernel {
     ) -> Result<Option<Memory>> {
         match &self.pg_store {
             Some(pg_store) => pg_store.get_memory(&scope_id, &memory_id).await,
-            None => Ok(None),
+            None => match &self.markdown_store {
+                Some(markdown_store) => markdown_store
+                    .read_memory_markdown(&scope_id, &memory_id)?
+                    .map(|parsed| parsed.into_memory())
+                    .transpose(),
+                None => Ok(None),
+            },
         }
+    }
+
+    pub async fn browse_memories(
+        &self,
+        scope_id: Option<ScopeId>,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        let limit = limit.clamp(1, 500);
+        if let Some(pg_store) = &self.pg_store {
+            return pg_store
+                .list_memories(scope_id.as_ref(), limit as i64)
+                .await;
+        }
+
+        let Some(markdown_store) = &self.markdown_store else {
+            return Ok(Vec::new());
+        };
+
+        let mut memories = match scope_id.as_ref() {
+            Some(scope_id) => markdown_store.list_memories_by_scope(scope_id)?,
+            None => markdown_store.list_all_memories()?,
+        };
+        memories.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        memories.truncate(limit);
+        Ok(memories)
     }
 
     pub async fn remember_text(&self, request: RememberTextRequest) -> Result<RememberTextResult> {
@@ -580,6 +622,97 @@ impl Kernel {
         self.publish_memory(memory, target_visibility).await
     }
 
+    pub async fn promote_memory(
+        &self,
+        memory: Memory,
+        request: PromoteMemoryRequest,
+    ) -> Result<PublishMemoryResult> {
+        let started_at = Instant::now();
+        let source_scope_id = memory.scope_id.as_str().to_string();
+        let result = async {
+            let decision = evaluate_publish_policy(PublishPolicyInput {
+                source_scope_type: request.source_scope_type,
+                target_scope_type: request.target_scope_type,
+                target_visibility: request.target_visibility,
+                sensitivity: memory.sensitivity,
+            });
+            if matches!(decision, PolicyDecision::Deny) {
+                bail!("publish denied by scope policy");
+            }
+
+            let mut promoted =
+                memory.publish_into(request.target_scope_id.clone(), request.target_visibility);
+            promoted.id = MemoryId::new();
+            promoted.body = redact_for_shared_scope(&promoted.body, promoted.sensitivity);
+            promoted.state = if matches!(decision, PolicyDecision::Review) {
+                memory_domain::MemoryState::Candidate
+            } else {
+                memory_domain::MemoryState::Active
+            };
+
+            let scope = build_seed_scope(&request.target_scope_id, request.target_scope_type)?;
+            let mut wrote_pg = false;
+            let mut wrote_markdown = false;
+            if let Some(pg_store) = &self.pg_store {
+                pg_store.seed_scope_definition(&scope).await?;
+                pg_store.insert_memory(&promoted).await?;
+                wrote_pg = true;
+            }
+            if let Some(markdown_store) = &self.markdown_store {
+                markdown_store.write_memory_markdown(&promoted)?;
+                wrote_markdown = true;
+            }
+
+            info!(
+                source_scope_id,
+                target_scope_id = promoted.scope_id.as_str(),
+                memory_id = promoted.id.as_str(),
+                reviewed = matches!(decision, PolicyDecision::Review),
+                wrote_pg,
+                wrote_markdown,
+                latency_ms = started_at.elapsed().as_millis() as u64,
+                "promote_memory completed"
+            );
+
+            Ok(PublishMemoryResult {
+                memory: promoted,
+                wrote_pg,
+                wrote_markdown,
+            })
+        }
+        .instrument(operation_span(
+            "kernel",
+            "promote_memory",
+            Some(&source_scope_id),
+            Some("promote_memory"),
+        ))
+        .await;
+
+        match &result {
+            Ok(payload) => record_write_success(
+                payload.wrote_pg,
+                payload.wrote_markdown,
+                started_at.elapsed(),
+            ),
+            Err(_) => record_write_failure(started_at.elapsed()),
+        }
+
+        result
+    }
+
+    pub async fn promote_memory_by_id(
+        &self,
+        scope_id: ScopeId,
+        memory_id: MemoryId,
+        request: PromoteMemoryRequest,
+    ) -> Result<PublishMemoryResult> {
+        let Some(memory) = self.get_memory(scope_id, memory_id.clone()).await? else {
+            bail!("memory not found: {}", memory_id.as_str());
+        };
+
+        self.promote_memory(memory, request).await
+    }
+
     fn build_artifact(&self, request: &RememberTextRequest) -> Result<Artifact> {
         let mut artifact = Artifact::new(
             request.scope_id.clone(),
@@ -587,6 +720,7 @@ impl Kernel {
             request.body.clone(),
             request.source_refs.clone(),
         )?;
+        artifact.language_code = detect_language_code(&artifact.content_text);
         artifact.visibility = request.visibility;
         artifact.sensitivity = request.sensitivity;
         Ok(artifact)
@@ -617,10 +751,15 @@ impl Kernel {
             }
             None => format!("default/scopes/{}", scope_id.as_str()),
         };
+        let scope = Scope::new_with_id(
+            scope_id.clone(),
+            ScopeType::Project,
+            scope_id.as_str(),
+            path,
+            None,
+        )?;
 
-        pg_store
-            .seed_scope(scope_id, scope_id.as_str(), &path)
-            .await?;
+        pg_store.seed_scope_definition(&scope).await?;
         Ok(())
     }
 }
@@ -690,9 +829,21 @@ fn build_image_artifact(mut input: ImageArtifactInput, asset: &StoredAsset) -> R
         input.source_refs,
     )?;
     artifact.mime_type = Some(input.media_type);
+    artifact.language_code = detect_language_code(&artifact.content_text);
     artifact.visibility = input.visibility;
     artifact.sensitivity = input.sensitivity;
     Ok(artifact)
+}
+
+fn build_seed_scope(scope_id: &ScopeId, scope_type: ScopeType) -> Result<Scope> {
+    Scope::new_with_id(
+        scope_id.clone(),
+        scope_type,
+        scope_id.as_str(),
+        format!("default/scopes/{}", scope_id.as_str()),
+        None,
+    )
+    .map_err(Into::into)
 }
 
 fn build_context_graph(scope_id: &ScopeId, memories: &[Memory]) -> (Vec<Entity>, Vec<Relation>) {

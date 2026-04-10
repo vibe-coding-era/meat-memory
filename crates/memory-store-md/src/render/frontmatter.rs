@@ -17,9 +17,14 @@ pub struct MemoryFrontmatter {
     pub kind: String,
     pub tenant: String,
     pub scope: String,
+    pub owner_scope: String,
+    #[serde(default)]
+    pub published_from_scope: Option<String>,
     pub memory_kind: String,
     pub title: String,
     pub status: String,
+    #[serde(default)]
+    pub language_code: Option<String>,
     pub visibility: String,
     pub sensitivity: String,
     pub created_at: String,
@@ -64,9 +69,15 @@ impl MemoryFrontmatter {
             kind: "memory".to_string(),
             tenant: tenant.to_string(),
             scope: memory.scope_id.as_str().to_string(),
+            owner_scope: memory.owner_scope_id.as_str().to_string(),
+            published_from_scope: memory
+                .published_from_scope_id
+                .as_ref()
+                .map(|scope| scope.as_str().to_string()),
             memory_kind: memory_kind_to_str(memory.kind).to_string(),
             title: memory.title.clone(),
             status: memory.state.as_str().to_string(),
+            language_code: memory.language_code.clone(),
             visibility: visibility_to_str(memory.visibility).to_string(),
             sensitivity: sensitivity_to_str(memory.sensitivity).to_string(),
             created_at: format_timestamp(memory.created_at)?,
@@ -250,9 +261,12 @@ mod tests {
             assert_eq!(frontmatter.kind, "memory");
             assert_eq!(frontmatter.tenant, "tenant-a");
             assert_eq!(frontmatter.scope, "scp_frontmatter");
+            assert_eq!(frontmatter.owner_scope, "scp_frontmatter");
+            assert_eq!(frontmatter.published_from_scope, None);
             assert_eq!(frontmatter.memory_kind, kind_label);
             assert_eq!(frontmatter.title, "记忆标题");
             assert_eq!(frontmatter.status, "candidate");
+            assert_eq!(frontmatter.language_code, None);
             assert_eq!(frontmatter.visibility, visibility_label);
             assert_eq!(frontmatter.sensitivity, sensitivity_label);
             assert_eq!(frontmatter.created_at, "2025-01-02T03:04:05Z");

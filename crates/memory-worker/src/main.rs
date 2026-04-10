@@ -8,6 +8,8 @@ use tracing::info;
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WorkerRuntimeSnapshot {
     sync_mode: String,
+    sync_node_id: String,
+    sync_state_path: String,
     poll_interval_secs: u64,
     projection_queue: &'static str,
     embedding_queue: &'static str,
@@ -36,6 +38,8 @@ async fn main() -> Result<()> {
 fn runtime_snapshot(config: &AppConfig) -> WorkerRuntimeSnapshot {
     WorkerRuntimeSnapshot {
         sync_mode: config.sync.mode.clone(),
+        sync_node_id: config.sync.node_id.clone(),
+        sync_state_path: config.sync.state_path.clone(),
         poll_interval_secs: default_poll_interval_secs(),
         projection_queue: queue_name(JobKind::BuildProjection),
         embedding_queue: queue_name(JobKind::EmbedContent),
@@ -58,6 +62,8 @@ fn validate_model_registry(config: &AppConfig) -> Result<()> {
 fn log_worker_started(snapshot: &WorkerRuntimeSnapshot) {
     info!(
         sync_mode = %snapshot.sync_mode,
+        sync_node_id = %snapshot.sync_node_id,
+        sync_state_path = %snapshot.sync_state_path,
         poll_interval_secs = snapshot.poll_interval_secs,
         projection_queue = snapshot.projection_queue,
         embedding_queue = snapshot.embedding_queue,
@@ -97,6 +103,8 @@ fn handle_loop_event(snapshot: &WorkerRuntimeSnapshot, event: WorkerLoopEvent) -
         }
         WorkerLoopEvent::Heartbeat => {
             info!(
+                sync_node_id = %snapshot.sync_node_id,
+                sync_state_path = %snapshot.sync_state_path,
                 projection_queue = snapshot.projection_queue,
                 embedding_queue = snapshot.embedding_queue,
                 sync_queue = snapshot.sync_queue,
@@ -139,6 +147,8 @@ root = "./storage/assets"
 
 [sync]
 mode = "local_only"
+node_id = "node-worker-test"
+state_path = "./storage/sync/worker-test.json"
 
 [features]
 enable_pg = false
@@ -214,6 +224,8 @@ fallbacks = []
         let snapshot = runtime_snapshot(&sample_config());
 
         assert_eq!(snapshot.sync_mode, "local_only");
+        assert_eq!(snapshot.sync_node_id, "node-worker-test");
+        assert_eq!(snapshot.sync_state_path, "./storage/sync/worker-test.json");
         assert_eq!(snapshot.poll_interval_secs, 5);
         assert_eq!(snapshot.projection_queue, "projection");
         assert_eq!(snapshot.embedding_queue, "embedding");

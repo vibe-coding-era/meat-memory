@@ -8,9 +8,9 @@ use axum::{
 };
 use memory_domain::{
     ArtifactKind, ContextBundle, Entity, EntityType, Memory, MemoryId, MemoryKind, Relation,
-    RelationState, RelationType, ScopeId, Sensitivity, Visibility,
+    RelationState, RelationType, ScopeId, ScopeType, Sensitivity, Visibility,
 };
-use memory_kernel::{Kernel, RememberTextRequest, SearchContextRequest};
+use memory_kernel::{Kernel, PromoteMemoryRequest, RememberTextRequest, SearchContextRequest};
 use memory_observability::operation_span;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -48,6 +48,10 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
         name: "memory.publish",
         description: "Promote an existing memory to a broader visibility level.",
     },
+    ToolSpec {
+        name: "memory.promote",
+        description: "Publish an existing memory into another scope with review-aware promotion.",
+    },
 ];
 
 pub const TOOL_NAMES: &[&str] = &[
@@ -55,6 +59,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory.fetch_context",
     "memory.search",
     "memory.publish",
+    "memory.promote",
 ];
 
 #[derive(Clone)]
@@ -108,6 +113,7 @@ impl McpServer {
                         .await?
                 }
                 "memory.publish" => self.handle_publish(&trace_id, request.arguments).await?,
+                "memory.promote" => self.handle_promote(&trace_id, request.arguments).await?,
                 other => return Err(McpError::unsupported_tool(other)),
             };
 
@@ -287,6 +293,48 @@ impl McpServer {
             warnings: Vec::new(),
         })
     }
+
+    async fn handle_promote(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<PromoteToolArgs>(arguments)?;
+        let result = self
+            .kernel
+            .promote_memory_by_id(
+                ScopeId::from_string(payload.source_scope_id),
+                MemoryId::from_string(payload.memory_id),
+                PromoteMemoryRequest {
+                    source_scope_type: parse_scope_type(&payload.source_scope_type)?,
+                    target_scope_id: ScopeId::from_string(payload.target_scope_id),
+                    target_scope_type: parse_scope_type(&payload.target_scope_type)?,
+                    target_visibility: parse_visibility(&payload.target_visibility)?,
+                },
+            )
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.promote".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "memory_id": result.memory.id.as_str(),
+                "scope_id": result.memory.scope_id.as_str(),
+                "owner_scope_id": result.memory.owner_scope_id.as_str(),
+                "published_from_scope_id": result.memory.published_from_scope_id.as_ref().map(|scope| scope.as_str()),
+                "title": result.memory.title,
+                "body": result.memory.body,
+                "memory_kind": memory_kind_label(result.memory.kind),
+                "memory_state": result.memory.state.as_str(),
+                "visibility": visibility_label(result.memory.visibility),
+                "language_code": result.memory.language_code,
+                "wrote_pg": result.wrote_pg,
+                "wrote_markdown": result.wrote_markdown,
+            }),
+            warnings: Vec::new(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -404,6 +452,16 @@ struct PublishToolArgs {
     target_visibility: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct PromoteToolArgs {
+    source_scope_id: String,
+    memory_id: String,
+    source_scope_type: String,
+    target_scope_id: String,
+    target_scope_type: String,
+    target_visibility: String,
+}
+
 pub fn tool_supported(name: &str) -> bool {
     TOOL_NAMES.contains(&name)
 }
@@ -505,6 +563,22 @@ fn parse_sensitivity(raw: &str) -> Result<Sensitivity, McpError> {
     })
 }
 
+fn parse_scope_type(raw: &str) -> Result<ScopeType, McpError> {
+    Ok(match raw {
+        "org" => ScopeType::Org,
+        "team" => ScopeType::Team,
+        "workspace" => ScopeType::Workspace,
+        "project" => ScopeType::Project,
+        "user" => ScopeType::User,
+        "session" => ScopeType::Session,
+        other => {
+            return Err(McpError::invalid_arguments(format!(
+                "unsupported scope_type: {other}"
+            )));
+        }
+    })
+}
+
 fn map_kernel_error(error: anyhow::Error) -> McpError {
     let message = error.to_string();
     if message.contains("denied by policy") {
@@ -541,8 +615,12 @@ fn context_bundle_payload(bundle: &ContextBundle) -> Value {
 fn memory_payload(memory: &Memory) -> Value {
     json!({
         "memory_id": memory.id.as_str(),
+        "scope_id": memory.scope_id.as_str(),
+        "owner_scope_id": memory.owner_scope_id.as_str(),
+        "published_from_scope_id": memory.published_from_scope_id.as_ref().map(|scope| scope.as_str()),
         "title": memory.title,
         "body": memory.body,
+        "language_code": memory.language_code,
         "memory_kind": memory_kind_label(memory.kind),
         "memory_state": memory.state.as_str(),
         "visibility": visibility_label(memory.visibility),
@@ -645,14 +723,14 @@ mod tests {
     use super::{
         McpServer, McpTransport, TOOL_SPECS, ToolCallRequest, build_router, context_bundle_payload,
         entity_type_label, map_kernel_error, memory_kind_label, parse_arguments,
-        parse_artifact_kind, parse_memory_kind, parse_sensitivity, parse_visibility,
-        relation_state_label, relation_type_label, sensitivity_label, tool_supported,
-        visibility_label,
+        parse_artifact_kind, parse_memory_kind, parse_scope_type, parse_sensitivity,
+        parse_visibility, relation_state_label, relation_type_label, sensitivity_label,
+        tool_supported, visibility_label,
     };
     use axum::{body::Body, http::Request};
     use memory_domain::{
         ArtifactKind, ContextBundle, Entity, EntityType, Memory, MemoryKind, Relation,
-        RelationState, RelationType, ScopeId, Sensitivity, Visibility,
+        RelationState, RelationType, ScopeId, ScopeType, Sensitivity, Visibility,
     };
     use memory_kernel::Kernel;
     use serde::Deserialize;
@@ -711,7 +789,8 @@ mod tests {
     #[test]
     fn exposes_fetch_context_tool() {
         assert!(tool_supported("memory.fetch_context"));
-        assert_eq!(TOOL_SPECS.len(), 4);
+        assert!(tool_supported("memory.promote"));
+        assert_eq!(TOOL_SPECS.len(), 5);
     }
 
     #[test]
@@ -839,6 +918,48 @@ mod tests {
         assert_eq!(error.code, "not_found");
     }
 
+    #[tokio::test]
+    async fn dispatch_promote_creates_target_scope_copy() {
+        let tempdir = tempdir().unwrap();
+        let server = test_server(tempdir.path());
+
+        let remembered = server
+            .dispatch(ToolCallRequest {
+                name: "memory.remember".to_string(),
+                arguments: serde_json::json!({
+                    "scope_id": "scp_user_bob",
+                    "title": "Bob 团队共享",
+                    "body": "password: abc123",
+                    "memory_kind": "procedure",
+                    "visibility": "private",
+                    "sensitivity": "private"
+                }),
+            })
+            .await
+            .unwrap();
+
+        let promoted = server
+            .dispatch(ToolCallRequest {
+                name: "memory.promote".to_string(),
+                arguments: serde_json::json!({
+                    "source_scope_id": "scp_user_bob",
+                    "memory_id": remembered.data["memory_id"],
+                    "source_scope_type": "user",
+                    "target_scope_id": "scp_project_demo",
+                    "target_scope_type": "project",
+                    "target_visibility": "project"
+                }),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(promoted.tool, "memory.promote");
+        assert_eq!(promoted.data["scope_id"], "scp_project_demo");
+        assert_eq!(promoted.data["owner_scope_id"], "scp_user_bob");
+        assert_eq!(promoted.data["published_from_scope_id"], "scp_user_bob");
+        assert_eq!(promoted.data["memory_state"], "candidate");
+    }
+
     #[derive(Debug, Deserialize, PartialEq)]
     struct ParseFixture {
         value: usize,
@@ -890,6 +1011,19 @@ mod tests {
             assert_eq!(visibility_label(expected), raw);
         }
         assert!(parse_visibility("unknown").is_err());
+
+        let scope_type_cases = [
+            ("org", ScopeType::Org),
+            ("team", ScopeType::Team),
+            ("workspace", ScopeType::Workspace),
+            ("project", ScopeType::Project),
+            ("user", ScopeType::User),
+            ("session", ScopeType::Session),
+        ];
+        for (raw, expected) in scope_type_cases {
+            assert_eq!(parse_scope_type(raw).unwrap(), expected);
+        }
+        assert!(parse_scope_type("unknown").is_err());
 
         let sensitivity_cases = [
             ("public", Sensitivity::Public),

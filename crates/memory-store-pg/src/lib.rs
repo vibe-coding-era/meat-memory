@@ -1,35 +1,40 @@
 use anyhow::Result;
 use memory_domain::{
     Artifact, ArtifactId, ArtifactKind, Memory, MemoryId, MemoryKind, MemoryScores, MemoryState,
-    ScopeId, Sensitivity, Visibility,
+    Scope, ScopeId, ScopeType, Sensitivity, Visibility,
 };
 use sqlx::{Executor, PgPool, Postgres, QueryBuilder, Row};
 use time::OffsetDateTime;
 
 const MIGRATION_0001: &str = include_str!("../../../migrations/0001_init_scopes.sql");
 const MIGRATION_0002: &str = include_str!("../../../migrations/0002_init_content.sql");
+const MIGRATION_0003: &str = include_str!("../../../migrations/0003_scope_governance.sql");
+const MIGRATION_0004: &str = include_str!("../../../migrations/0004_memory_v2_metadata.sql");
 const DEFAULT_SCHEMA: &str = "public";
-const SEED_SCOPE_SQL: &str = "INSERT INTO scopes (id, scope_type, name, path, default_visibility)
-                     VALUES ($1, $2, $3, $4, $5)
+const SEED_SCOPE_SQL: &str = "INSERT INTO scopes (id, parent_scope_id, scope_type, name, path, owner_principal_id, inherit_policy, default_visibility, sync_policy)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                      ON CONFLICT (id) DO NOTHING";
 const INSERT_ARTIFACT_SQL: &str = "INSERT INTO artifacts
-                     (id, scope_id, artifact_kind, mime_type, language_code, content_text, content_hash, visibility, sensitivity, created_at, updated_at)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)";
+                     (id, scope_id, artifact_kind, mime_type, language_code, content_text, content_hash, labels, visibility, sensitivity, created_at, updated_at)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)";
 const INSERT_MEMORY_SQL: &str = "INSERT INTO memories
-                 (id, scope_id, memory_kind, state, title, body, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)";
+                 (id, scope_id, owner_scope_id, published_from_scope_id, memory_kind, state, title, body, language_code, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)";
 const INSERT_MEMORY_VERSION_SQL: &str =
     "INSERT INTO memory_versions (memory_id, version, title, body)
                  VALUES ($1, $2, $3, $4)";
 const UPSERT_MEMORY_SQL: &str = "INSERT INTO memories
-                 (id, scope_id, memory_kind, state, title, body, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                 (id, scope_id, owner_scope_id, published_from_scope_id, memory_kind, state, title, body, language_code, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                  ON CONFLICT (id) DO UPDATE SET
                    scope_id = EXCLUDED.scope_id,
+                   owner_scope_id = EXCLUDED.owner_scope_id,
+                   published_from_scope_id = EXCLUDED.published_from_scope_id,
                    memory_kind = EXCLUDED.memory_kind,
                    state = EXCLUDED.state,
                    title = EXCLUDED.title,
                    body = EXCLUDED.body,
+                   language_code = EXCLUDED.language_code,
                    confidence = EXCLUDED.confidence,
                    importance = EXCLUDED.importance,
                    stability = EXCLUDED.stability,
@@ -43,7 +48,7 @@ const UPSERT_MEMORY_VERSION_SQL: &str =
                  SELECT $1, COALESCE(MAX(version), 0) + 1, $2, $3
                  FROM memory_versions
                  WHERE memory_id = $1";
-const SELECT_MEMORY_SQL: &str = "SELECT id, scope_id, memory_kind, state, title, body, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at
+const SELECT_MEMORY_SQL: &str = "SELECT id, scope_id, owner_scope_id, published_from_scope_id, memory_kind, state, title, body, language_code, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at
              FROM memories
              WHERE scope_id = $1
                AND id = $2";
@@ -56,7 +61,9 @@ const UPDATE_MEMORY_EVIDENCE_COUNT_SQL: &str = "UPDATE memories
                        SELECT COUNT(*)::int FROM memory_evidence_links WHERE memory_id = $1
                      )
                      WHERE id = $1";
-const SEARCH_MEMORY_PREFIX_SQL: &str = "SELECT id, scope_id, memory_kind, state, title, body, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at
+const LIST_MEMORY_PREFIX_SQL: &str = "SELECT id, scope_id, owner_scope_id, published_from_scope_id, memory_kind, state, title, body, language_code, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at
+             FROM memories";
+const SEARCH_MEMORY_PREFIX_SQL: &str = "SELECT id, scope_id, owner_scope_id, published_from_scope_id, memory_kind, state, title, body, language_code, confidence, importance, stability, freshness, visibility, sensitivity, evidence_count, created_at, updated_at
              FROM memories
              WHERE scope_id = ";
 
@@ -64,10 +71,13 @@ const SEARCH_MEMORY_PREFIX_SQL: &str = "SELECT id, scope_id, memory_kind, state,
 struct MemoryRecord {
     id: String,
     scope_id: String,
+    owner_scope_id: String,
+    published_from_scope_id: Option<String>,
     memory_kind: String,
     state: String,
     title: String,
     body: String,
+    language_code: Option<String>,
     confidence: f32,
     importance: f32,
     stability: f32,
@@ -100,6 +110,8 @@ impl PgStore {
     pub async fn migrate(&self) -> Result<()> {
         self.pool.execute(sqlx::raw_sql(MIGRATION_0001)).await?;
         self.pool.execute(sqlx::raw_sql(MIGRATION_0002)).await?;
+        self.pool.execute(sqlx::raw_sql(MIGRATION_0003)).await?;
+        self.pool.execute(sqlx::raw_sql(MIGRATION_0004)).await?;
         Ok(())
     }
 
@@ -109,14 +121,29 @@ impl PgStore {
         scope_name: &str,
         scope_path: &str,
     ) -> Result<()> {
+        let scope = Scope::new_with_id(
+            scope_id.clone(),
+            ScopeType::Project,
+            scope_name,
+            scope_path,
+            None,
+        )?;
+        self.seed_scope_definition(&scope).await
+    }
+
+    pub async fn seed_scope_definition(&self, scope: &Scope) -> Result<()> {
         self.pool
             .execute(
                 sqlx::query(seed_scope_sql())
-                    .bind(scope_id.as_str())
-                    .bind("project")
-                    .bind(scope_name)
-                    .bind(scope_path)
-                    .bind("private"),
+                    .bind(scope.id.as_str())
+                    .bind(scope.parent_scope_id.as_ref().map(ScopeId::as_str))
+                    .bind(scope_type_to_str(scope.scope_type))
+                    .bind(&scope.name)
+                    .bind(&scope.path)
+                    .bind(scope.owner_principal_id.as_deref())
+                    .bind(scope.inherit_policy.as_str())
+                    .bind(visibility_to_str(scope.default_visibility))
+                    .bind(scope.sync_policy.as_str()),
             )
             .await?;
 
@@ -134,6 +161,7 @@ impl PgStore {
                     .bind(artifact.language_code.as_deref())
                     .bind(&artifact.content_text)
                     .bind(&artifact.content_hash)
+                    .bind(sqlx::types::Json(&artifact.labels))
                     .bind(visibility_to_str(artifact.visibility))
                     .bind(sensitivity_to_str(artifact.sensitivity))
                     .bind(artifact.created_at)
@@ -151,10 +179,13 @@ impl PgStore {
             sqlx::query(insert_memory_sql())
                 .bind(memory.id.as_str())
                 .bind(memory.scope_id.as_str())
+                .bind(memory.owner_scope_id.as_str())
+                .bind(memory.published_from_scope_id.as_ref().map(ScopeId::as_str))
                 .bind(memory_kind_to_str(memory.kind))
                 .bind(memory_state_to_str(memory.state))
                 .bind(&memory.title)
                 .bind(&memory.body)
+                .bind(memory.language_code.as_deref())
                 .bind(memory.scores.confidence)
                 .bind(memory.scores.importance)
                 .bind(memory.scores.stability)
@@ -188,10 +219,13 @@ impl PgStore {
             sqlx::query(upsert_memory_sql())
                 .bind(memory.id.as_str())
                 .bind(memory.scope_id.as_str())
+                .bind(memory.owner_scope_id.as_str())
+                .bind(memory.published_from_scope_id.as_ref().map(ScopeId::as_str))
                 .bind(memory_kind_to_str(memory.kind))
                 .bind(memory_state_to_str(memory.state))
                 .bind(&memory.title)
                 .bind(&memory.body)
+                .bind(memory.language_code.as_deref())
                 .bind(memory.scores.confidence)
                 .bind(memory.scores.importance)
                 .bind(memory.scores.stability)
@@ -270,6 +304,16 @@ impl PgStore {
 
         rows.into_iter().map(row_to_memory).collect()
     }
+
+    pub async fn list_memories(
+        &self,
+        scope_id: Option<&ScopeId>,
+        limit: i64,
+    ) -> Result<Vec<Memory>> {
+        let mut builder = build_list_query(scope_id.map(ScopeId::as_str), limit);
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        rows.into_iter().map(row_to_memory).collect()
+    }
 }
 
 fn search_terms(keyword: &str) -> Vec<String> {
@@ -314,14 +358,28 @@ fn build_search_query<'a>(
     builder
 }
 
+fn build_list_query(scope_id: Option<&str>, limit: i64) -> QueryBuilder<'_, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(LIST_MEMORY_PREFIX_SQL);
+    if let Some(scope_id) = scope_id {
+        builder.push(" WHERE scope_id = ");
+        builder.push_bind(scope_id);
+    }
+    builder.push(" ORDER BY updated_at DESC LIMIT ");
+    builder.push_bind(limit);
+    builder
+}
+
 fn row_to_memory(row: sqlx::postgres::PgRow) -> Result<Memory> {
     memory_from_record(MemoryRecord {
         id: row.try_get::<String, _>("id")?,
         scope_id: row.try_get::<String, _>("scope_id")?,
+        owner_scope_id: row.try_get::<String, _>("owner_scope_id")?,
+        published_from_scope_id: row.try_get::<Option<String>, _>("published_from_scope_id")?,
         memory_kind: row.try_get("memory_kind")?,
         state: row.try_get("state")?,
         title: row.try_get("title")?,
         body: row.try_get("body")?,
+        language_code: row.try_get::<Option<String>, _>("language_code")?,
         confidence: row.try_get("confidence")?,
         importance: row.try_get("importance")?,
         stability: row.try_get("stability")?,
@@ -341,10 +399,13 @@ fn memory_from_record(record: MemoryRecord) -> Result<Memory> {
     Ok(Memory {
         id: MemoryId::from_string(record.id),
         scope_id: ScopeId::from_string(record.scope_id),
+        owner_scope_id: ScopeId::from_string(record.owner_scope_id),
+        published_from_scope_id: record.published_from_scope_id.map(ScopeId::from_string),
         kind: parse_memory_kind(&record.memory_kind)?,
         state: parse_memory_state(&record.state)?,
         title: record.title,
         body: record.body,
+        language_code: record.language_code,
         scores: MemoryScores {
             confidence: record.confidence,
             importance: record.importance,
@@ -397,6 +458,11 @@ fn update_memory_evidence_count_sql() -> &'static str {
 
 fn search_memory_prefix_sql() -> &'static str {
     SEARCH_MEMORY_PREFIX_SQL
+}
+
+#[cfg(test)]
+fn list_memory_prefix_sql() -> &'static str {
+    LIST_MEMORY_PREFIX_SQL
 }
 
 fn artifact_kind_to_str(kind: ArtifactKind) -> &'static str {
@@ -456,6 +522,10 @@ fn sensitivity_to_str(sensitivity: Sensitivity) -> &'static str {
     }
 }
 
+fn scope_type_to_str(scope_type: ScopeType) -> &'static str {
+    scope_type.as_str()
+}
+
 fn parse_memory_kind(value: &str) -> Result<MemoryKind> {
     Ok(match value {
         "fact" => MemoryKind::Fact,
@@ -505,17 +575,17 @@ fn parse_sensitivity(value: &str) -> Result<Sensitivity> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MemoryRecord, PgStore, artifact_kind_to_str, build_search_query, insert_artifact_sql,
-        insert_memory_evidence_sql, insert_memory_sql, insert_memory_version_sql,
-        memory_from_record, memory_kind_to_str, memory_state_to_str, parse_memory_kind,
-        parse_memory_state, parse_sensitivity, parse_visibility, search_memory_prefix_sql,
-        search_terms, seed_scope_sql, select_memory_sql, sensitivity_to_str,
-        update_memory_evidence_count_sql, upsert_memory_sql, upsert_memory_version_sql,
-        visibility_to_str,
+        MemoryRecord, PgStore, artifact_kind_to_str, build_list_query, build_search_query,
+        insert_artifact_sql, insert_memory_evidence_sql, insert_memory_sql,
+        insert_memory_version_sql, list_memory_prefix_sql, memory_from_record, memory_kind_to_str,
+        memory_state_to_str, parse_memory_kind, parse_memory_state, parse_sensitivity,
+        parse_visibility, scope_type_to_str, search_memory_prefix_sql, search_terms,
+        seed_scope_sql, select_memory_sql, sensitivity_to_str, update_memory_evidence_count_sql,
+        upsert_memory_sql, upsert_memory_version_sql, visibility_to_str,
     };
     use memory_domain::{
         Artifact, ArtifactId, ArtifactKind, Memory, MemoryId, MemoryKind, MemoryState, ScopeId,
-        Sensitivity, Visibility,
+        ScopeType, Sensitivity, Visibility,
     };
     use sqlx::PgPool;
     use time::macros::datetime;
@@ -614,6 +684,8 @@ mod tests {
         for (sensitivity, expected) in sensitivity_cases {
             assert_eq!(sensitivity_to_str(sensitivity), expected);
         }
+
+        assert_eq!(scope_type_to_str(ScopeType::Workspace), "workspace");
     }
 
     #[test]
@@ -681,6 +753,7 @@ mod tests {
             select_memory_sql(),
             insert_memory_evidence_sql(),
             update_memory_evidence_count_sql(),
+            list_memory_prefix_sql(),
             search_memory_prefix_sql(),
         ];
 
@@ -695,6 +768,7 @@ mod tests {
         assert!(select_memory_sql().contains("FROM memories"));
         assert!(insert_memory_evidence_sql().contains("memory_evidence_links"));
         assert!(update_memory_evidence_count_sql().contains("COUNT(*)::int"));
+        assert!(list_memory_prefix_sql().contains("FROM memories"));
         assert!(search_memory_prefix_sql().contains("WHERE scope_id = "));
     }
 
@@ -711,6 +785,19 @@ mod tests {
         assert!(sql.contains("title ILIKE $4"));
         assert!(sql.contains("body ILIKE $5"));
         assert!(sql.ends_with("ORDER BY updated_at DESC LIMIT $6"));
+    }
+
+    #[test]
+    fn build_list_query_supports_optional_scope_filter() {
+        let scoped = build_list_query(Some("scp_a"), 10).sql().to_string();
+        let unscoped = build_list_query(None, 20).sql().to_string();
+
+        assert!(scoped.starts_with(list_memory_prefix_sql()));
+        assert!(scoped.contains("WHERE scope_id = $1"));
+        assert!(scoped.ends_with("ORDER BY updated_at DESC LIMIT $2"));
+        assert!(unscoped.starts_with(list_memory_prefix_sql()));
+        assert!(!unscoped.contains("WHERE scope_id = "));
+        assert!(unscoped.ends_with("ORDER BY updated_at DESC LIMIT $1"));
     }
 
     #[tokio::test]
@@ -782,10 +869,13 @@ mod tests {
         let record = MemoryRecord {
             id: "mem_pg".to_string(),
             scope_id: "scp_pg".to_string(),
+            owner_scope_id: "scp_pg".to_string(),
+            published_from_scope_id: Some("scp_user_pg".to_string()),
             memory_kind: "summary".to_string(),
             state: "active".to_string(),
             title: "数据库映射".to_string(),
             body: "映射成功".to_string(),
+            language_code: Some("zh-CN".to_string()),
             confidence: 0.8,
             importance: 0.7,
             stability: 0.6,
@@ -800,8 +890,14 @@ mod tests {
         let memory = memory_from_record(record.clone()).unwrap();
         assert_eq!(memory.id.as_str(), "mem_pg");
         assert_eq!(memory.scope_id.as_str(), "scp_pg");
+        assert_eq!(memory.owner_scope_id.as_str(), "scp_pg");
+        assert_eq!(
+            memory.published_from_scope_id.as_ref().map(ScopeId::as_str),
+            Some("scp_user_pg")
+        );
         assert_eq!(memory.kind, MemoryKind::Summary);
         assert_eq!(memory.state, MemoryState::Active);
+        assert_eq!(memory.language_code.as_deref(), Some("zh-CN"));
         assert_eq!(memory.visibility, Visibility::Team);
         assert_eq!(memory.sensitivity, Sensitivity::Restricted);
         assert_eq!(memory.evidence_count, 3);

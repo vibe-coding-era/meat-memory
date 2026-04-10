@@ -12,4 +12,5 @@ time.workspace = true
 ulid.workspace = true
 
 [dev-dependencies]
+tempfile = "3.20.0"
 tokio.workspace = true

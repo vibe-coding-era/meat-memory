@@ -15,7 +15,7 @@
 - 已完成底座：Rust workspace、PGSQL + Markdown 双存储、kernel `remember/search/publish`、知识图谱抽取、HTTP/CLI/MCP 接入层、基础 observability、sync oplog/merge baseline、V1 多模型能力抽象与 provider/model/route registry、V1 图片资产存储与寻址基线、V1 `remember_image` 写入链路、V1 最小图片理解链路、Agent 接入文档、Docker/Helm 部署骨架、V1 验收脚本与文档包、中文系统化验收语料、Browser Console / failover 回归入口，以及 V1 release notes / 封板说明。
 - 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
-- 当前最重要的未完成范围：V2 的团队隔离/多语言规划准备。
+- 当前最重要的未完成范围：V3 的全多模态扩展；V2 已完成并进入稳定化。
 
 ## 版本范围总览
 
@@ -79,13 +79,13 @@
 
 | ID | 任务 | 状态 | 说明 |
 |---|---|---|---|
-| `V2-SCP-001` | 多团队 / 个人 scope 模型正式化 | todo | 将当前 scope 基线扩展到团队/个人隔离真实规则 |
-| `V2-SCP-002` | 发布、review、共享、隔离策略扩展 | todo | 需要补 policy/redaction/review 工作流 |
-| `V2-MRG-001` | 多节点 merge 策略与冲突对象保留 | todo | 在现有 `merge_ops` 基线之上扩展 |
-| `V2-SYN-001` | 持久化 replication engine 与真实 pull/apply | todo | 当前只有内存版 replication engine |
-| `V2-SYN-002` | 团队级同步、跨节点回放、审计链路 | todo | 需要和 worker、projection refresh 联动 |
-| `V2-LNG-001` | 英文抽取、检索、图谱支持 | todo | V1 只承诺中文优先 |
-| `V2-LNG-002` | 中英双语测试集、回归测试、文档 | todo | V2 的语言验收入口 |
+| `V2-SCP-001` | 多团队 / 个人 scope 模型正式化 | done | 已补 scope owner/inherit/sync 字段、层级校验、memory owner/published_from 元数据与持久化 |
+| `V2-SCP-002` | 发布、review、共享、隔离策略扩展 | done | 已补 scope-aware publish policy、review/candidate、redaction 与 HTTP/MCP promote 入口 |
+| `V2-MRG-001` | 多节点 merge 策略与冲突对象保留 | done | 已补 `ConflictRecord`、冲突保留与 merge status 统计 |
+| `V2-SYN-001` | 持久化 replication engine 与真实 pull/apply | done | 已新增 `FileReplicationEngine` 与持久化 oplog state |
+| `V2-SYN-002` | 团队级同步、跨节点回放、审计链路 | done | 已补 sync status、worker/config runtime 入口与持久化审计状态语义 |
+| `V2-LNG-001` | 英文抽取、检索、图谱支持 | done | 已补英文/中文 memory kind 推断、language_code 检测与双语 metadata 透传 |
+| `V2-LNG-002` | 中英双语测试集、回归测试、文档 | done | 已补 V2 双语验收文档，并覆盖 extract/kernel/http/mcp/cli 定向回归 |
 
 ### V2 建议执行顺序
 
