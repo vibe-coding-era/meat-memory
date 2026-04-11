@@ -23,9 +23,11 @@ Run these checks in the project root:
 ```bash
 memory-cli config check
 memory-cli mcp info
+memory-cli key create --name claude-code-local --source skill --scope-kind personal --storage all --json
 ```
 
 If MCP is enabled, prefer MCP tools for text memory. Use CLI as a fallback.
+If key enforcement is enabled, use the returned `raw_key` as `MEAT_MEMORY_KEY` or pass it in `X-Meat-Memory-Key`.
 
 ## Scope Guidance
 

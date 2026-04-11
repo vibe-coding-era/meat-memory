@@ -16,17 +16,23 @@ V1 已实现的 HTTP 路由：
 | `/readyz` | `GET` | 读写依赖准备度 |
 | `/livez` | `GET` | 存活检查 |
 | `/metrics` | `GET` | 内存指标快照 |
+| `/api/v1/metrics/keys` | `GET` | key/source/storage 维度指标快照 |
 | `/api/v1/meta` | `GET` | 服务元信息与 feature flag |
 | `/api/v1/memories` | `POST` | 写入文本记忆 |
 | `/api/v1/images` | `POST` | 写入图片记忆 |
 | `/api/v1/context` | `POST` | 搜索上下文，兼容别名 |
 | `/api/v1/context/search` | `POST` | 搜索上下文 |
+| `/api/v1/keys` | `POST` / `GET` | 创建和列出 access key |
+| `/api/v1/keys/{key_id}` | `PATCH` | 更新 key 元数据 |
+| `/api/v1/keys/{key_id}/rotate` | `POST` | 轮换 key |
+| `/api/v1/keys/{key_id}/stats` | `GET` | 查看指定 key 的使用统计 |
 
 ## 2. 写入文本
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/memories \
   -H 'content-type: application/json' \
+  -H 'x-meat-memory-key: mmk_...' \
   -d '{
     "scope_id": "scp_demo_http",
     "title": "上线规则",
@@ -89,6 +95,7 @@ V1 图片返回会额外包含：
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/context/search \
   -H 'content-type: application/json' \
+  -H 'x-meat-memory-key: mmk_...' \
   -d '{
     "scope_id": "scp_demo_http",
     "query": "上线规则 回归测试",
@@ -103,9 +110,33 @@ curl -X POST http://127.0.0.1:8080/api/v1/context/search \
 - `memory_count`
 - `memories[]`
 
-当前检索是 PG 主存 + graph context 的最小闭环，适合 V1 的文本/图片派生文本召回。
+当前检索已经支持 keyword + vector + graph expansion 的最小混合闭环。
 
-## 5. 元信息与健康检查
+## 5. Key 管理
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/keys \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "codex-local",
+    "source": "http",
+    "owner_principal_id": "local-user",
+    "owner_scope_id": "scp_user_local",
+    "scope_kind": "personal",
+    "storage_mode": "all"
+  }'
+
+curl http://127.0.0.1:8080/api/v1/keys
+curl http://127.0.0.1:8080/api/v1/keys/key_.../stats
+curl -X POST http://127.0.0.1:8080/api/v1/keys/key_.../rotate
+```
+
+写入和检索可以通过以下任一认证头携带 raw key：
+
+- `Authorization: Bearer mmk_...`
+- `X-Meat-Memory-Key: mmk_...`
+
+## 6. 元信息与健康检查
 
 ```bash
 curl http://127.0.0.1:8080/api/v1/meta

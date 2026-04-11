@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock)]
+
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -11,13 +13,21 @@ use memory_models::{
     ProviderDescriptor,
 };
 use std::collections::BTreeSet;
-use std::{env, sync::Arc};
+use std::{
+    env,
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
+};
 use tempfile::tempdir;
 use tower::ServiceExt;
 
 fn test_database_url() -> String {
     env::var("MEAT_MEMORY_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into())
+}
+
+fn http_test_guard() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
 }
 
 async fn build_test_app() -> axum::Router {
@@ -52,6 +62,7 @@ async fn build_test_app_with_registry(registry: ModelRegistry) -> axum::Router {
                 markdown: true,
                 http: true,
                 mcp: false,
+                require_key: false,
             },
         },
         kernel,
@@ -60,6 +71,7 @@ async fn build_test_app_with_registry(registry: ModelRegistry) -> axum::Router {
 
 #[tokio::test]
 async fn http_create_and_search_flow_returns_persisted_memory() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
     let create_payload = format!(
@@ -102,7 +114,227 @@ async fn http_create_and_search_flow_returns_persisted_memory() {
 }
 
 #[tokio::test]
+async fn http_key_create_and_authenticated_remember_flow() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"name":"http test key","source":"http","owner_principal_id":"alice","owner_scope_id":"scp_user_http_key","scope_kind":"personal","storage_mode":"all"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key_response.status(), StatusCode::CREATED);
+
+    let key_bytes = to_bytes(key_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let key_payload = serde_json::from_slice::<serde_json::Value>(&key_bytes).unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+    assert_eq!(key_payload["storage_mode"], "all");
+
+    let remember_response = app
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(
+                    r#"{"scope_id":"scp_user_http_key","title":"Keyed memory","body":"Access key write path works.","memory_kind":"fact"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(remember_response.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn http_vector_key_flow_writes_pg_only_and_searches_with_key_context() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let scope_id = ScopeId::new();
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"name":"http vector key","source":"http","owner_principal_id":"alice","owner_scope_id":"{}","scope_kind":"personal","storage_mode":"vector"}}"#,
+                    scope_id.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key_response.status(), StatusCode::CREATED);
+
+    let key_bytes = to_bytes(key_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let key_payload = serde_json::from_slice::<serde_json::Value>(&key_bytes).unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+
+    let remember_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","title":"Vector only memory","body":"Graphite apple vector retrieval works in HTTP.","memory_kind":"fact"}}"#,
+                    scope_id.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(remember_response.status(), StatusCode::CREATED);
+    let remember_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(remember_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(remember_payload["wrote_pg"], true);
+    assert_eq!(remember_payload["wrote_markdown"], false);
+
+    let search_response = app
+        .oneshot(
+            Request::post("/api/v1/context/search")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","query":"graphite apple","limit":5}}"#,
+                    scope_id.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(search_response.status(), StatusCode::OK);
+
+    let payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(search_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(payload["memory_count"], 1);
+}
+
+#[tokio::test]
+async fn http_key_update_rotate_and_stats_routes_work() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"name":"http manage key","source":"http","owner_principal_id":"alice","owner_scope_id":"scp_user_http_manage","scope_kind":"personal","storage_mode":"all"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let key_id = key_payload["key_id"].as_str().unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+
+    let remember_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(
+                    r#"{"scope_id":"scp_user_http_manage","title":"Managed key memory","body":"Key stats should capture HTTP writes.","memory_kind":"fact"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(remember_response.status(), StatusCode::CREATED);
+
+    let update_response = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/keys/{key_id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"name":"http manage key updated","storage_mode":"vector","isolated":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
+    let update_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(update_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(update_payload["name"], "http manage key updated");
+    assert_eq!(update_payload["storage_mode"], "vector");
+    assert_eq!(update_payload["isolated"], true);
+
+    let stats_response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/keys/{key_id}/stats"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stats_response.status(), StatusCode::OK);
+    let stats_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(stats_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stats_payload["stats"]["total_operations"], 1);
+
+    let rotate_response = app
+        .oneshot(
+            Request::post(format!("/api/v1/keys/{key_id}/rotate"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rotate_response.status(), StatusCode::CREATED);
+    let rotate_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(rotate_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_ne!(rotate_payload["key_id"], key_payload["key_id"]);
+    assert!(
+        rotate_payload["raw_key"]
+            .as_str()
+            .unwrap()
+            .starts_with("mmk_")
+    );
+}
+
+#[tokio::test]
 async fn http_root_route_serves_browser_console() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
 
     let response = app
@@ -122,6 +354,7 @@ async fn http_root_route_serves_browser_console() {
 
 #[tokio::test]
 async fn http_create_and_search_flow_supports_chinese_acceptance_corpus() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
     let create_payload = format!(
@@ -171,6 +404,7 @@ async fn http_create_and_search_flow_supports_chinese_acceptance_corpus() {
 
 #[tokio::test]
 async fn http_rejects_invalid_memory_kind() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
     let payload = format!(
@@ -193,6 +427,7 @@ async fn http_rejects_invalid_memory_kind() {
 
 #[tokio::test]
 async fn http_denies_forbidden_publish_level_write() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
     let payload = format!(
@@ -215,6 +450,7 @@ async fn http_denies_forbidden_publish_level_write() {
 
 #[tokio::test]
 async fn http_create_image_flow_returns_asset_uri() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
     let payload = format!(
@@ -253,6 +489,7 @@ async fn http_create_image_flow_returns_asset_uri() {
 
 #[tokio::test]
 async fn http_create_image_flow_returns_llm_failover_notice() {
+    let _guard = http_test_guard();
     let app = build_test_app_with_registry(failover_test_model_registry()).await;
     let scope_id = ScopeId::new();
     let payload = format!(
@@ -284,6 +521,7 @@ async fn http_create_image_flow_returns_llm_failover_notice() {
 
 #[tokio::test]
 async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope() {
+    let _guard = http_test_guard();
     let app = build_test_app().await;
 
     let created = app

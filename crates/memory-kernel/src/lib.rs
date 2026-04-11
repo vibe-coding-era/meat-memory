@@ -3,8 +3,10 @@ use async_trait::async_trait;
 use memory_assets::{FileSystemAssetStore, PutAssetRequest, StorageClass, StoredAsset};
 use memory_core::MemoryService;
 use memory_domain::{
-    Artifact, ArtifactKind, ContextBundle, Entity, Memory, MemoryId, MemoryKind, Relation, Scope,
-    ScopeId, ScopeType, Sensitivity, Visibility,
+    AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, Artifact, ArtifactKind,
+    ContextBundle, Entity, KeyScopeKind, KeySourceKind, Memory, MemoryId, MemoryKind, Relation,
+    RequestContext, Scope, ScopeId, ScopeType, Sensitivity, StorageMode, Visibility,
+    hash_access_key,
 };
 use memory_extract::{
     ExtractionEnvelope, detect_language_code, distill_candidate_memory, extract_entities,
@@ -12,11 +14,12 @@ use memory_extract::{
 };
 use memory_index::{SearchQuery, normalize_query};
 use memory_models::{
-    ImageProfile, ModelRegistry, VisionGateway, VisionRequest, VisionResponse, inspect_image,
+    EmbeddingGateway, EmbeddingRequest, ImageProfile, ModelRegistry, VisionGateway, VisionRequest,
+    VisionResponse, inspect_image,
 };
 use memory_observability::{
-    operation_span, record_search_failure, record_search_success, record_write_failure,
-    record_write_success,
+    operation_span, record_key_operation, record_search_failure, record_search_success,
+    record_write_failure, record_write_success,
 };
 use memory_policy::{
     PolicyDecision, PublishPolicyInput, WritePolicyInput, evaluate_publish_policy,
@@ -38,6 +41,7 @@ pub struct RememberTextRequest {
     pub source_refs: Vec<String>,
     pub visibility: Visibility,
     pub sensitivity: Sensitivity,
+    pub context: Option<RequestContext>,
 }
 
 impl RememberTextRequest {
@@ -51,6 +55,7 @@ impl RememberTextRequest {
             source_refs: Vec::new(),
             visibility: Visibility::Private,
             sensitivity: Sensitivity::Internal,
+            context: None,
         }
     }
 }
@@ -75,6 +80,7 @@ pub struct RememberImageRequest {
     pub source_refs: Vec<String>,
     pub visibility: Visibility,
     pub sensitivity: Sensitivity,
+    pub context: Option<RequestContext>,
 }
 
 impl RememberImageRequest {
@@ -90,6 +96,7 @@ impl RememberImageRequest {
             source_refs: Vec::new(),
             visibility: Visibility::Private,
             sensitivity: Sensitivity::Internal,
+            context: None,
         }
     }
 }
@@ -135,6 +142,34 @@ pub struct SearchContextRequest {
     pub scope_id: ScopeId,
     pub query: String,
     pub limit: usize,
+    pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateAccessKeyRequest {
+    pub raw_key: Option<String>,
+    pub display_name: String,
+    pub source_kind: KeySourceKind,
+    pub owner_principal_id: String,
+    pub owner_scope_id: ScopeId,
+    pub scope_kind: KeyScopeKind,
+    pub storage_mode: StorageMode,
+    pub is_fully_isolated: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateAccessKeyResult {
+    pub access_key: AccessKey,
+    pub raw_key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateAccessKeyRequest {
+    pub key_id: AccessKeyId,
+    pub display_name: Option<String>,
+    pub storage_mode: Option<StorageMode>,
+    pub status: Option<AccessKeyStatus>,
+    pub is_fully_isolated: Option<bool>,
 }
 
 impl SearchContextRequest {
@@ -143,6 +178,7 @@ impl SearchContextRequest {
             scope_id,
             query: query.into(),
             limit: 10,
+            context: None,
         }
     }
 }
@@ -152,6 +188,7 @@ pub struct KernelBuilder {
     markdown_store: Option<MarkdownStore>,
     asset_store: Option<FileSystemAssetStore>,
     vision_gateway: Option<VisionGateway>,
+    embedding_gateway: Option<EmbeddingGateway>,
 }
 
 impl Default for KernelBuilder {
@@ -167,6 +204,7 @@ impl KernelBuilder {
             markdown_store: None,
             asset_store: None,
             vision_gateway: None,
+            embedding_gateway: None,
         }
     }
 
@@ -201,7 +239,8 @@ impl KernelBuilder {
         registry: ModelRegistry,
         default_locale: impl Into<String>,
     ) -> Result<Self> {
-        self.vision_gateway = Some(VisionGateway::new(registry, default_locale)?);
+        self.vision_gateway = Some(VisionGateway::new(registry.clone(), default_locale)?);
+        self.embedding_gateway = Some(EmbeddingGateway::new(registry)?);
         Ok(self)
     }
 
@@ -215,6 +254,7 @@ impl KernelBuilder {
             markdown_store: self.markdown_store,
             asset_store: self.asset_store,
             vision_gateway: self.vision_gateway,
+            embedding_gateway: self.embedding_gateway,
         })
     }
 }
@@ -224,6 +264,7 @@ pub struct Kernel {
     markdown_store: Option<MarkdownStore>,
     asset_store: Option<FileSystemAssetStore>,
     vision_gateway: Option<VisionGateway>,
+    embedding_gateway: Option<EmbeddingGateway>,
 }
 
 impl Kernel {
@@ -245,6 +286,10 @@ impl Kernel {
 
     pub fn has_vision_gateway(&self) -> bool {
         self.vision_gateway.is_some()
+    }
+
+    pub fn has_embedding_gateway(&self) -> bool {
+        self.embedding_gateway.is_some()
     }
 
     pub async fn get_memory(
@@ -289,13 +334,142 @@ impl Kernel {
         Ok(memories)
     }
 
+    pub async fn create_access_key(
+        &self,
+        request: CreateAccessKeyRequest,
+    ) -> Result<CreateAccessKeyResult> {
+        let raw_key = request
+            .raw_key
+            .unwrap_or_else(|| format!("mmk_{}", ulid::Ulid::new()));
+        let access_key = AccessKey::new(
+            &raw_key,
+            request.display_name,
+            request.source_kind,
+            request.owner_principal_id,
+            request.owner_scope_id,
+            request.scope_kind,
+            request.storage_mode,
+            request.is_fully_isolated,
+        )?;
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        pg_store.upsert_access_key(&access_key).await?;
+        Ok(CreateAccessKeyResult {
+            access_key,
+            raw_key,
+        })
+    }
+
+    pub async fn list_access_keys(&self, limit: usize) -> Result<Vec<AccessKey>> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        pg_store.list_access_keys(limit as i64).await
+    }
+
+    pub async fn update_access_key(&self, request: UpdateAccessKeyRequest) -> Result<AccessKey> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        let mut access_key = pg_store
+            .get_access_key_by_id(&request.key_id)
+            .await?
+            .ok_or_else(|| anyhow!("access key not found"))?;
+        if let Some(display_name) = request.display_name {
+            access_key.display_name = display_name.trim().to_string();
+        }
+        if let Some(storage_mode) = request.storage_mode {
+            access_key.storage_mode = storage_mode;
+        }
+        if let Some(is_fully_isolated) = request.is_fully_isolated {
+            access_key.is_fully_isolated = is_fully_isolated;
+        }
+        if let Some(status) = request.status {
+            access_key.status = status;
+        }
+        pg_store.upsert_access_key(&access_key).await?;
+        Ok(access_key)
+    }
+
+    pub async fn rotate_access_key(
+        &self,
+        key_id: &AccessKeyId,
+        raw_key: Option<String>,
+    ) -> Result<CreateAccessKeyResult> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        let existing = pg_store
+            .get_access_key_by_id(key_id)
+            .await?
+            .ok_or_else(|| anyhow!("access key not found"))?;
+        pg_store
+            .update_access_key_status(key_id, AccessKeyStatus::Revoked)
+            .await?;
+        let raw_key = raw_key.unwrap_or_else(|| format!("mmk_{}", ulid::Ulid::new()));
+        let access_key = AccessKey::new(
+            &raw_key,
+            existing.display_name,
+            existing.source_kind,
+            existing.owner_principal_id,
+            existing.owner_scope_id,
+            existing.scope_kind,
+            existing.storage_mode,
+            existing.is_fully_isolated,
+        )?;
+        pg_store.upsert_access_key(&access_key).await?;
+        Ok(CreateAccessKeyResult {
+            access_key,
+            raw_key,
+        })
+    }
+
+    pub async fn access_key_usage_stats(
+        &self,
+        key_id: &AccessKeyId,
+    ) -> Result<Option<AccessKeyUsageStats>> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        pg_store.access_key_usage_stats(key_id).await
+    }
+
+    pub async fn resolve_access_key_context(
+        &self,
+        raw_key: &str,
+    ) -> Result<Option<RequestContext>> {
+        let Some(pg_store) = &self.pg_store else {
+            return Ok(None);
+        };
+        let key_hash = hash_access_key(raw_key)?;
+        let Some(access_key) = pg_store.get_access_key_by_hash(&key_hash).await? else {
+            return Ok(None);
+        };
+        if !matches!(access_key.status, memory_domain::AccessKeyStatus::Active) {
+            return Ok(None);
+        }
+        pg_store.touch_access_key(&access_key.id).await?;
+        Ok(Some(access_key.to_context()))
+    }
+
     pub async fn remember_text(&self, request: RememberTextRequest) -> Result<RememberTextResult> {
         let started_at = Instant::now();
         let scope_id = request.scope_id.as_str().to_string();
-        let result = async {
+        let result: Result<RememberTextResult> = async {
             let artifact = self.build_artifact(&request)?;
-            self.remember_artifact(artifact, request.title.as_deref(), request.memory_kind)
-                .await
+            self.remember_artifact(
+                artifact,
+                request.title.as_deref(),
+                request.memory_kind,
+                request.context.as_ref(),
+            )
+            .await
         }
         .instrument(operation_span(
             "kernel",
@@ -313,6 +487,27 @@ impl Kernel {
             ),
             Err(_) => record_write_failure(started_at.elapsed()),
         }
+        if let Some(context) = request.context.as_ref() {
+            record_key_operation(context.storage_mode.as_str(), result.is_ok());
+            if let Some(pg_store) = &self.pg_store {
+                let error_code = match result.as_ref() {
+                    Ok(_) => None,
+                    Err(error) => Some(error.to_string()),
+                };
+                let _ = pg_store
+                    .record_key_usage(
+                        Some(&context.key_id),
+                        context.source_kind,
+                        "remember_text",
+                        Some(&request.scope_id),
+                        context.storage_mode,
+                        result.is_ok(),
+                        started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                        error_code.as_deref(),
+                    )
+                    .await;
+            }
+        }
 
         result
     }
@@ -323,7 +518,8 @@ impl Kernel {
     ) -> Result<RememberImageResult> {
         let started_at = Instant::now();
         let scope_id = request.scope_id.as_str().to_string();
-        let result = async {
+        let request_context = request.context.clone();
+        let result: Result<RememberImageResult> = async {
             let asset_store = self
                 .asset_store
                 .as_ref()
@@ -339,7 +535,9 @@ impl Kernel {
                 source_refs,
                 visibility,
                 sensitivity,
+                context,
             } = request;
+            self.ensure_key_can_access_scope(context.as_ref(), &scope_id)?;
             let image_profile = inspect_image(&bytes, &media_type).ok();
             let byte_size = bytes.len() as u64;
 
@@ -400,7 +598,12 @@ impl Kernel {
                 &asset,
             )?;
             let remembered = self
-                .remember_artifact(artifact, title_override.as_deref(), memory_kind)
+                .remember_artifact(
+                    artifact,
+                    title_override.as_deref(),
+                    memory_kind,
+                    context.as_ref(),
+                )
                 .await?;
 
             Ok(RememberImageResult {
@@ -428,6 +631,28 @@ impl Kernel {
             ),
             Err(_) => record_write_failure(started_at.elapsed()),
         }
+        if let Some(context) = request_context.as_ref() {
+            record_key_operation(context.storage_mode.as_str(), result.is_ok());
+            if let Some(pg_store) = &self.pg_store {
+                let error_code = match result.as_ref() {
+                    Ok(_) => None,
+                    Err(error) => Some(error.to_string()),
+                };
+                let scope_id_ref = ScopeId::from_string(scope_id.clone());
+                let _ = pg_store
+                    .record_key_usage(
+                        Some(&context.key_id),
+                        context.source_kind,
+                        "remember_image",
+                        Some(&scope_id_ref),
+                        context.storage_mode,
+                        result.is_ok(),
+                        started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                        error_code.as_deref(),
+                    )
+                    .await;
+            }
+        }
 
         result
     }
@@ -437,7 +662,9 @@ impl Kernel {
         artifact: Artifact,
         title_override: Option<&str>,
         memory_kind: Option<MemoryKind>,
+        context: Option<&RequestContext>,
     ) -> Result<RememberTextResult> {
+        self.ensure_key_can_access_scope(context, &artifact.scope_id)?;
         self.evaluate_policy(artifact.visibility, artifact.sensitivity)?;
 
         let envelope = ExtractionEnvelope::new(
@@ -456,7 +683,14 @@ impl Kernel {
         let mut wrote_pg = false;
         let mut wrote_markdown = false;
 
-        if let Some(pg_store) = &self.pg_store {
+        let write_pg = self.should_write_pg(context);
+        let write_markdown = self.should_write_markdown(context);
+
+        if write_pg {
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required by storage mode"))?;
             self.seed_scope_if_needed(pg_store, &artifact.scope_id)
                 .await?;
             let artifact_id = pg_store.insert_artifact(&artifact).await?;
@@ -464,11 +698,23 @@ impl Kernel {
             pg_store
                 .link_evidence(&memory_id, &artifact_id, None)
                 .await?;
+            if let Some(context) = context {
+                pg_store
+                    .link_memory_key(&memory_id, &context.key_id, &context.isolation_group_id)
+                    .await?;
+            }
+            if self.should_embed(context) {
+                self.embed_memory(pg_store, &memory, context).await?;
+            }
             wrote_pg = true;
         }
 
         memory.evidence_count = 1;
-        if let Some(markdown_store) = &self.markdown_store {
+        if write_markdown {
+            let markdown_store = self
+                .markdown_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("markdown store is required by storage mode"))?;
             markdown_store.write_memory_markdown(&memory)?;
             wrote_markdown = true;
         }
@@ -493,22 +739,87 @@ impl Kernel {
     pub async fn search_context(&self, request: SearchContextRequest) -> Result<ContextBundle> {
         let started_at = Instant::now();
         let scope_id = request.scope_id.as_str().to_string();
-        let result = async {
+        let result: Result<ContextBundle> = async {
             let limit = request.limit.clamp(1, 50);
+            self.ensure_key_can_access_scope(request.context.as_ref(), &request.scope_id)?;
             let normalized_query = normalize_query(&SearchQuery::new(&request.query, limit));
             let memories = match &self.pg_store {
-                Some(pg_store) => {
-                    pg_store
-                        .search_by_keyword(&request.scope_id, &normalized_query, limit as i64)
-                        .await?
+                Some(pg_store) if self.should_query_pg(request.context.as_ref()) => {
+                    let mut keyword_memories = if let Some(context) = request
+                        .context
+                        .as_ref()
+                        .filter(|context| context.is_fully_isolated)
+                    {
+                        pg_store
+                            .search_by_keyword_for_isolation_group(
+                                &request.scope_id,
+                                &normalized_query,
+                                &context.isolation_group_id,
+                                limit as i64,
+                            )
+                            .await?
+                    } else {
+                        pg_store
+                            .search_by_keyword(&request.scope_id, &normalized_query, limit as i64)
+                            .await?
+                    };
+                    if self.should_embed(request.context.as_ref()) {
+                        let vector_memories = self
+                            .search_embedding_memories(
+                                pg_store,
+                                &request.scope_id,
+                                &normalized_query,
+                                request.context.as_ref(),
+                                limit,
+                            )
+                            .await?;
+                        merge_memories(&mut keyword_memories, vector_memories, limit);
+                    }
+                    self.expand_graph_memories(
+                        pg_store,
+                        &request.scope_id,
+                        &normalized_query,
+                        request.context.as_ref(),
+                        &mut keyword_memories,
+                        limit,
+                    )
+                    .await?;
+                    rerank_memories(&mut keyword_memories, &normalized_query);
+                    keyword_memories.truncate(limit);
+                    keyword_memories
                 }
-                None => Vec::new(),
+                None => {
+                    let mut memories =
+                        self.search_markdown_memories(&request.scope_id, &normalized_query, limit)?;
+                    self.expand_markdown_graph_memories(
+                        &request.scope_id,
+                        &normalized_query,
+                        &mut memories,
+                        limit,
+                    )?;
+                    rerank_memories(&mut memories, &normalized_query);
+                    memories.truncate(limit);
+                    memories
+                }
+                _ => {
+                    let mut memories =
+                        self.search_markdown_memories(&request.scope_id, &normalized_query, limit)?;
+                    self.expand_markdown_graph_memories(
+                        &request.scope_id,
+                        &normalized_query,
+                        &mut memories,
+                        limit,
+                    )?;
+                    rerank_memories(&mut memories, &normalized_query);
+                    memories.truncate(limit);
+                    memories
+                }
             };
             let (entities, relations) = build_context_graph(&request.scope_id, &memories);
 
             Ok(ContextBundle {
                 query: normalized_query,
-                scope_id: request.scope_id,
+                scope_id: request.scope_id.clone(),
                 memories,
                 entities,
                 relations,
@@ -537,6 +848,27 @@ impl Kernel {
                 );
             }
             Err(_) => record_search_failure(started_at.elapsed()),
+        }
+        if let Some(context) = request.context.as_ref() {
+            record_key_operation(context.storage_mode.as_str(), result.is_ok());
+            if let Some(pg_store) = &self.pg_store {
+                let error_code = match result.as_ref() {
+                    Ok(_) => None,
+                    Err(error) => Some(error.to_string()),
+                };
+                let _ = pg_store
+                    .record_key_usage(
+                        Some(&context.key_id),
+                        context.source_kind,
+                        "search_context",
+                        Some(&request.scope_id),
+                        context.storage_mode,
+                        result.is_ok(),
+                        started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                        error_code.as_deref(),
+                    )
+                    .await;
+            }
         }
 
         result
@@ -744,6 +1076,193 @@ impl Kernel {
         }
     }
 
+    fn should_write_pg(&self, context: Option<&RequestContext>) -> bool {
+        match context.map(|context| context.storage_mode) {
+            Some(StorageMode::File) => false,
+            Some(StorageMode::Vector | StorageMode::All) | None => self.pg_store.is_some(),
+        }
+    }
+
+    fn should_write_markdown(&self, context: Option<&RequestContext>) -> bool {
+        match context.map(|context| context.storage_mode) {
+            Some(StorageMode::Vector) => false,
+            Some(StorageMode::File | StorageMode::All) | None => self.markdown_store.is_some(),
+        }
+    }
+
+    fn should_query_pg(&self, context: Option<&RequestContext>) -> bool {
+        !matches!(
+            context.map(|context| context.storage_mode),
+            Some(StorageMode::File)
+        )
+    }
+
+    fn should_embed(&self, context: Option<&RequestContext>) -> bool {
+        self.embedding_gateway.is_some()
+            && self.pg_store.is_some()
+            && !matches!(
+                context.map(|context| context.storage_mode),
+                Some(StorageMode::File)
+            )
+    }
+
+    async fn embed_memory(
+        &self,
+        pg_store: &PgStore,
+        memory: &Memory,
+        context: Option<&RequestContext>,
+    ) -> Result<()> {
+        let Some(embedding_gateway) = &self.embedding_gateway else {
+            return Ok(());
+        };
+        let response = embedding_gateway
+            .embed(EmbeddingRequest {
+                inputs: vec![format!("{}\n{}", memory.title, memory.body)],
+            })
+            .await?;
+        let Some(vector) = response.vectors.first() else {
+            return Ok(());
+        };
+        pg_store
+            .upsert_memory_embedding(
+                &memory.id,
+                context.map(|context| &context.key_id),
+                context
+                    .map(|context| context.isolation_group_id.as_str())
+                    .unwrap_or("default"),
+                &response.model_alias,
+                vector,
+            )
+            .await
+    }
+
+    async fn search_embedding_memories(
+        &self,
+        pg_store: &PgStore,
+        scope_id: &ScopeId,
+        query: &str,
+        context: Option<&RequestContext>,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        let Some(embedding_gateway) = &self.embedding_gateway else {
+            return Ok(Vec::new());
+        };
+        let response = embedding_gateway
+            .embed(EmbeddingRequest {
+                inputs: vec![query.to_string()],
+            })
+            .await?;
+        let Some(vector) = response.vectors.first() else {
+            return Ok(Vec::new());
+        };
+        let isolation_group_id = context
+            .filter(|context| context.is_fully_isolated)
+            .map(|context| context.isolation_group_id.as_str());
+        pg_store
+            .search_by_embedding(scope_id, vector, isolation_group_id, limit as i64)
+            .await
+    }
+
+    fn search_markdown_memories(
+        &self,
+        scope_id: &ScopeId,
+        normalized_query: &str,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        let Some(markdown_store) = &self.markdown_store else {
+            return Ok(Vec::new());
+        };
+        let terms = normalized_query
+            .split_whitespace()
+            .filter(|term| !term.is_empty())
+            .collect::<Vec<_>>();
+        let mut memories = markdown_store
+            .list_memories_by_scope(scope_id)?
+            .into_iter()
+            .filter(|memory| {
+                let haystack = format!("{}\n{}", memory.title, memory.body).to_lowercase();
+                if terms.is_empty() {
+                    haystack.contains(normalized_query)
+                } else {
+                    terms.iter().all(|term| haystack.contains(term))
+                }
+            })
+            .collect::<Vec<_>>();
+        memories.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        memories.truncate(limit);
+        Ok(memories)
+    }
+
+    async fn expand_graph_memories(
+        &self,
+        pg_store: &PgStore,
+        scope_id: &ScopeId,
+        normalized_query: &str,
+        context: Option<&RequestContext>,
+        memories: &mut Vec<Memory>,
+        limit: usize,
+    ) -> Result<()> {
+        let expansion_terms = graph_expansion_terms(scope_id, memories, normalized_query);
+        for term in expansion_terms {
+            if memories.len() >= limit {
+                break;
+            }
+            let expansion_results =
+                if let Some(context) = context.filter(|context| context.is_fully_isolated) {
+                    pg_store
+                        .search_by_keyword_for_isolation_group(
+                            scope_id,
+                            &term,
+                            &context.isolation_group_id,
+                            limit as i64,
+                        )
+                        .await?
+                } else {
+                    pg_store
+                        .search_by_keyword(scope_id, &term, limit as i64)
+                        .await?
+                };
+            merge_memories(memories, expansion_results, limit);
+        }
+        Ok(())
+    }
+
+    fn expand_markdown_graph_memories(
+        &self,
+        scope_id: &ScopeId,
+        normalized_query: &str,
+        memories: &mut Vec<Memory>,
+        limit: usize,
+    ) -> Result<()> {
+        let expansion_terms = graph_expansion_terms(scope_id, memories, normalized_query);
+        for term in expansion_terms {
+            if memories.len() >= limit {
+                break;
+            }
+            let expansion_results = self.search_markdown_memories(scope_id, &term, limit)?;
+            merge_memories(memories, expansion_results, limit);
+        }
+        Ok(())
+    }
+
+    fn ensure_key_can_access_scope(
+        &self,
+        context: Option<&RequestContext>,
+        scope_id: &ScopeId,
+    ) -> Result<()> {
+        let Some(context) = context else {
+            return Ok(());
+        };
+
+        if matches!(context.scope_kind, memory_domain::KeyScopeKind::Team)
+            && looks_like_personal_scope(scope_id)
+        {
+            bail!("team key cannot access personal memory scope");
+        }
+
+        Ok(())
+    }
+
     async fn seed_scope_if_needed(&self, pg_store: &PgStore, scope_id: &ScopeId) -> Result<()> {
         let path = match &self.markdown_store {
             Some(markdown_store) => {
@@ -767,7 +1286,10 @@ impl Kernel {
 #[async_trait]
 impl MemoryService for Kernel {
     async fn remember(&self, artifact: Artifact) -> Result<Memory> {
-        Ok(self.remember_artifact(artifact, None, None).await?.memory)
+        Ok(self
+            .remember_artifact(artifact, None, None, None)
+            .await?
+            .memory)
     }
 
     async fn fetch_context(&self, query: &str, scope_id: ScopeId) -> Result<ContextBundle> {
@@ -902,16 +1424,103 @@ fn visibility_rank(visibility: Visibility) -> usize {
     }
 }
 
+fn looks_like_personal_scope(scope_id: &ScopeId) -> bool {
+    let scope = scope_id.as_str().to_ascii_lowercase();
+    scope.contains("_user_")
+        || scope.starts_with("scp_user")
+        || scope.contains("/user/")
+        || scope.contains("personal")
+}
+
+fn merge_memories(memories: &mut Vec<Memory>, candidates: Vec<Memory>, limit: usize) {
+    let mut seen = memories
+        .iter()
+        .map(|memory| memory.id.as_str().to_string())
+        .collect::<std::collections::HashSet<_>>();
+    for candidate in candidates {
+        if seen.insert(candidate.id.as_str().to_string()) {
+            memories.push(candidate);
+        }
+        if memories.len() >= limit {
+            break;
+        }
+    }
+}
+
+fn graph_expansion_terms(
+    scope_id: &ScopeId,
+    memories: &[Memory],
+    normalized_query: &str,
+) -> Vec<String> {
+    let query_terms = normalized_query
+        .split_whitespace()
+        .filter(|term| !term.is_empty())
+        .map(|term| term.to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let (entities, _) = build_context_graph(scope_id, memories);
+    let mut terms = Vec::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+
+    for entity in entities {
+        let label = entity.canonical_name.trim().to_ascii_lowercase();
+        if label.len() < 4 || query_terms.contains(&label) {
+            continue;
+        }
+        if seen.insert(label.clone()) {
+            terms.push(label);
+        }
+        if terms.len() >= 4 {
+            break;
+        }
+    }
+
+    terms
+}
+
+fn rerank_memories(memories: &mut [Memory], normalized_query: &str) {
+    let query_terms = normalized_query
+        .split_whitespace()
+        .filter(|term| !term.is_empty())
+        .map(|term| term.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    memories.sort_by(|left, right| {
+        let right_score = memory_rank_score(right, &query_terms);
+        let left_score = memory_rank_score(left, &query_terms);
+        right_score
+            .cmp(&left_score)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+    });
+}
+
+fn memory_rank_score(memory: &Memory, query_terms: &[String]) -> i64 {
+    let title = memory.title.to_ascii_lowercase();
+    let body = memory.body.to_ascii_lowercase();
+    let mut score = 0_i64;
+    for term in query_terms {
+        if title.contains(term) {
+            score += 6;
+        }
+        if body.contains(term) {
+            score += 3;
+        }
+    }
+    score += i64::from(memory.evidence_count.min(8) as i32);
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         ImageArtifactInput, Kernel, RememberImageRequest, RememberTextRequest,
         SearchContextRequest, artifact_kind_label, build_context_graph, build_image_artifact,
-        relation_type_label, visibility_rank,
+        graph_expansion_terms, relation_type_label, rerank_memories, visibility_rank,
     };
     use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
     use memory_core::MemoryService;
-    use memory_domain::{Artifact, MemoryId, Sensitivity, Visibility};
+    use memory_domain::{
+        AccessKeyId, Artifact, KeyScopeKind, KeySourceKind, MemoryId, RequestContext, Sensitivity,
+        StorageMode, Visibility,
+    };
     use memory_domain::{ArtifactKind, Memory, MemoryKind, RelationType, ScopeId};
     use memory_models::{
         CapabilityRoute, DeploymentTarget, ImageProfile, ModelCapability, ModelDescriptor,
@@ -1029,7 +1638,7 @@ mod tests {
 
         assert_eq!(remembered.evidence_count, 1);
         assert_eq!(bundle.query, "decision");
-        assert!(bundle.memories.is_empty());
+        assert_eq!(bundle.memories.len(), 1);
         assert!(publish_error.to_string().contains("memory not found"));
     }
 
@@ -1052,6 +1661,76 @@ mod tests {
 
         assert!(bundle.memories.is_empty());
         assert_eq!(bundle.query, "postgres");
+    }
+
+    #[tokio::test]
+    async fn file_storage_mode_writes_and_searches_markdown_only() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let scope_id = ScopeId::from_string("scp_user_file_mode");
+        let context = RequestContext {
+            key_id: AccessKeyId::from_string("key_file"),
+            source_kind: KeySourceKind::Cli,
+            principal_id: "alice".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::File,
+            is_fully_isolated: false,
+            isolation_group_id: "personal:alice".to_string(),
+        };
+        let mut request = RememberTextRequest::new(
+            scope_id.clone(),
+            "File mode memory remains searchable in markdown.",
+        );
+        request.title = Some("File mode".to_string());
+        request.context = Some(context.clone());
+
+        let remembered = kernel.remember_text(request).await.unwrap();
+        assert!(!remembered.wrote_pg);
+        assert!(remembered.wrote_markdown);
+
+        let mut search = SearchContextRequest::new(scope_id, "markdown");
+        search.context = Some(context);
+        let bundle = kernel.search_context(search).await.unwrap();
+        assert_eq!(bundle.memories.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn team_key_cannot_access_personal_scope() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let mut request = RememberTextRequest::new(
+            ScopeId::from_string("scp_user_private_alice"),
+            "personal note",
+        );
+        request.context = Some(RequestContext {
+            key_id: AccessKeyId::from_string("key_team"),
+            source_kind: KeySourceKind::Mcp,
+            principal_id: "team-bot".to_string(),
+            owner_scope_id: ScopeId::from_string("scp_team_platform"),
+            scope_kind: KeyScopeKind::Team,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: false,
+            isolation_group_id: "team:scp_team_platform".to_string(),
+        });
+
+        let error = kernel
+            .remember_text(request)
+            .await
+            .expect_err("team key should not write user scope");
+        assert!(
+            error
+                .to_string()
+                .contains("team key cannot access personal")
+        );
     }
 
     #[tokio::test]
@@ -1300,6 +1979,38 @@ mod tests {
         let empty = build_context_graph(&scope_id, &[]);
         assert!(empty.0.is_empty());
         assert!(empty.1.is_empty());
+    }
+
+    #[test]
+    fn graph_expansion_terms_and_rerank_cover_related_memories() {
+        let scope_id = ScopeId::from_string("scp_kernel_graph_rank");
+        let mut seed = Memory::new(
+            scope_id.clone(),
+            MemoryKind::Decision,
+            "Gateway relation",
+            "Project Meat Memory uses Service Gateway for context routing.",
+        )
+        .unwrap();
+        seed.activate().unwrap();
+        let mut neighbor = Memory::new(
+            scope_id.clone(),
+            MemoryKind::Procedure,
+            "Gateway deployment",
+            "Service Gateway deployment playbook for release windows.",
+        )
+        .unwrap();
+        neighbor.activate().unwrap();
+        let terms = graph_expansion_terms(
+            &scope_id,
+            &[seed.clone(), neighbor.clone()],
+            "project meat memory",
+        );
+        assert!(!terms.is_empty());
+        assert!(terms.iter().all(|term| !term.trim().is_empty()));
+
+        let mut memories = vec![neighbor, seed];
+        rerank_memories(&mut memories, "project meat memory");
+        assert_eq!(memories[0].title, "Gateway relation");
     }
 
     #[test]

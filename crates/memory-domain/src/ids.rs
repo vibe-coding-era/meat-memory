@@ -35,10 +35,13 @@ id_type!(EntityId, "ent");
 id_type!(RelationId, "rel");
 id_type!(EvidenceId, "evd");
 id_type!(ScopeId, "scp");
+id_type!(AccessKeyId, "key");
 
 #[cfg(test)]
 mod tests {
-    use super::{ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId, RelationId, ScopeId};
+    use super::{
+        AccessKeyId, ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId, RelationId, ScopeId,
+    };
 
     #[test]
     fn generated_ids_use_expected_prefixes() {
@@ -50,6 +53,7 @@ mod tests {
             RelationId::new().as_str().to_string(),
             EvidenceId::new().as_str().to_string(),
             ScopeId::new().as_str().to_string(),
+            AccessKeyId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -59,6 +63,7 @@ mod tests {
         assert!(cases[4].starts_with("rel_"));
         assert!(cases[5].starts_with("evd_"));
         assert!(cases[6].starts_with("scp_"));
+        assert!(cases[7].starts_with("key_"));
     }
 
     #[test]
@@ -70,6 +75,7 @@ mod tests {
         let relation = RelationId::from_string("rel_custom");
         let evidence = EvidenceId::from_string("evd_custom");
         let scope = ScopeId::from_string("scp_custom");
+        let access_key = AccessKeyId::from_string("key_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -78,6 +84,7 @@ mod tests {
         assert_eq!(relation.as_str(), "rel_custom");
         assert_eq!(evidence.as_str(), "evd_custom");
         assert_eq!(scope.as_str(), "scp_custom");
+        assert_eq!(access_key.as_str(), "key_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -86,5 +93,6 @@ mod tests {
         assert!(RelationId::default().as_str().starts_with("rel_"));
         assert!(EvidenceId::default().as_str().starts_with("evd_"));
         assert!(ScopeId::default().as_str().starts_with("scp_"));
+        assert!(AccessKeyId::default().as_str().starts_with("key_"));
     }
 }

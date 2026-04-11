@@ -58,6 +58,7 @@ fn api_metadata(config: &AppConfig, service_info: &ServiceInfo) -> ApiMetadata {
             markdown: config.features.enable_markdown,
             http: config.features.enable_http,
             mcp: config.features.enable_mcp,
+            require_key: config.access.require_key,
         },
     }
 }

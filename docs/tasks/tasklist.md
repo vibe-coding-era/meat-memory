@@ -5,8 +5,8 @@
 ## 规划原则
 
 - 本文件从“原子级全量拆解”切换为“版本化交付清单”。
-- 从现在开始，`V1 / V2 / V3` 是范围管理的唯一主视图。
-- 历史执行记录仍保留在 `tasks/task-log.md`，其中旧的 `MM-*` 编号继续有效。
+- 从现在开始，`V1 / V2 / V2.1 / V2.2 / V3` 是范围管理的唯一主视图。
+- 历史执行记录仍保留在 `docs/tasks/task-log.md`，其中旧的 `MM-*` 编号继续有效。
 - 新任务优先使用 `V1-*`、`V2-*`、`V3-*` 编号。
 - 本文件只描述版本目标、交付范围、任务状态和建议顺序，不等同于实现日志。
 
@@ -15,7 +15,7 @@
 - 已完成底座：Rust workspace、PGSQL + Markdown 双存储、kernel `remember/search/publish`、知识图谱抽取、HTTP/CLI/MCP 接入层、基础 observability、sync oplog/merge baseline、V1 多模型能力抽象与 provider/model/route registry、V1 图片资产存储与寻址基线、V1 `remember_image` 写入链路、V1 最小图片理解链路、Agent 接入文档、Docker/Helm 部署骨架、V1 验收脚本与文档包、中文系统化验收语料、Browser Console / failover 回归入口，以及 V1 release notes / 封板说明。
 - 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
-- 当前最重要的未完成范围：V2.1 的 Agent 可用性增强与安装后配置体验；V2 已完成并进入稳定化。
+- 当前最重要的未完成范围：V2.2 的用户端使用体验增强；V2.1 已完成，V2 已完成并进入稳定化。
 
 ## 版本范围总览
 
@@ -24,6 +24,7 @@
 | V1 | PGSQL + Markdown、云或本地独立部署、为混合部署预留接口、支持 Codex/Claude Code/TRAE/Qoder 与 OpenClaw/CoWork/QoderWork、跨大模型抽象、文本+图片、中文优先、知识图谱 | 不做多团队/个人隔离与合并，不做英文，不做音频/视频 |
 | V2 | 多团队/个人隔离与合并、多语言扩展到中/英 | 不做音频/视频 |
 | V2.1 | 强化 CLI / MCP 实用性、补齐多 Agent skill、提供安装后可快速配置系统的 TUI | 不做音频/视频，不做完整 GUI 桌面端 |
+| V2.2 | 增强用户端使用体验：key 申请、多 key 来源管理、权限隔离、存储模式、跨 key 图谱/索引、监控面板 | 不做完整桌面端，不在 MVP 中强求完整向量召回质量优化 |
 | V3 | 补齐全多模态，完成音频/视频 | 无 |
 
 ## V1 交付清单
@@ -57,12 +58,12 @@
 | `V1-MUL-003` | 图片理解最小能力：OCR / caption / vision extraction 至少一条 | done | 已完成本地 image profile 解析、vision gateway、自动 caption 与派生文本写回 |
 | `V1-ZH-001` | 中文优先抽取、检索、图谱样例与测试语料 | done | 已补齐 `tests/integration/v1-zh-acceptance.md`，并覆盖 kernel / HTTP / MCP / CLI 中文回归、Browser Console 首页与图片 failover 提示回归 |
 | `V1-DEP-001` | 本地独立部署包：compose + app + worker + pgvector | done | 已完成 compose 卷持久化、`memory-worker` 真实入口、本地 runbook、`docker compose config` 校验 |
-| `V1-DEP-002` | 云端独立部署包：Docker/Helm/最小发布闭环 | done | 已完成 Dockerfile 修正、`.dockerignore`、`config/cloud.example.toml`、Helm chart、`helm lint` 与镜像构建验证 |
+| `V1-DEP-002` | 云端独立部署包：Docker/Helm/最小发布闭环 | done | 已完成 Dockerfile 修正、`.dockerignore`、`config/app.toml`、Helm chart、`helm lint` 与镜像构建验证 |
 | `V1-SYN-001` | 为混合部署预留 sync/oplog/merge 抽象接口 | done | 已有 `OplogEntry`、cursor/batch、append、merge、内存 replication engine |
 | `V1-OBS-001` | V1 可观测性：结构化日志、延迟/命中率指标、health/ready/live/metrics | done | 已完成第一阶段 observability |
 | `V1-QA-001` | V1 端到端验收：HTTP + CLI + MCP + 文本 + 图片 + provider mock | done | 已完成 CLI E2E、HTTP/MCP 集成测试、`scripts/v1-acceptance.sh` 与 provider mock 路由命中校验 |
 | `V1-DOC-001` | V1 文档包：安装、部署、Agent 接入、API/MCP/CLI 使用说明 | done | 已完成 Agent/HTTP/MCP/CLI/本地部署/云部署/验收文档收口 |
-| `V1-REL-003` | V1 版本封板、release notes 与交付边界收口 | done | 已补齐 `docs/release-notes-v1.md`、更新 `CHANGELOG.md` / `README.md` / `tasks/*`，并将仓库状态收口到 “V1 已完成” |
+| `V1-REL-003` | V1 版本封板、release notes 与交付边界收口 | done | 已补齐 `docs/release-notes-v1.md`、更新 `CHANGELOG.md` / `README.md` / `docs/tasks/*`，并将仓库状态收口到 “V1 已完成” |
 
 ### V1 剩余建议执行顺序
 
@@ -96,8 +97,6 @@
 4. `V2-MRG-001`
 5. `V2-LNG-001`
 6. `V2-LNG-002`
-
-## V3 交付清单
 
 ## V2.1 交付清单
 
@@ -135,6 +134,73 @@
 9. `V2.1-DOC-001`
 10. `V2.1-QA-001`
 
+## V2.2 交付清单
+
+### V2.2 版本验收标准
+
+- 用户通过 MCP / CLI / Skills / HTTP 使用 Meat Memory 前必须先申请 key。
+- 第一次安装初始化时提供默认 key，TUI 支持创建更多 key。
+- key 支持名称、来源、团队/个人、file/vector/all 存储模式、是否完全隔离。
+- 支持多个 key 的来源管理、统计与跨 key 记忆互通。
+- 支持个人 memory 使用团队 memory，团队 key 不能使用个人 memory。
+- 建立跨 key 的知识图谱和索引过滤规则。
+- 增强监控体系，提供读写性能和 key/source/storage 维度的监控面板。
+
+### V2.2 MVP 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.2-DOC-001` | V2.2 方案与 TaskList 文档 | done | 已落设计入口 `docs/meat-memory-scheme-v2_2.md` 并更新版本化任务表 |
+| `V2.2-DOM-001` | AccessKey 领域模型 | done | 已新增 key/source/scope/storage/isolation 枚举、AccessKey、RequestContext 与校验 |
+| `V2.2-DB-001` | AccessKey 数据迁移 | done | 已新增 access_keys、key_usage_events、memory_key_links、memory_embeddings |
+| `V2.2-CFG-001` | Config 默认 key 与认证开关 | done | 已支持 access 配置段、require_key 与环境变量覆盖 |
+| `V2.2-POL-001` | key 权限隔离策略 | done | 已实现团队 key 阻断个人 scope、完全隔离 key 按 isolation_group 过滤 |
+| `V2.2-KER-001` | RequestContext 接入 Kernel | done | remember/search/image 写入已带 key context，旧调用保持兼容 |
+| `V2.2-STO-001` | storage_mode 路由 | done | file/vector/all 已决定 PG、Markdown 写入路径；file 模式可用 Markdown 搜索 |
+| `V2.2-HTTP-001` | key 管理 HTTP API | done | 已完成 create/list/update/rotate/stats 与 metrics 入口 |
+| `V2.2-HTTP-002` | HTTP key 认证 middleware | done | 已支持 Bearer 与 X-Meat-Memory-Key，require_key 开启时强制认证 |
+| `V2.2-CLI-001` | CLI key 子命令 | done | 已完成 create/list/use/stats |
+| `V2.2-TUI-001` | TUI 默认 key 与创建 key 流程 | done | 已支持 `tui key-create`，首次 init 写配置时会创建默认 key 并落到 key 文件 |
+| `V2.2-MCP-001` | MCP key 上下文 | done | MCP tool 参数和 HTTP header 已支持 key |
+| `V2.2-SKL-001` | Skill key 接入说明 | done | 导出模板已增加 key 环境变量与申请流程 |
+| `V2.2-OBS-001` | 按 key/source/storage 统计 | done | 已扩展 metrics key snapshot，并记录 keyed operation storage mode |
+| `V2.2-QA-001` | V2.2 MVP 验收 | done | 已覆盖 domain/observability/kernel/http/cli/mcp/pg store 回归 |
+
+### V2.2 Full 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.2-IDX-001` | memory_embeddings schema | done | 已新增 memory_embeddings schema |
+| `V2.2-IDX-002` | embedding 写入链路 | done | 写入 memory 后会生成 1536 维 embedding 并保存到 PG |
+| `V2.2-IDX-003` | 混合检索 planner | done | 已完成 keyword + vector + graph expansion 合并召回与基础 rerank |
+| `V2.2-KG-001` | 跨 key 知识图谱过滤 | done | 已实现 isolation_group 检索过滤，并覆盖 graph expansion 过程中的跨 key 过滤 |
+| `V2.2-OBS-002` | 监控面板增强 | done | 已在 HTTP 首页 console 展示搜索/写入延迟、命中率、key 成功率与 storage mode 分布 |
+| `V2.2-QA-002` | vector/file/all 模式验收 | done | 已覆盖 file markdown-only、all 模式向量写读与 isolation 过滤，以及 vector-only HTTP/CLI e2e |
+
+### V2.2 建议执行顺序
+
+1. `V2.2-DOC-001`
+2. `V2.2-DOM-001`
+3. `V2.2-DB-001`
+4. `V2.2-CFG-001`
+5. `V2.2-POL-001`
+6. `V2.2-KER-001`
+7. `V2.2-STO-001`
+8. `V2.2-HTTP-001`
+9. `V2.2-HTTP-002`
+10. `V2.2-CLI-001`
+11. `V2.2-TUI-001`
+12. `V2.2-MCP-001`
+13. `V2.2-SKL-001`
+14. `V2.2-OBS-001`
+15. `V2.2-QA-001`
+16. `V2.2-IDX-001`
+17. `V2.2-IDX-002`
+18. `V2.2-IDX-003`
+19. `V2.2-KG-001`
+20. `V2.2-OBS-002`
+21. `V2.2-QA-002`
+
 ## V3 交付清单
 
 ### V3 版本验收标准
@@ -163,7 +229,7 @@
 
 ## 历史任务映射
 
-本节用于保持和 `tasks/task-log.md`、`tasks/project-index.md` 的连续性。
+本节用于保持和 `docs/tasks/task-log.md`、`docs/tasks/project-index.md` 的连续性。
 
 | 旧任务族 | 新版本归属 |
 |---|---|
@@ -180,4 +246,4 @@
 
 ## 当前下一步
 
-- V2.1 已完成，下一优先级可转入 V3 多模态扩展，或继续做交互式 TUI 的视觉化/全屏化增强
+- V2.2 已完成，下一优先级可转入 V3 多模态能力扩展，或继续强化 hybrid planner 的高级 rerank / late fusion

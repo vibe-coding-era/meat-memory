@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use image::{ColorType, DynamicImage, GenericImageView, ImageFormat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fmt;
@@ -534,6 +535,48 @@ pub struct VisionGateway {
     default_locale: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct EmbeddingGateway {
+    registry: ModelRegistry,
+    dimension: usize,
+}
+
+impl EmbeddingGateway {
+    pub fn new(registry: ModelRegistry) -> Result<Self, ModelError> {
+        registry.resolve_primary(ModelCapability::Embedding)?;
+        Ok(Self {
+            registry,
+            dimension: 1536,
+        })
+    }
+
+    pub async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, ModelError> {
+        if request.inputs.iter().any(|input| input.trim().is_empty()) {
+            return Err(ModelError::EmptyInput);
+        }
+        let route = self.registry.resolve(ModelCapability::Embedding)?;
+        let runtime_route = self
+            .registry
+            .resolve_available(ModelCapability::Embedding)
+            .ok();
+        let selected_model = runtime_route
+            .as_ref()
+            .map(|resolved| resolved.selected)
+            .unwrap_or(route.primary);
+        let vectors = request
+            .inputs
+            .iter()
+            .map(|input| deterministic_embedding(input, self.dimension))
+            .collect::<Vec<_>>();
+
+        Ok(EmbeddingResponse {
+            vectors,
+            dimension: self.dimension,
+            model_alias: selected_model.alias.clone(),
+        })
+    }
+}
+
 impl VisionGateway {
     pub fn new(
         registry: ModelRegistry,
@@ -688,6 +731,24 @@ fn render_caption(request: &VisionRequest, locale: &str) -> String {
             ),
         },
     }
+}
+
+fn deterministic_embedding(input: &str, dimension: usize) -> Vec<f32> {
+    let mut vector = vec![0.0_f32; dimension];
+    for token in input.split_whitespace().filter(|token| !token.is_empty()) {
+        let digest = Sha256::digest(token.to_lowercase().as_bytes());
+        let index = u16::from_be_bytes([digest[0], digest[1]]) as usize % dimension;
+        let sign = if digest[2] & 1 == 0 { 1.0 } else { -1.0 };
+        let weight = 1.0 + f32::from(digest[3]) / 255.0;
+        vector[index] += sign * weight;
+    }
+    let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for value in &mut vector {
+            *value /= norm;
+        }
+    }
+    vector
 }
 
 fn format_for_media_type(media_type: &str) -> Result<ImageFormat, ModelError> {
@@ -930,11 +991,11 @@ pub enum RegistryError {
 #[cfg(test)]
 mod tests {
     use super::{
-        CapabilityRoute, DeploymentTarget, ExtractionRequest, ImageProfile, ModelCapability,
-        ModelDescriptor, ModelError, ModelRegistry, Provider, ProviderDescriptor, ReasoningRequest,
-        RegistryError, VisionGateway, VisionRequest, brightness_hint, color_mode_label,
-        english_brightness_hint, english_orientation_hint, format_for_media_type, inspect_image,
-        orientation_hint, profile_from_image,
+        CapabilityRoute, DeploymentTarget, EmbeddingGateway, EmbeddingRequest, ExtractionRequest,
+        ImageProfile, ModelCapability, ModelDescriptor, ModelError, ModelRegistry, Provider,
+        ProviderDescriptor, ReasoningRequest, RegistryError, VisionGateway, VisionRequest,
+        brightness_hint, color_mode_label, english_brightness_hint, english_orientation_hint,
+        format_for_media_type, inspect_image, orientation_hint, profile_from_image,
     };
     use image::{ColorType, DynamicImage, ImageFormat, Rgb, RgbImage, Rgba, RgbaImage};
     use serde_json::{from_value, json};
@@ -2223,6 +2284,41 @@ mod tests {
                     byte_size: None,
                     prompt: None,
                     locale: "zh-CN".to_string(),
+                })
+                .await,
+            Err(ModelError::EmptyInput)
+        ));
+    }
+
+    #[tokio::test]
+    async fn embedding_gateway_generates_stable_vectors() {
+        assert!(matches!(
+            EmbeddingGateway::new(ModelRegistry::default()),
+            Err(ModelError::Registry(RegistryError::MissingRoute(
+                ModelCapability::Embedding
+            )))
+        ));
+
+        let gateway =
+            EmbeddingGateway::new(demo_registry().expect("registry should build")).unwrap();
+        let response = gateway
+            .embed(EmbeddingRequest {
+                inputs: vec!["graphite apple".to_string(), "graphite apple".to_string()],
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.model_alias, "chatgpt_embedding");
+        assert_eq!(response.dimension, 1536);
+        assert_eq!(response.vectors.len(), 2);
+        assert_eq!(response.vectors[0].len(), 1536);
+        assert_eq!(response.vectors[0], response.vectors[1]);
+        assert!(response.vectors[0].iter().any(|value| *value != 0.0));
+
+        assert!(matches!(
+            gateway
+                .embed(EmbeddingRequest {
+                    inputs: vec![" ".to_string()],
                 })
                 .await,
             Err(ModelError::EmptyInput)

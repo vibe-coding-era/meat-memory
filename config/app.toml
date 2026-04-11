@@ -1,34 +1,49 @@
-# Meat Memory Docker 运行配置
-# 用途：配合 `compose.yaml` 在容器环境中启动 app / worker。
+# Meat Memory 统一应用配置
+# 用途：本地开发、Docker、云端部署共用的应用配置基线。
 # 使用方式：
-# 1. 直接通过 `docker compose up -d` 使用
-# 2. App/Worker 会读取 `MEAT_MEMORY_CONFIG=/app/config/docker.toml`
-# 3. 如需改挂载目录或数据库主机名，请同步调整 `compose.yaml`
+# 1. 搭配 `.env` 中的 `MEAT_MEMORY_CONFIG=config/app.toml`
+# 2. 本地直接运行：`cargo run -p memory-app`
+# 3. 如需覆盖，优先使用环境变量或 `memory-cli tui init --interactive --write-config config/app.local.toml`
+# 4. Docker/云端也读取本文件，再通过 `MEAT_MEMORY_*` 环境变量覆盖地址、目录和功能开关
 
-# Docker 内监听全部网卡，供宿主机端口映射访问。
+# 服务监听地址与优雅关闭时间。
 [server]
-bind = "0.0.0.0:8080"
+bind = "127.0.0.1:8080"
 shutdown_grace_period_secs = 10
 
-# 容器本地调试默认保留 pretty 日志。
+# 日志配置：本地建议 `pretty`，便于人看。
 [logging]
 level = "info"
 format = "pretty"
 
-# Compose 会把卷挂到这些目录。
+# Markdown 持久化根目录。当前项目默认直接写到仓库内 `docs/`。
 [markdown]
-root = "/app/docs"
+root = "./docs"
 
+# PostgreSQL / pgvector 连接配置。
 [postgres]
 app_name = "meat-memory"
-database_url = "postgres://postgres:postgres@pgvector:5432/meat_memory_dev"
+database_url = "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev"
 
+# 图片等二进制资产的本地落盘目录。
 [assets]
-root = "/app/storage/assets"
+root = "./storage/assets"
 
+# Access key 配置：V2.2 默认仍兼容本地无 key 调用；生产可用环境变量打开强制 key。
+[access]
+require_key = false
+key_store_path = "./storage/keys/default-key.toml"
+default_key_name = "default"
+default_key_source = "tui"
+default_key_scope_kind = "personal"
+default_key_storage_mode = "all"
+default_key_isolated = false
+
+# 模型注册表：默认语言、Provider 和模型路由都在这里定义。
 [models]
 default_locale = "zh-CN"
 
+# Provider 列表：只要填好对应的 API Key 环境变量即可启用。
 [[models.providers]]
 provider = "openai"
 display_name = "ChatGPT / OpenAI"
@@ -226,13 +241,13 @@ fallbacks = ["chatgpt_vision", "claude_vision"]
 primary = "qwen_embedding"
 fallbacks = ["chatgpt_embedding", "glm_embedding"]
 
-# 当前同步模式仍为 dual_write。
+# 同步模式：当前 V2 基线使用 dual_write。
 [sync]
 mode = "dual_write"
 
-# Docker 场景默认同时打开 HTTP 与 MCP。
+# 功能开关：控制 PG / Markdown / HTTP / MCP 等运行面。
 [features]
 enable_pg = true
 enable_markdown = true
 enable_http = true
-enable_mcp = true
+enable_mcp = false

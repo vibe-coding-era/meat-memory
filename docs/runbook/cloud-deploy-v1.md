@@ -7,7 +7,7 @@ V1 的云部署目标是“单节点、单实例可用”，不是一开始就�
 当前仓库已经提供：
 
 - 运行镜像：`Dockerfile`
-- 云配置样例：`config/cloud.example.toml`
+- 云配置样例：`config/app.toml`
 - Helm Chart：`infra/helm/meat-memory`
 
 ## 2. 构建镜像
@@ -26,14 +26,19 @@ CI 也会执行一次 `docker build`，用来提前发现镜像回归。
 docker run --rm -p 8080:8080 \
   -v "$(pwd)/config:/app/config:ro" \
   -v "$(pwd)/runtime-data:/data" \
-  -e MEAT_MEMORY_CONFIG=/app/config/cloud.example.toml \
+  -e MEAT_MEMORY_CONFIG=/app/config/app.toml \
+  -e MEAT_MEMORY_SERVER_BIND=0.0.0.0:8080 \
+  -e MEAT_MEMORY_DATABASE_URL='postgres://postgres:postgres@postgresql:5432/meat_memory' \
+  -e MEAT_MEMORY_MARKDOWN_ROOT=/data/markdown \
+  -e MEAT_MEMORY_ASSETS_ROOT=/data/assets \
+  -e MEAT_MEMORY_ENABLE_MCP=true \
   meat-memory:v1
 ```
 
 说明：
 
-- `cloud.example.toml` 里默认使用 `/data/markdown` 和 `/data/assets`
-- 需要你把 `database_url` 改成自己的云 PostgreSQL 地址
+- 云端也读取统一的 `config/app.toml`
+- 建议通过 `MEAT_MEMORY_DATABASE_URL`、`MEAT_MEMORY_MARKDOWN_ROOT`、`MEAT_MEMORY_ASSETS_ROOT` 覆盖云 PostgreSQL 地址和持久卷目录
 - 如果需要接云模型，再补相应 API Key 环境变量
 
 ## 4. Helm 部署

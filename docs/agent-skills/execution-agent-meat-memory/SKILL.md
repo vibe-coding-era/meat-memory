@@ -22,9 +22,11 @@ Use Meat Memory to persist:
 ```bash
 memory-cli config check
 memory-cli mcp info
+memory-cli key create --name execution-agent-local --source skill --scope-kind team --storage all --json
 ```
 
 If `config check` reports warnings, fix configuration before writing operational memory.
+If key enforcement is enabled, store the returned `raw_key` in the execution environment as `MEAT_MEMORY_KEY`.
 
 ## Execution Workflow
 

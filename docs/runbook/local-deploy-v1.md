@@ -39,7 +39,7 @@ cp .env.example .env
 
 - `scripts/dev-up.sh` 会执行 `docker compose up -d --build pgvector app worker`
 - `compose.yaml` 现在会为 Markdown 和 assets 挂载命名卷
-- `config/docker.toml` 已开启 `enable_mcp = true`
+- `compose.yaml` 通过 `MEAT_MEMORY_ENABLE_MCP=true` 覆盖统一配置，因此容器内会开启 MCP
 
 ## 4. 检查
 
@@ -72,11 +72,10 @@ curl http://127.0.0.1:8080/mcp/tools
 
 ### 7.1 `/mcp/tools` 不可用
 
-检查 `config/docker.toml` 中是否启用了：
+检查 `compose.yaml` 或 `.env` 中是否设置了：
 
-```toml
-[features]
-enable_mcp = true
+```bash
+MEAT_MEMORY_ENABLE_MCP=true
 ```
 
 ### 7.2 图片写入成功但 vision 信息为空

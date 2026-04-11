@@ -23,6 +23,7 @@
 
 config/local.toml
 config/*.local.toml
+config/app.generated.toml
 /meat-memory-log.md
 
 data/

@@ -8,6 +8,7 @@ anyhow.workspace = true
 memory-domain = { path = "../memory-domain" }
 sqlx.workspace = true
 time.workspace = true
+ulid.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

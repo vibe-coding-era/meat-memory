@@ -47,7 +47,7 @@ cp .env.example .env
 - `memory-app`
 - `memory-worker`
 
-V1 中 `config/docker.toml` 已开启 `enable_mcp = true`，因此应用会同时暴露：
+Docker Compose 会通过 `MEAT_MEMORY_ENABLE_MCP=true` 覆盖统一配置，因此应用会同时暴露：
 
 - `GET /mcp/tools`
 - `POST /mcp/tools/call`
@@ -63,7 +63,7 @@ V1 中 `config/docker.toml` 已开启 `enable_mcp = true`，因此应用会同�
 cargo run -p memory-cli -- serve --bind 127.0.0.1:8080
 ```
 
-是否挂出 MCP 由配置文件中的 `features.enable_mcp` 决定。`config/local.example.toml` 默认已开启。
+是否挂出 MCP 由配置文件中的 `features.enable_mcp` 或环境变量 `MEAT_MEMORY_ENABLE_MCP` 决定。
 
 ## 5. MCP 接入
 

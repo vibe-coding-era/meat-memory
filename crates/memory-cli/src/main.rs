@@ -2,11 +2,14 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use memory_config::AppConfig;
 use memory_core::{ServiceInfo, log_startup, startup_banner};
-use memory_domain::{ArtifactKind, ContextBundle, MemoryKind, ScopeId, Sensitivity, Visibility};
+use memory_domain::{
+    AccessKeyId, ArtifactKind, ContextBundle, KeyScopeKind, KeySourceKind, MemoryKind,
+    RequestContext, ScopeId, Sensitivity, StorageMode, Visibility,
+};
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{
-    Kernel, RememberImageRequest, RememberImageResult, RememberTextRequest, RememberTextResult,
-    SearchContextRequest,
+    CreateAccessKeyRequest, Kernel, RememberImageRequest, RememberImageResult, RememberTextRequest,
+    RememberTextResult, SearchContextRequest,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -21,6 +24,13 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+
+#[derive(Debug, Clone)]
+struct DefaultKeyMaterial {
+    key_id: String,
+    raw_key: String,
+    path: String,
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -39,6 +49,7 @@ enum Command {
     Config(ConfigArgs),
     Mcp(McpArgs),
     Skills(SkillsArgs),
+    Key(KeyArgs),
     Tui(TuiArgs),
     Serve(ServeArgs),
     Remember(RememberArgs),
@@ -71,6 +82,21 @@ struct SkillsArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct KeyArgs {
+    #[command(subcommand)]
+    command: KeyCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum KeyCommand {
+    Create(KeyCreateArgs),
+    List(KeyListArgs),
+    Rotate(KeyRotateArgs),
+    Use(KeyUseArgs),
+    Stats(KeyStatsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
 struct TuiArgs {
     #[command(subcommand)]
     command: TuiCommand,
@@ -79,11 +105,70 @@ struct TuiArgs {
 #[derive(Debug, Clone, Subcommand)]
 enum TuiCommand {
     Init(TuiInitArgs),
+    KeyCreate(KeyCreateArgs),
 }
 
 #[derive(Debug, Clone, Subcommand)]
 enum SkillsCommand {
     Export(SkillsExportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct KeyCreateArgs {
+    #[arg(long)]
+    name: String,
+    #[arg(long, default_value = "cli")]
+    source: String,
+    #[arg(long, default_value = "local-user")]
+    owner_principal_id: String,
+    #[arg(long)]
+    owner_scope_id: Option<String>,
+    #[arg(long, default_value = "personal")]
+    scope_kind: String,
+    #[arg(long, default_value = "all")]
+    storage: String,
+    #[arg(long)]
+    isolated: bool,
+    #[arg(long)]
+    raw_key: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct KeyListArgs {
+    #[arg(long, default_value_t = 200)]
+    limit: usize,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct KeyUseArgs {
+    #[arg(long)]
+    raw_key: String,
+    #[arg(long)]
+    output: Option<PathBuf>,
+    #[arg(long)]
+    force: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct KeyRotateArgs {
+    #[arg(long)]
+    key_id: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct KeyStatsArgs {
+    #[arg(long)]
+    key_id: Option<String>,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -170,6 +255,8 @@ struct ServeArgs {
 #[derive(Debug, Clone, Args)]
 struct RememberArgs {
     #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
     scope_id: Option<String>,
     #[arg(long)]
     title: Option<String>,
@@ -193,6 +280,8 @@ struct RememberArgs {
 
 #[derive(Debug, Clone, Args)]
 struct RememberImageArgs {
+    #[arg(long)]
+    key: Option<String>,
     #[arg(long)]
     scope_id: Option<String>,
     #[arg(long)]
@@ -219,6 +308,8 @@ struct RememberImageArgs {
 struct SearchArgs {
     query: String,
     #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
     scope_id: Option<String>,
     #[arg(long, default_value_t = 10)]
     limit: usize,
@@ -240,12 +331,140 @@ async fn main() -> Result<()> {
         Command::Config(args) => config_command(args).await,
         Command::Mcp(args) => mcp_command(args),
         Command::Skills(args) => skills_command(args),
+        Command::Key(args) => key_command(args).await,
         Command::Tui(args) => tui_command(args).await,
         Command::Serve(args) => serve_command(args).await,
         Command::Remember(args) => remember_command(args).await,
         Command::RememberImage(args) => remember_image_command(args).await,
         Command::Search(args) => search_command(args).await,
     }
+}
+
+async fn key_command(args: KeyArgs) -> Result<()> {
+    match args.command {
+        KeyCommand::Create(create) => {
+            let (_, kernel, service_info) = bootstrap_runtime().await?;
+            let result = kernel
+                .create_access_key(CreateAccessKeyRequest {
+                    raw_key: create.raw_key,
+                    display_name: create.name,
+                    source_kind: parse_key_source(&create.source)?,
+                    owner_principal_id: create.owner_principal_id,
+                    owner_scope_id: create
+                        .owner_scope_id
+                        .map(ScopeId::from_string)
+                        .unwrap_or_else(|| service_info.default_scope.clone()),
+                    scope_kind: parse_key_scope(&create.scope_kind)?,
+                    storage_mode: parse_storage_mode(&create.storage)?,
+                    is_fully_isolated: create.isolated,
+                })
+                .await?;
+            let payload = access_key_json(&result.access_key, Some(&result.raw_key));
+            if create.json {
+                print_json(payload)?;
+            } else {
+                println!("Created key {}", result.access_key.id.as_str());
+                println!("Name: {}", result.access_key.display_name);
+                println!("Source: {}", result.access_key.source_kind.as_str());
+                println!("Scope: {}", result.access_key.scope_kind.as_str());
+                println!("Storage: {}", result.access_key.storage_mode.as_str());
+                println!("Raw key: {}", result.raw_key);
+            }
+        }
+        KeyCommand::List(list) => {
+            let (_, kernel, _) = bootstrap_runtime().await?;
+            let keys = kernel.list_access_keys(list.limit).await?;
+            if list.json {
+                print_json(json!({
+                    "keys": keys.iter().map(|key| access_key_json(key, None)).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Meat Memory keys");
+                for key in keys {
+                    println!(
+                        "- {} {} source={} scope={} storage={} isolated={}",
+                        key.id.as_str(),
+                        key.display_name,
+                        key.source_kind.as_str(),
+                        key.scope_kind.as_str(),
+                        key.storage_mode.as_str(),
+                        key.is_fully_isolated
+                    );
+                }
+            }
+        }
+        KeyCommand::Rotate(rotate) => {
+            let (_, kernel, _) = bootstrap_runtime().await?;
+            let result = kernel
+                .rotate_access_key(&AccessKeyId::from_string(rotate.key_id), None)
+                .await?;
+            let payload = access_key_json(&result.access_key, Some(&result.raw_key));
+            if rotate.json {
+                print_json(payload)?;
+            } else {
+                println!("Rotated key {}", result.access_key.id.as_str());
+                println!("Raw key: {}", result.raw_key);
+            }
+        }
+        KeyCommand::Use(use_args) => {
+            let path = use_args
+                .output
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(".meat-memory-key"));
+            if path.exists() && !use_args.force {
+                bail!(
+                    "{} already exists; pass --force to overwrite",
+                    path.display()
+                );
+            }
+            fs::write(&path, format!("MEAT_MEMORY_KEY={}\n", use_args.raw_key))
+                .with_context(|| format!("failed to write {}", path.display()))?;
+            if use_args.json {
+                print_json(json!({
+                    "path": path.display().to_string(),
+                    "env": "MEAT_MEMORY_KEY",
+                }))?;
+            } else {
+                println!("Wrote MEAT_MEMORY_KEY to {}", path.display());
+            }
+        }
+        KeyCommand::Stats(stats) => {
+            if let Some(key_id) = stats.key_id.as_ref() {
+                let (_, kernel, _) = bootstrap_runtime().await?;
+                let payload = kernel
+                    .access_key_usage_stats(&AccessKeyId::from_string(key_id.clone()))
+                    .await?;
+                if stats.json {
+                    print_json(json!({ "stats": payload }))?;
+                } else if let Some(stats) = payload {
+                    println!("Meat Memory key usage stats");
+                    println!("Key: {}", stats.key_id.as_str());
+                    println!("Operations: {}", stats.total_operations);
+                    println!("Successful: {}", stats.successful_operations);
+                    println!("Failed: {}", stats.failed_operations);
+                    println!("Avg latency: {:.1} ms", stats.avg_latency_ms);
+                    println!("P95 latency: {} ms", stats.p95_latency_ms);
+                } else {
+                    bail!("access key not found");
+                }
+            } else {
+                let snapshot = memory_observability::metrics_snapshot();
+                if stats.json {
+                    print_json(json!({ "metrics": snapshot }))?;
+                } else {
+                    println!("Meat Memory key metrics");
+                    println!("Keyed operations: {}", snapshot.key.keyed_operations);
+                    println!("Successful: {}", snapshot.key.successful_operations);
+                    println!("Failed: {}", snapshot.key.failed_operations);
+                    println!("File mode: {}", snapshot.key.file_mode_operations);
+                    println!("Vector mode: {}", snapshot.key.vector_mode_operations);
+                    println!("All mode: {}", snapshot.key.all_mode_operations);
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn skills_command(args: SkillsArgs) -> Result<()> {
@@ -300,12 +519,18 @@ async fn tui_command(args: TuiArgs) -> Result<()> {
             };
             let check = config_check_report(&config, &path, init.check_database).await?;
             let wrote_config = write_tui_config_if_requested(&config, &init)?;
+            let default_key = if wrote_config.is_some() {
+                ensure_default_key_material(&config).await?
+            } else {
+                None
+            };
             if init.json {
                 print_json(tui_init_json(
                     &config,
                     &path,
                     wrote_config.as_deref(),
                     &check,
+                    default_key.as_ref(),
                 ))?;
             } else {
                 for line in tui_init_lines(
@@ -313,11 +538,18 @@ async fn tui_command(args: TuiArgs) -> Result<()> {
                     &path,
                     wrote_config.as_deref(),
                     &check,
+                    default_key.as_ref(),
                     display_language,
                 ) {
                     println!("{line}");
                 }
             }
+        }
+        TuiCommand::KeyCreate(create) => {
+            key_command(KeyArgs {
+                command: KeyCommand::Create(create),
+            })
+            .await?;
         }
     }
 
@@ -406,7 +638,8 @@ async fn remember_command_with_runtime(
     service_info: ServiceInfo,
 ) -> Result<()> {
     let body = load_body(args.body.clone(), args.file.clone())?;
-    let request = build_remember_request(&args, &service_info, body)?;
+    let mut request = build_remember_request(&args, &service_info, body)?;
+    request.context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
 
     let result = kernel.remember_text(request).await?;
 
@@ -433,7 +666,8 @@ async fn remember_image_command_with_runtime(
 ) -> Result<()> {
     let media_type = detect_image_media_type(&args.file, args.media_type.clone())?;
     let bytes = fs::read(&args.file)?;
-    let request = build_remember_image_request(&args, &service_info, media_type, bytes)?;
+    let mut request = build_remember_image_request(&args, &service_info, media_type, bytes)?;
+    request.context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
 
     let result = kernel.remember_image(request).await?;
     let asset_id = result.asset.reference.asset_id.clone();
@@ -460,7 +694,8 @@ async fn search_command_with_runtime(
     kernel: Kernel,
     service_info: ServiceInfo,
 ) -> Result<()> {
-    let request = build_search_request(&args, &service_info);
+    let mut request = build_search_request(&args, &service_info);
+    request.context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
     let bundle = kernel.search_context(request).await?;
 
     if args.json {
@@ -563,6 +798,7 @@ fn api_metadata(config: &AppConfig, service_info: &ServiceInfo) -> ApiMetadata {
             markdown: config.features.enable_markdown,
             http: config.features.enable_http,
             mcp: config.features.enable_mcp,
+            require_key: config.access.require_key,
         },
     }
 }
@@ -580,7 +816,7 @@ fn validate_model_registry(config: &AppConfig) -> Result<()> {
 }
 
 fn config_path() -> String {
-    env::var("MEAT_MEMORY_CONFIG").unwrap_or_else(|_| "config/default.toml".to_string())
+    env::var("MEAT_MEMORY_CONFIG").unwrap_or_else(|_| "config/app.toml".to_string())
 }
 
 fn config_summary_json(config: &AppConfig, path: &str) -> Result<serde_json::Value> {
@@ -1115,6 +1351,47 @@ fn write_tui_config_if_requested(config: &AppConfig, args: &TuiInitArgs) -> Resu
     Ok(Some(path.display().to_string()))
 }
 
+async fn ensure_default_key_material(config: &AppConfig) -> Result<Option<DefaultKeyMaterial>> {
+    if !config.features.enable_pg {
+        return Ok(None);
+    }
+
+    let path = PathBuf::from(&config.access.key_store_path);
+    if path.exists() {
+        return Ok(None);
+    }
+
+    let (kernel, service_info) = bootstrap_loaded_config(config).await?;
+    let result = kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: None,
+            display_name: config.access.default_key_name.clone(),
+            source_kind: parse_key_source(&config.access.default_key_source)?,
+            owner_principal_id: "local-user".to_string(),
+            owner_scope_id: service_info.default_scope,
+            scope_kind: parse_key_scope(&config.access.default_key_scope_kind)?,
+            storage_mode: parse_storage_mode(&config.access.default_key_storage_mode)?,
+            is_fully_isolated: config.access.default_key_isolated,
+        })
+        .await?;
+
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create key directory {}", parent.display()))?;
+    }
+    fs::write(&path, format!("MEAT_MEMORY_KEY={}\n", result.raw_key))
+        .with_context(|| format!("failed to write default key file {}", path.display()))?;
+
+    Ok(Some(DefaultKeyMaterial {
+        key_id: result.access_key.id.as_str().to_string(),
+        raw_key: result.raw_key,
+        path: path.display().to_string(),
+    }))
+}
+
 fn run_tui_init_interactive(config: &AppConfig, args: &TuiInitArgs) -> Result<TuiInitArgs> {
     let stdin = io::stdin();
     let mut reader = io::BufReader::new(stdin.lock());
@@ -1577,19 +1854,19 @@ fn prompt_model_alias<R: BufRead, W: Write>(
     capability: ModelCapability,
     current: &str,
 ) -> Result<Option<String>> {
-    let aliases = available_model_aliases(config, capability);
-    if !aliases.is_empty() {
+    let choices = available_model_alias_choices(config, capability);
+    if !choices.is_empty() {
         writeln!(
             writer,
             "{} {capability} aliases:",
             wizard_text(language, "可用", "Available"),
         )?;
-        for (index, alias) in aliases.iter().enumerate() {
-            writeln!(writer, "  {}. {}", index + 1, alias)?;
+        for (index, choice) in choices.iter().enumerate() {
+            writeln!(writer, "  {}. {}", index + 1, choice.summary())?;
         }
-        let default_choice = aliases
+        let default_choice = choices
             .iter()
-            .position(|alias| alias == current)
+            .position(|choice| choice.alias == current)
             .map(|index| index + 1)
             .unwrap_or(0);
         let default_hint = if default_choice > 0 {
@@ -1613,23 +1890,50 @@ fn prompt_model_alias<R: BufRead, W: Write>(
             return Ok(None);
         }
         if let Ok(selected) = input.parse::<usize>() {
-            if selected == 0 || selected > aliases.len() {
+            if selected == 0 || selected > choices.len() {
                 bail!("selection out of range for {label}: {selected}");
             }
-            return Ok(Some(aliases[selected - 1].clone()));
+            return Ok(Some(choices[selected - 1].alias.clone()));
         }
         return Ok(Some(input));
     }
     prompt_text(reader, writer, label, current)
 }
 
-fn available_model_aliases(config: &AppConfig, capability: ModelCapability) -> Vec<String> {
+#[derive(Debug, Clone)]
+struct ModelAliasChoice {
+    alias: String,
+    provider: String,
+    deployment: String,
+    locale: String,
+    priority: u16,
+}
+
+impl ModelAliasChoice {
+    fn summary(&self) -> String {
+        format!(
+            "{} (provider={}, deployment={}, locale={}, priority={})",
+            self.alias, self.provider, self.deployment, self.locale, self.priority
+        )
+    }
+}
+
+fn available_model_alias_choices(
+    config: &AppConfig,
+    capability: ModelCapability,
+) -> Vec<ModelAliasChoice> {
     config
         .models
         .catalog
         .iter()
         .filter(|model| model.enabled && model.supports(capability))
-        .map(|model| model.alias.clone())
+        .map(|model| ModelAliasChoice {
+            alias: model.alias.clone(),
+            provider: model.provider.to_string(),
+            deployment: model.deployment.to_string(),
+            locale: model.locale.clone(),
+            priority: model.priority,
+        })
         .collect()
 }
 
@@ -1691,12 +1995,18 @@ fn tui_init_json(
     path: &str,
     wrote_config: Option<&str>,
     check: &ConfigCheckReport,
+    default_key: Option<&DefaultKeyMaterial>,
 ) -> serde_json::Value {
     json!({
         "title": "Meat Memory setup TUI",
         "mode": if wrote_config.is_some() { "generated_config" } else { "preview" },
         "config_path": path,
         "wrote_config": wrote_config,
+        "default_key": default_key.as_ref().map(|key| json!({
+            "key_id": key.key_id,
+            "raw_key": key.raw_key,
+            "path": key.path,
+        })),
         "check": {
             "ok": check.ok,
             "warnings": check.warnings,
@@ -1736,6 +2046,7 @@ fn tui_init_lines(
     path: &str,
     wrote_config: Option<&str>,
     check: &ConfigCheckReport,
+    default_key: Option<&DefaultKeyMaterial>,
     language: Option<WizardLanguage>,
 ) -> Vec<String> {
     let title = match language {
@@ -1803,6 +2114,18 @@ fn tui_init_lines(
     if let Some(path) = wrote_config {
         lines.push(format!("│ {}: {path}", label("已写出配置", "Wrote config")));
     }
+    if let Some(default_key) = default_key {
+        lines.push(format!(
+            "│ {}: {}",
+            label("默认 Key", "Default key"),
+            default_key.key_id
+        ));
+        lines.push(format!(
+            "│ {}: {}",
+            label("Key 文件", "Key file"),
+            default_key.path
+        ));
+    }
     if !check.warnings.is_empty() {
         lines.push(format!("│ {}:", label("告警", "Warnings")));
         lines.extend(
@@ -1817,8 +2140,15 @@ fn tui_init_lines(
         format!("│ {}: memory-cli config check", label("下一步", "Next")),
         format!("│ {}: memory-cli mcp info", label("下一步", "Next")),
         format!("│ {}: memory-cli serve", label("下一步", "Next")),
-        "└──────────────────────────────────────────────┘".to_string(),
     ]);
+    if let Some(path) = wrote_config {
+        lines.push(format!(
+            "│ {}: MEAT_MEMORY_CONFIG={} memory-cli config check",
+            label("验证新配置", "Verify new config"),
+            path
+        ));
+    }
+    lines.push("└──────────────────────────────────────────────┘".to_string());
     lines
 }
 
@@ -1828,10 +2158,35 @@ fn scope_id_or_default(scope_id: Option<String>, service_info: &ServiceInfo) -> 
         .unwrap_or_else(|| service_info.default_scope.clone())
 }
 
+async fn resolve_cli_request_context(
+    kernel: &Kernel,
+    raw_key: Option<&str>,
+) -> Result<Option<RequestContext>> {
+    let raw_key = raw_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            env::var("MEAT_MEMORY_KEY")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        });
+    let Some(raw_key) = raw_key else {
+        return Ok(None);
+    };
+
+    kernel
+        .resolve_access_key_context(&raw_key)
+        .await?
+        .with_context(|| format!("access key not found or inactive: {raw_key}"))
+        .map(Some)
+}
+
 fn static_command_message(command: &Command) -> Option<&'static str> {
     match command {
         Command::Doctor => Some("Run ./scripts/verify.sh for the full machine check."),
-        Command::PrintPlan => Some("Execution plan lives in tasks/tasklist.md"),
+        Command::PrintPlan => Some("Execution plan lives in docs/tasks/tasklist.md"),
         _ => None,
     }
 }
@@ -2138,6 +2493,37 @@ fn parse_sensitivity(raw: &str) -> Result<Sensitivity> {
     })
 }
 
+fn parse_key_source(raw: &str) -> Result<KeySourceKind> {
+    KeySourceKind::parse(raw).map_err(Into::into)
+}
+
+fn parse_key_scope(raw: &str) -> Result<KeyScopeKind> {
+    KeyScopeKind::parse(raw).map_err(Into::into)
+}
+
+fn parse_storage_mode(raw: &str) -> Result<StorageMode> {
+    StorageMode::parse(raw).map_err(Into::into)
+}
+
+fn access_key_json(
+    access_key: &memory_domain::AccessKey,
+    raw_key: Option<&str>,
+) -> serde_json::Value {
+    json!({
+        "key_id": access_key.id.as_str(),
+        "raw_key": raw_key,
+        "name": access_key.display_name,
+        "source": access_key.source_kind.as_str(),
+        "owner_principal_id": access_key.owner_principal_id,
+        "owner_scope_id": access_key.owner_scope_id.as_str(),
+        "scope_kind": access_key.scope_kind.as_str(),
+        "storage_mode": access_key.storage_mode.as_str(),
+        "isolated": access_key.is_fully_isolated,
+        "isolation_group_id": access_key.isolation_group_id,
+        "status": access_key.status.as_str(),
+    })
+}
+
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
@@ -2147,14 +2533,14 @@ mod tests {
     use super::{
         api_metadata, bootstrap_loaded_config, build_cli_router, build_kernel,
         build_remember_image_request, build_remember_request, build_search_request,
-        config_check_report, detect_image_media_type, export_skill_bundle, load_body,
-        load_body_from_reader, parse_artifact_kind, parse_memory_kind, parse_sensitivity,
-        parse_visibility, remember_command_with_runtime, remember_image_command_with_runtime,
-        remember_image_result_json, remember_image_result_lines, remember_result_json,
-        remember_result_lines, render_json, resolve_bind, scope_id_or_default, search_bundle_json,
-        search_bundle_lines, search_command_with_runtime, serve_command_with_runtime,
-        static_command_message, tui_init_json, tui_init_lines, validate_model_registry,
-        write_tui_config_if_requested,
+        config_check_report, detect_image_media_type, ensure_default_key_material,
+        export_skill_bundle, load_body, load_body_from_reader, parse_artifact_kind,
+        parse_memory_kind, parse_sensitivity, parse_visibility, remember_command_with_runtime,
+        remember_image_command_with_runtime, remember_image_result_json,
+        remember_image_result_lines, remember_result_json, remember_result_lines, render_json,
+        resolve_bind, scope_id_or_default, search_bundle_json, search_bundle_lines,
+        search_command_with_runtime, serve_command_with_runtime, static_command_message,
+        tui_init_json, tui_init_lines, validate_model_registry, write_tui_config_if_requested,
     };
     use axum::{body::Body, http::Request};
     use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
@@ -2567,11 +2953,12 @@ fallbacks = []
         );
         assert_eq!(
             static_command_message(&super::Command::PrintPlan),
-            Some("Execution plan lives in tasks/tasklist.md")
+            Some("Execution plan lives in docs/tasks/tasklist.md")
         );
         assert_eq!(
             static_command_message(&super::Command::Search(super::SearchArgs {
                 query: "q".to_string(),
+                key: None,
                 scope_id: None,
                 limit: 10,
                 json: false,
@@ -2656,6 +3043,7 @@ fallbacks = []
         let service_info = ServiceInfo::default();
         let request = build_remember_request(
             &super::RememberArgs {
+                key: None,
                 scope_id: Some("scp_override".to_string()),
                 title: Some("记忆标题".to_string()),
                 body: None,
@@ -2687,6 +3075,7 @@ fallbacks = []
         let service_info = ServiceInfo::default();
         let request = build_remember_image_request(
             &super::RememberImageArgs {
+                key: None,
                 scope_id: None,
                 title: Some("截图".to_string()),
                 body: Some("登录页".to_string()),
@@ -2725,6 +3114,7 @@ fallbacks = []
         let request = build_search_request(
             &super::SearchArgs {
                 query: "覆盖率".to_string(),
+                key: None,
                 scope_id: Some("scp_search".to_string()),
                 limit: 25,
                 json: true,
@@ -2774,17 +3164,18 @@ fallbacks = []
         };
 
         super::apply_tui_init_overrides(&mut config, &args);
-        let report = config_check_report(&config, "config/default.toml", false)
+        let report = config_check_report(&config, "config/app.toml", false)
             .await
             .unwrap();
         let wrote = write_tui_config_if_requested(&config, &args).unwrap();
         let rendered = fs::read_to_string(&output).unwrap();
-        let payload = tui_init_json(&config, "config/default.toml", wrote.as_deref(), &report);
+        let payload = tui_init_json(&config, "config/app.toml", wrote.as_deref(), &report, None);
         let lines = tui_init_lines(
             &config,
-            "config/default.toml",
+            "config/app.toml",
             wrote.as_deref(),
             &report,
+            None,
             None,
         );
 
@@ -3033,11 +3424,46 @@ fallbacks = []
     }
 
     #[tokio::test]
+    async fn ensure_default_key_material_creates_key_file_for_pg_config() {
+        let tempdir = tempdir().unwrap();
+        let markdown_root = tempdir.path().join("markdown");
+        let asset_root = tempdir.path().join("assets");
+        fs::create_dir_all(&markdown_root).unwrap();
+        fs::create_dir_all(&asset_root).unwrap();
+
+        let mut config = sample_config(
+            &markdown_root.display().to_string(),
+            &asset_root.display().to_string(),
+            false,
+        );
+        config.features.enable_pg = true;
+        config.access.key_store_path = tempdir
+            .path()
+            .join("keys/default.env")
+            .display()
+            .to_string();
+
+        let material = ensure_default_key_material(&config)
+            .await
+            .unwrap()
+            .expect("default key should be created");
+        assert!(material.key_id.starts_with("key_"));
+        assert!(material.raw_key.starts_with("mmk_"));
+
+        let key_file = fs::read_to_string(&config.access.key_store_path).unwrap();
+        assert!(key_file.contains("MEAT_MEMORY_KEY="));
+
+        let second = ensure_default_key_material(&config).await.unwrap();
+        assert!(second.is_none());
+    }
+
+    #[tokio::test]
     async fn remember_command_runtime_supports_json_and_text_paths() {
         let tempdir = tempdir().unwrap();
         let (config, kernel_json, service_info) = build_local_runtime(tempdir.path(), false).await;
         remember_command_with_runtime(
             super::RememberArgs {
+                key: None,
                 scope_id: Some("scp_runtime_json".to_string()),
                 title: Some("JSON memory".to_string()),
                 body: Some("runtime json body".to_string()),
@@ -3060,6 +3486,7 @@ fallbacks = []
         fs::write(&body_path, "runtime file body").unwrap();
         remember_command_with_runtime(
             super::RememberArgs {
+                key: None,
                 scope_id: Some("scp_runtime_text".to_string()),
                 title: Some("Text memory".to_string()),
                 body: None,
@@ -3100,6 +3527,7 @@ fallbacks = []
 
         remember_image_command_with_runtime(
             super::RememberImageArgs {
+                key: None,
                 scope_id: Some("scp_image_json".to_string()),
                 title: Some("Runtime image".to_string()),
                 body: Some("runtime image body".to_string()),
@@ -3120,6 +3548,7 @@ fallbacks = []
         let (_, kernel_text, _) = build_local_runtime(tempdir.path(), false).await;
         remember_image_command_with_runtime(
             super::RememberImageArgs {
+                key: None,
                 scope_id: Some("scp_image_text".to_string()),
                 title: Some("Runtime gif".to_string()),
                 body: None,
@@ -3157,6 +3586,7 @@ fallbacks = []
         search_command_with_runtime(
             super::SearchArgs {
                 query: "runtime search".to_string(),
+                key: None,
                 scope_id: Some("scp_search_json".to_string()),
                 limit: 7,
                 json: true,
@@ -3171,6 +3601,7 @@ fallbacks = []
         search_command_with_runtime(
             super::SearchArgs {
                 query: "runtime search".to_string(),
+                key: None,
                 scope_id: None,
                 limit: 5,
                 json: false,

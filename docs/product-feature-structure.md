@@ -238,10 +238,9 @@
 ### 9.1 运行配置
 
 - `.env.example`
-- `config/default.toml`
-- `config/local.example.toml`
-- `config/docker.toml`
-- `config/cloud.example.toml`
+- `config/app.toml`
+- `config/README.md`
+- `config/app.local.toml`（由 TUI 生成，不建议提交真实私有配置）
 
 ### 9.2 工程配置
 

@@ -47,8 +47,14 @@ cargo run -p memory-cli -- tui init --interactive
 1. 先选语言：`中文 / English`
 2. 再选 setup profile：`Local default / MCP-ready / Markdown-first`
 3. 配置 MCP、数据库、Markdown、Assets
-4. 用编号菜单选择 reasoning / extraction / vision / embedding
+4. 用编号菜单选择 reasoning / extraction / vision / embedding；候选项会显示 alias、provider、deployment、locale、priority
 5. 选择是否做数据库检查、是否写配置、最后确认
+
+如果向导写出了配置文件，最后会提示类似命令：
+
+```bash
+MEAT_MEMORY_CONFIG=config/app.generated.toml memory-cli config check
+```
 
 ## 4. 导出 Agent skills
 

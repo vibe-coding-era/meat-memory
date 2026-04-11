@@ -1,16 +1,18 @@
 use axum::{
     Json, Router,
-    extract::{Query, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::{
-    ArtifactKind, Memory, MemoryId, MemoryKind, ScopeId, ScopeType, Sensitivity, Visibility,
+    AccessKeyId, AccessKeyStatus, ArtifactKind, KeyScopeKind, KeySourceKind, Memory, MemoryId,
+    MemoryKind, RequestContext, ScopeId, ScopeType, Sensitivity, StorageMode, Visibility,
 };
 use memory_kernel::{
-    Kernel, PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, SearchContextRequest,
+    CreateAccessKeyRequest, Kernel, PromoteMemoryRequest, RememberImageRequest,
+    RememberTextRequest, SearchContextRequest, UpdateAccessKeyRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -31,6 +33,11 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/context/search",
     "/api/v1/explorer/memories",
     "/api/v1/assistant/chat",
+    "/api/v1/keys",
+    "/api/v1/keys/{key_id}",
+    "/api/v1/keys/{key_id}/rotate",
+    "/api/v1/keys/{key_id}/stats",
+    "/api/v1/metrics/keys",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +46,7 @@ pub struct ApiFeatureFlags {
     pub markdown: bool,
     pub http: bool,
     pub mcp: bool,
+    pub require_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,16 +62,55 @@ pub struct HttpAppState {
     default_scope_id: ScopeId,
     metadata: ApiMetadata,
     kernel: Arc<Kernel>,
+    require_key: bool,
 }
 
 impl HttpAppState {
     pub fn new(default_scope_id: ScopeId, metadata: ApiMetadata, kernel: Arc<Kernel>) -> Self {
         Self {
             default_scope_id,
+            require_key: metadata.features.require_key,
             metadata,
             kernel,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAccessKeyHttpRequest {
+    pub raw_key: Option<String>,
+    pub name: String,
+    pub source: Option<String>,
+    pub owner_principal_id: Option<String>,
+    pub owner_scope_id: Option<String>,
+    pub scope_kind: Option<String>,
+    pub storage_mode: Option<String>,
+    pub isolated: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccessKeyResponse {
+    pub key_id: String,
+    pub raw_key: Option<String>,
+    pub name: String,
+    pub source: String,
+    pub owner_principal_id: String,
+    pub owner_scope_id: String,
+    pub scope_kind: String,
+    pub storage_mode: String,
+    pub isolated: bool,
+    pub isolation_group_id: String,
+    pub status: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAccessKeyHttpRequest {
+    pub name: Option<String>,
+    pub storage_mode: Option<String>,
+    pub isolated: Option<bool>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -272,6 +319,13 @@ impl ApiError {
             message: message.into(),
         }
     }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -305,6 +359,14 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/context/search", post(search_context))
         .route("/api/v1/explorer/memories", get(browse_memories))
         .route("/api/v1/assistant/chat", post(chat_with_memory_assistant))
+        .route(
+            "/api/v1/keys",
+            post(create_access_key).get(list_access_keys),
+        )
+        .route("/api/v1/keys/{key_id}", patch(update_access_key))
+        .route("/api/v1/keys/{key_id}/rotate", post(rotate_access_key))
+        .route("/api/v1/keys/{key_id}/stats", get(access_key_stats))
+        .route("/api/v1/metrics/keys", get(key_metrics))
         .with_state(state)
 }
 
@@ -334,14 +396,125 @@ async fn metrics() -> Json<memory_observability::MetricsSnapshot> {
     Json(memory_observability::metrics_snapshot())
 }
 
+async fn key_metrics() -> Json<memory_observability::MetricsSnapshot> {
+    Json(memory_observability::metrics_snapshot())
+}
+
+async fn create_access_key(
+    State(state): State<HttpAppState>,
+    Json(payload): Json<CreateAccessKeyHttpRequest>,
+) -> Result<(StatusCode, Json<AccessKeyResponse>), ApiError> {
+    let source_kind = parse_key_source(payload.source.as_deref().unwrap_or("http"))?;
+    let scope_kind = parse_key_scope(payload.scope_kind.as_deref().unwrap_or("personal"))?;
+    let storage_mode = parse_storage_mode(payload.storage_mode.as_deref().unwrap_or("all"))?;
+    let owner_principal_id = payload
+        .owner_principal_id
+        .unwrap_or_else(|| "local-user".to_string());
+    let owner_scope_id = payload
+        .owner_scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let result = state
+        .kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: payload.raw_key,
+            display_name: payload.name,
+            source_kind,
+            owner_principal_id,
+            owner_scope_id,
+            scope_kind,
+            storage_mode,
+            is_fully_isolated: payload.isolated.unwrap_or(false),
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(access_key_response(result.access_key, Some(result.raw_key))),
+    ))
+}
+
+async fn list_access_keys(
+    State(state): State<HttpAppState>,
+) -> Result<Json<Vec<AccessKeyResponse>>, ApiError> {
+    let keys = state
+        .kernel
+        .list_access_keys(200)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(
+        keys.into_iter()
+            .map(|key| access_key_response(key, None))
+            .collect(),
+    ))
+}
+
+async fn update_access_key(
+    State(state): State<HttpAppState>,
+    Path(key_id): Path<String>,
+    Json(payload): Json<UpdateAccessKeyHttpRequest>,
+) -> Result<Json<AccessKeyResponse>, ApiError> {
+    let updated = state
+        .kernel
+        .update_access_key(UpdateAccessKeyRequest {
+            key_id: AccessKeyId::from_string(key_id),
+            display_name: payload.name,
+            storage_mode: payload
+                .storage_mode
+                .as_deref()
+                .map(parse_storage_mode)
+                .transpose()?,
+            status: payload
+                .status
+                .as_deref()
+                .map(parse_key_status)
+                .transpose()?,
+            is_fully_isolated: payload.isolated,
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(access_key_response(updated, None)))
+}
+
+async fn rotate_access_key(
+    State(state): State<HttpAppState>,
+    Path(key_id): Path<String>,
+) -> Result<(StatusCode, Json<AccessKeyResponse>), ApiError> {
+    let result = state
+        .kernel
+        .rotate_access_key(&AccessKeyId::from_string(key_id), None)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(access_key_response(result.access_key, Some(result.raw_key))),
+    ))
+}
+
+async fn access_key_stats(
+    State(state): State<HttpAppState>,
+    Path(key_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let stats = state
+        .kernel
+        .access_key_usage_stats(&AccessKeyId::from_string(key_id))
+        .await
+        .map_err(api_error_from_anyhow)?
+        .ok_or_else(|| ApiError::not_found("access key not found"))?;
+    Ok(Json(json!({ "stats": stats })))
+}
+
 async fn meta(State(state): State<HttpAppState>) -> Json<ApiMetadata> {
     Json(state.metadata.clone())
 }
 
 async fn create_memory(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Json(payload): Json<CreateMemoryRequest>,
 ) -> Result<(StatusCode, Json<CreateMemoryResponse>), ApiError> {
+    let context = resolve_http_context(&state, &headers).await?;
     let scope_id = payload
         .scope_id
         .map(ScopeId::from_string)
@@ -366,6 +539,7 @@ async fn create_memory(
             source_refs: payload.source_refs,
             visibility,
             sensitivity,
+            context,
         })
         .await
         .map_err(api_error_from_anyhow)?;
@@ -391,8 +565,10 @@ async fn create_memory(
 
 async fn create_image(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Json(payload): Json<CreateImageRequest>,
 ) -> Result<(StatusCode, Json<CreateImageResponse>), ApiError> {
+    let context = resolve_http_context(&state, &headers).await?;
     let scope_id = payload
         .scope_id
         .map(ScopeId::from_string)
@@ -421,6 +597,7 @@ async fn create_image(
             source_refs: payload.source_refs,
             visibility,
             sensitivity,
+            context,
         })
         .await
         .map_err(api_error_from_anyhow)?;
@@ -505,8 +682,10 @@ async fn promote_memory(
 
 async fn search_context(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Json(payload): Json<SearchContextHttpRequest>,
 ) -> Result<Json<SearchContextHttpResponse>, ApiError> {
+    let context = resolve_http_context(&state, &headers).await?;
     let scope_id = payload
         .scope_id
         .map(ScopeId::from_string)
@@ -515,6 +694,7 @@ async fn search_context(
     if let Some(limit) = payload.limit {
         request.limit = limit;
     }
+    request.context = context;
 
     let bundle = state
         .kernel
@@ -533,6 +713,46 @@ async fn search_context(
         memory_count: memories.len(),
         memories,
     }))
+}
+
+async fn resolve_http_context(
+    state: &HttpAppState,
+    headers: &HeaderMap,
+) -> Result<Option<RequestContext>, ApiError> {
+    let raw_key = headers
+        .get("x-meat-memory-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .map(str::to_string)
+        });
+
+    let Some(raw_key) = raw_key else {
+        if state.require_key {
+            return Err(ApiError {
+                status: StatusCode::UNAUTHORIZED,
+                message: "meat memory key is required".to_string(),
+            });
+        }
+        return Ok(None);
+    };
+
+    let context = state
+        .kernel
+        .resolve_access_key_context(&raw_key)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    if context.is_none() && state.require_key {
+        return Err(ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "invalid meat memory key".to_string(),
+        });
+    }
+    Ok(context)
 }
 
 async fn browse_memories(
@@ -621,6 +841,27 @@ fn memory_to_summary(memory: &Memory) -> MemorySummary {
         memory_kind: memory_kind_label(memory.kind).to_string(),
         memory_state: memory.state.as_str().to_string(),
         evidence_count: memory.evidence_count,
+    }
+}
+
+fn access_key_response(
+    access_key: memory_domain::AccessKey,
+    raw_key: Option<String>,
+) -> AccessKeyResponse {
+    AccessKeyResponse {
+        key_id: access_key.id.as_str().to_string(),
+        raw_key,
+        name: access_key.display_name,
+        source: access_key.source_kind.as_str().to_string(),
+        owner_principal_id: access_key.owner_principal_id,
+        owner_scope_id: access_key.owner_scope_id.as_str().to_string(),
+        scope_kind: access_key.scope_kind.as_str().to_string(),
+        storage_mode: access_key.storage_mode.as_str().to_string(),
+        isolated: access_key.is_fully_isolated,
+        isolation_group_id: access_key.isolation_group_id,
+        status: access_key.status.as_str().to_string(),
+        created_at: format_timestamp(access_key.created_at),
+        last_used_at: access_key.last_used_at.map(format_timestamp),
     }
 }
 
@@ -937,6 +1178,26 @@ fn parse_sensitivity(raw: Option<&str>) -> Result<Sensitivity, ApiError> {
             "unsupported sensitivity: {other}"
         ))),
     }
+}
+
+fn parse_key_source(raw: &str) -> Result<KeySourceKind, ApiError> {
+    KeySourceKind::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported source: {raw}")))
+}
+
+fn parse_key_scope(raw: &str) -> Result<KeyScopeKind, ApiError> {
+    KeyScopeKind::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported scope_kind: {raw}")))
+}
+
+fn parse_storage_mode(raw: &str) -> Result<StorageMode, ApiError> {
+    StorageMode::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported storage_mode: {raw}")))
+}
+
+fn parse_key_status(raw: &str) -> Result<AccessKeyStatus, ApiError> {
+    AccessKeyStatus::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported key status: {raw}")))
 }
 
 fn api_error_from_anyhow(error: anyhow::Error) -> ApiError {
@@ -1323,6 +1584,30 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       color: var(--muted);
       background: rgba(255, 255, 255, 0.45);
     }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .metric-block {
+      border-radius: 16px;
+      border: 1px solid rgba(120, 53, 15, 0.14);
+      background: rgba(255, 255, 255, 0.58);
+      padding: 12px;
+    }
+    .metric-block .stat-value {
+      font-size: 22px;
+    }
+    .metric-block-wide {
+      grid-column: 1 / -1;
+    }
+    .metric-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
     .hidden {
       display: none !important;
     }
@@ -1437,6 +1722,50 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       <div class="column right-rail">
         <section class="card">
           <div class="card-header">
+            <h2 class="card-title">监控概览</h2>
+            <span class="memory-meta-tag">/metrics · /api/v1/metrics/keys</span>
+          </div>
+          <div id="metrics-status" class="status-box">正在加载监控数据...</div>
+          <div id="metrics-panel" class="hidden">
+            <div class="metric-grid">
+              <div class="metric-block">
+                <div class="stat-label">搜索 p95</div>
+                <div class="stat-value" id="search-p95">0ms</div>
+              </div>
+              <div class="metric-block">
+                <div class="stat-label">写入 p95</div>
+                <div class="stat-value" id="write-p95">0ms</div>
+              </div>
+              <div class="metric-block">
+                <div class="stat-label">搜索命中率</div>
+                <div class="stat-value" id="search-hit-rate">0%</div>
+              </div>
+              <div class="metric-block">
+                <div class="stat-label">Key 成功率</div>
+                <div class="stat-value" id="key-success-rate">0%</div>
+              </div>
+              <div class="metric-block metric-block-wide">
+                <div class="stat-label">最近统计</div>
+                <div class="metric-strip">
+                  <span class="memory-meta-tag" id="search-volume">搜索 0</span>
+                  <span class="memory-meta-tag" id="write-volume">写入 0</span>
+                  <span class="memory-meta-tag" id="key-volume">Key 操作 0</span>
+                </div>
+              </div>
+              <div class="metric-block metric-block-wide">
+                <div class="stat-label">存储模式分布</div>
+                <div class="metric-strip">
+                  <span class="memory-meta-tag" id="mode-file">file 0</span>
+                  <span class="memory-meta-tag" id="mode-vector">vector 0</span>
+                  <span class="memory-meta-tag" id="mode-all">all 0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
             <h2 class="card-title">AI 对话区</h2>
           </div>
           <div id="chat-note" class="chat-note muted">
@@ -1471,6 +1800,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
     const state = {
       workspace: null,
+      metrics: null,
       ownershipFilter: "all",
       agentFilter: "all",
       scopeFilter: "scp_meat_memory_v1",
@@ -1495,6 +1825,18 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const listStatusEl = document.getElementById("list-status");
     const memoryListEl = document.getElementById("memory-list");
     const memoryEmptyEl = document.getElementById("memory-empty");
+    const metricsStatusEl = document.getElementById("metrics-status");
+    const metricsPanelEl = document.getElementById("metrics-panel");
+    const searchP95El = document.getElementById("search-p95");
+    const writeP95El = document.getElementById("write-p95");
+    const searchHitRateEl = document.getElementById("search-hit-rate");
+    const keySuccessRateEl = document.getElementById("key-success-rate");
+    const searchVolumeEl = document.getElementById("search-volume");
+    const writeVolumeEl = document.getElementById("write-volume");
+    const keyVolumeEl = document.getElementById("key-volume");
+    const modeFileEl = document.getElementById("mode-file");
+    const modeVectorEl = document.getElementById("mode-vector");
+    const modeAllEl = document.getElementById("mode-all");
     const chatStackEl = document.getElementById("chat-stack");
     const chatFormEl = document.getElementById("chat-form");
     const chatInputEl = document.getElementById("chat-input");
@@ -1552,6 +1894,18 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       if (!stillSelected) {
         state.selectedMemoryId = items[0].memory_id;
       }
+    }
+
+    function percent(value) {
+      return (Number(value || 0) * 100).toFixed(0) + "%";
+    }
+
+    function metricNumber(value) {
+      return String(Number(value || 0));
+    }
+
+    function metricLatency(value) {
+      return String(Number(value || 0)) + "ms";
     }
 
     function renderOwnershipFilter() {
@@ -1710,11 +2064,43 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       chatStackEl.scrollTop = chatStackEl.scrollHeight;
     }
 
+    function renderMetrics() {
+      if (!state.metrics) {
+        metricsStatusEl.textContent = "正在加载监控数据...";
+        metricsStatusEl.classList.remove("hidden");
+        metricsPanelEl.classList.add("hidden");
+        return;
+      }
+
+      const metrics = state.metrics;
+      const search = metrics.search || {};
+      const write = metrics.write || {};
+      const key = metrics.key || {};
+
+      searchP95El.textContent = metricLatency(search.latency && search.latency.p95_ms);
+      writeP95El.textContent = metricLatency(write.latency && write.latency.p95_ms);
+      searchHitRateEl.textContent = percent(search.hit_rate);
+      const keySuccessRate = key.keyed_operations
+        ? key.successful_operations / key.keyed_operations
+        : 0;
+      keySuccessRateEl.textContent = percent(keySuccessRate);
+      searchVolumeEl.textContent = "搜索 " + metricNumber(search.total_queries);
+      writeVolumeEl.textContent = "写入 " + metricNumber(write.total_requests);
+      keyVolumeEl.textContent = "Key 操作 " + metricNumber(key.keyed_operations);
+      modeFileEl.textContent = "file " + metricNumber(key.file_mode_operations);
+      modeVectorEl.textContent = "vector " + metricNumber(key.vector_mode_operations);
+      modeAllEl.textContent = "all " + metricNumber(key.all_mode_operations);
+
+      metricsStatusEl.classList.add("hidden");
+      metricsPanelEl.classList.remove("hidden");
+    }
+
     function render() {
       renderOwnershipFilter();
       renderAgentFilters();
       renderScopeFilters();
       renderList();
+      renderMetrics();
       renderChat();
     }
 
@@ -1723,9 +2109,18 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       listStatusEl.classList.remove("hidden");
       memoryListEl.classList.add("hidden");
       memoryEmptyEl.classList.add("hidden");
+      metricsStatusEl.textContent = "正在加载监控数据...";
+      metricsStatusEl.classList.remove("hidden");
+      metricsPanelEl.classList.add("hidden");
 
       try {
-        state.workspace = await fetchJson("/api/v1/explorer/memories?limit=300");
+        const [workspace, metrics, keyMetrics] = await Promise.all([
+          fetchJson("/api/v1/explorer/memories?limit=300"),
+          fetchJson("/metrics"),
+          fetchJson("/api/v1/metrics/keys"),
+        ]);
+        state.workspace = workspace;
+        state.metrics = keyMetrics && keyMetrics.key ? keyMetrics : metrics;
         const scopeExists = (state.workspace.scope_groups || []).some(
           (item) => item.key === state.scopeFilter
         );
@@ -1736,10 +2131,13 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
         render();
       } catch (error) {
         state.workspace = { total_count: 0, agent_groups: [], scope_groups: [], memories: [] };
+        state.metrics = null;
         state.selectedMemoryId = null;
         listStatusEl.textContent = "当前无法加载工作台：" + String(error);
+        metricsStatusEl.textContent = "当前无法加载监控：" + String(error);
         render();
         listStatusEl.classList.remove("hidden");
+        metricsStatusEl.classList.remove("hidden");
       }
     }
 
@@ -1894,6 +2292,7 @@ mod tests {
                     markdown: true,
                     http: true,
                     mcp: false,
+                    require_key: false,
                 },
             },
             kernel,
@@ -1924,6 +2323,7 @@ mod tests {
                     markdown: true,
                     http: true,
                     mcp: false,
+                    require_key: false,
                 },
             },
             kernel,
@@ -1936,9 +2336,13 @@ mod tests {
         assert!(has_route("/healthz"));
         assert!(has_route("/livez"));
         assert!(has_route("/metrics"));
+        assert!(has_route("/api/v1/metrics/keys"));
         assert!(has_route("/api/v1/context/search"));
         assert!(has_route("/api/v1/explorer/memories"));
         assert!(has_route("/api/v1/assistant/chat"));
+        assert!(has_route("/api/v1/keys/{key_id}"));
+        assert!(has_route("/api/v1/keys/{key_id}/rotate"));
+        assert!(has_route("/api/v1/keys/{key_id}/stats"));
     }
 
     #[tokio::test]
@@ -1955,9 +2359,11 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(text.contains("Browser Console"));
+        assert!(text.contains("监控概览"));
         assert!(text.contains("AI 对话区"));
         assert!(text.contains("/api/v1/explorer/memories"));
         assert!(text.contains("/api/v1/assistant/chat"));
+        assert!(text.contains("/api/v1/metrics/keys"));
     }
 
     #[tokio::test]
@@ -2188,12 +2594,22 @@ mod tests {
             .await
             .unwrap();
         let metrics = app
+            .clone()
             .oneshot(Request::get("/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let key_metrics = app
+            .oneshot(
+                Request::get("/api/v1/metrics/keys")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
         assert_eq!(livez.status(), axum::http::StatusCode::OK);
         assert_eq!(metrics.status(), axum::http::StatusCode::OK);
+        assert_eq!(key_metrics.status(), axum::http::StatusCode::OK);
     }
 
     #[tokio::test]
@@ -2405,6 +2821,7 @@ mod tests {
                 markdown: true,
                 http: true,
                 mcp: false,
+                require_key: false,
             },
         };
 

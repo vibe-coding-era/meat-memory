@@ -23,6 +23,7 @@ Before using memory, inspect the local setup:
 ```bash
 memory-cli config check
 memory-cli mcp info
+memory-cli key create --name codex-local --source skill --scope-kind personal --storage all --json
 ```
 
 If `memory-cli` is not on PATH, use:
@@ -30,7 +31,10 @@ If `memory-cli` is not on PATH, use:
 ```bash
 cargo run -p memory-cli -- config check
 cargo run -p memory-cli -- mcp info
+cargo run -p memory-cli -- key create --name codex-local --source skill --scope-kind personal --storage all --json
 ```
+
+Keep the returned `raw_key` in `MEAT_MEMORY_KEY` or pass it through the MCP HTTP header `X-Meat-Memory-Key`.
 
 ## Preferred Workflow
 
@@ -59,6 +63,12 @@ memory-cli remember \
   --visibility project \
   --sensitivity internal \
   --json
+```
+
+If the local service requires keys, export the key first:
+
+```bash
+export MEAT_MEMORY_KEY=mmk_...
 ```
 
 ## MCP Tools

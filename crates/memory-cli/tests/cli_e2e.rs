@@ -1,7 +1,11 @@
 use assert_cmd::Command;
 use memory_domain::ScopeId;
 use serde_json::Value;
-use std::{env, fs, path::Path};
+use std::{
+    env, fs,
+    path::Path,
+    sync::{Mutex, OnceLock},
+};
 use tempfile::tempdir;
 
 fn test_database_url() -> String {
@@ -174,7 +178,174 @@ fn cli_remember_image_returns_llm_notice_after_failover() {
     );
 }
 
+#[test]
+fn cli_key_create_and_list_work() {
+    let tempdir = tempdir().unwrap();
+    let config_path = write_test_config(tempdir.path());
+
+    let created = run_cli(
+        &config_path,
+        &[
+            "key",
+            "create",
+            "--name",
+            "codex local",
+            "--source",
+            "cli",
+            "--owner-principal-id",
+            "alice",
+            "--owner-scope-id",
+            "scp_user_cli_key",
+            "--scope-kind",
+            "personal",
+            "--storage",
+            "all",
+            "--json",
+        ],
+    );
+    assert_eq!(created["name"], "codex local");
+    assert_eq!(created["scope_kind"], "personal");
+    assert_eq!(created["storage_mode"], "all");
+    assert!(created["raw_key"].as_str().unwrap().starts_with("mmk_"));
+
+    let listed = run_cli(&config_path, &["key", "list", "--json"]);
+    assert!(
+        listed["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["key_id"] == created["key_id"])
+    );
+}
+
+#[test]
+fn cli_vector_key_remember_and_search_work() {
+    let tempdir = tempdir().unwrap();
+    let config_path = write_test_config(tempdir.path());
+    let scope_id = ScopeId::new();
+
+    let created = run_cli(
+        &config_path,
+        &[
+            "key",
+            "create",
+            "--name",
+            "vector cli",
+            "--source",
+            "cli",
+            "--owner-principal-id",
+            "alice",
+            "--owner-scope-id",
+            scope_id.as_str(),
+            "--scope-kind",
+            "personal",
+            "--storage",
+            "vector",
+            "--json",
+        ],
+    );
+    let raw_key = created["raw_key"].as_str().unwrap();
+
+    let remember = run_cli(
+        &config_path,
+        &[
+            "remember",
+            "--key",
+            raw_key,
+            "--scope-id",
+            scope_id.as_str(),
+            "--title",
+            "Vector mode memory",
+            "--body",
+            "Graphite apple retrieval should use vector mode only.",
+            "--memory-kind",
+            "fact",
+            "--json",
+        ],
+    );
+    assert_eq!(remember["wrote_pg"], true);
+    assert_eq!(remember["wrote_markdown"], false);
+
+    let search = run_cli(
+        &config_path,
+        &[
+            "search",
+            "graphite apple",
+            "--key",
+            raw_key,
+            "--scope-id",
+            scope_id.as_str(),
+            "--limit",
+            "5",
+            "--json",
+        ],
+    );
+    assert_eq!(search["memory_count"], 1);
+}
+
+#[test]
+fn cli_key_rotate_and_stats_work() {
+    let tempdir = tempdir().unwrap();
+    let config_path = write_test_config(tempdir.path());
+    let scope_id = ScopeId::new();
+
+    let created = run_cli(
+        &config_path,
+        &[
+            "key",
+            "create",
+            "--name",
+            "rotate cli",
+            "--source",
+            "cli",
+            "--owner-principal-id",
+            "alice",
+            "--owner-scope-id",
+            scope_id.as_str(),
+            "--scope-kind",
+            "personal",
+            "--storage",
+            "all",
+            "--json",
+        ],
+    );
+    let raw_key = created["raw_key"].as_str().unwrap();
+    let key_id = created["key_id"].as_str().unwrap();
+
+    let remember = run_cli(
+        &config_path,
+        &[
+            "remember",
+            "--key",
+            raw_key,
+            "--scope-id",
+            scope_id.as_str(),
+            "--title",
+            "Rotate stats memory",
+            "--body",
+            "Key stats should capture remember path.",
+            "--json",
+        ],
+    );
+    assert_eq!(remember["wrote_pg"], true);
+
+    let stats = run_cli(
+        &config_path,
+        &["key", "stats", "--key-id", key_id, "--json"],
+    );
+    assert_eq!(stats["stats"]["total_operations"], 1);
+
+    let rotated = run_cli(
+        &config_path,
+        &["key", "rotate", "--key-id", key_id, "--json"],
+    );
+    assert!(rotated["raw_key"].as_str().unwrap().starts_with("mmk_"));
+    assert_ne!(rotated["key_id"], created["key_id"]);
+}
+
 fn run_cli(config_path: &Path, args: &[&str]) -> Value {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     let output = Command::cargo_bin("memory-cli")
         .unwrap()
         .env("MEAT_MEMORY_CONFIG", config_path)

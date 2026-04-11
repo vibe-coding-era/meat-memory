@@ -1,5 +1,10 @@
-use memory_domain::{MemoryId, MemoryState, ScopeId, ScopeType, Sensitivity, Visibility};
-use memory_kernel::{Kernel, PromoteMemoryRequest, RememberTextRequest, SearchContextRequest};
+use memory_domain::{
+    KeyScopeKind, KeySourceKind, MemoryId, MemoryState, ScopeId, ScopeType, Sensitivity,
+    StorageMode, Visibility,
+};
+use memory_kernel::{
+    CreateAccessKeyRequest, Kernel, PromoteMemoryRequest, RememberTextRequest, SearchContextRequest,
+};
 use std::env;
 use tempfile::tempdir;
 
@@ -196,4 +201,99 @@ async fn markdown_only_get_memory_and_promote_flow_preserves_scope_lineage() {
         .expect("promoted memory should be readable from markdown store");
     assert_eq!(promoted_memory.scope_id.as_str(), "scp_project_demo");
     assert_eq!(promoted_memory.owner_scope_id.as_str(), "scp_user_alice");
+}
+
+#[tokio::test]
+async fn search_context_graph_expansion_finds_related_memories_without_leaking_other_isolation_groups()
+ {
+    let tempdir = tempdir().unwrap();
+    let kernel = Kernel::builder()
+        .with_postgres_url(&test_database_url())
+        .await
+        .unwrap()
+        .with_markdown_root(tempdir.path())
+        .unwrap()
+        .build()
+        .unwrap();
+    let scope_id = ScopeId::new();
+    let key_a = kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: Some(format!("mmk_kernel_graph_a_{}", scope_id.as_str())),
+            display_name: "graph a".to_string(),
+            source_kind: KeySourceKind::Cli,
+            owner_principal_id: "alice".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: true,
+        })
+        .await
+        .unwrap();
+    let context = kernel
+        .resolve_access_key_context(&key_a.raw_key)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut seed = RememberTextRequest::new(
+        scope_id.clone(),
+        "Project Meat Memory uses Service Gateway for context routing.",
+    );
+    seed.title = Some("Gateway relation".to_string());
+    seed.context = Some(context.clone());
+    kernel.remember_text(seed).await.unwrap();
+
+    let mut neighbor = RememberTextRequest::new(
+        scope_id.clone(),
+        "Service Gateway deployment playbook for release windows.",
+    );
+    neighbor.title = Some("Gateway deployment".to_string());
+    neighbor.context = Some(context.clone());
+    kernel.remember_text(neighbor).await.unwrap();
+
+    let mut hidden = RememberTextRequest::new(
+        scope_id.clone(),
+        "Service Gateway secret memory for bob only.",
+    );
+    hidden.title = Some("Bob hidden gateway".to_string());
+    let key_b = kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: Some(format!("mmk_kernel_graph_b_{}", scope_id.as_str())),
+            display_name: "graph b".to_string(),
+            source_kind: KeySourceKind::Cli,
+            owner_principal_id: "bob".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: true,
+        })
+        .await
+        .unwrap();
+    hidden.context = Some(
+        kernel
+            .resolve_access_key_context(&key_b.raw_key)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    kernel.remember_text(hidden).await.unwrap();
+
+    let mut search = SearchContextRequest::new(scope_id, "project meat memory");
+    search.context = Some(context);
+    let bundle = kernel.search_context(search).await.unwrap();
+
+    assert_eq!(bundle.memories.len(), 2);
+    assert_eq!(bundle.memories[0].title, "Gateway relation");
+    assert!(
+        bundle
+            .memories
+            .iter()
+            .any(|memory| memory.title == "Gateway deployment")
+    );
+    assert!(
+        !bundle
+            .memories
+            .iter()
+            .any(|memory| memory.title == "Bob hidden gateway")
+    );
 }

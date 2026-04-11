@@ -2,7 +2,7 @@ use anyhow::Result;
 use axum::{
     Json, Router,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -186,6 +186,7 @@ impl McpServer {
             .map(parse_sensitivity)
             .transpose()?
             .unwrap_or(Sensitivity::Internal);
+        let context = self.resolve_optional_key(payload.key.as_deref()).await?;
 
         let result = self
             .kernel
@@ -201,6 +202,7 @@ impl McpServer {
                 source_refs: payload.source_refs,
                 visibility,
                 sensitivity,
+                context,
             })
             .await
             .map_err(map_kernel_error)?;
@@ -233,6 +235,7 @@ impl McpServer {
         arguments: Value,
     ) -> Result<ToolCallResponse, McpError> {
         let payload = parse_arguments::<SearchToolArgs>(arguments)?;
+        let context = self.resolve_optional_key(payload.key.as_deref()).await?;
         let mut request = SearchContextRequest::new(
             payload
                 .scope_id
@@ -243,6 +246,7 @@ impl McpServer {
         if let Some(limit) = payload.limit {
             request.limit = limit;
         }
+        request.context = context;
 
         let bundle = self
             .kernel
@@ -334,6 +338,19 @@ impl McpServer {
             }),
             warnings: Vec::new(),
         })
+    }
+
+    async fn resolve_optional_key(
+        &self,
+        raw_key: Option<&str>,
+    ) -> Result<Option<memory_domain::RequestContext>, McpError> {
+        let Some(raw_key) = raw_key else {
+            return Ok(None);
+        };
+        self.kernel
+            .resolve_access_key_context(raw_key)
+            .await
+            .map_err(map_kernel_error)
     }
 }
 
@@ -436,6 +453,7 @@ struct RememberToolArgs {
     source_refs: Vec<String>,
     visibility: Option<String>,
     sensitivity: Option<String>,
+    key: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -443,6 +461,7 @@ struct SearchToolArgs {
     scope_id: Option<String>,
     query: String,
     limit: Option<usize>,
+    key: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -484,9 +503,32 @@ async fn list_tools(State(state): State<McpServer>) -> Json<ToolListResponse> {
 
 async fn call_tool(
     State(state): State<McpServer>,
-    Json(payload): Json<ToolCallRequest>,
+    headers: HeaderMap,
+    Json(mut payload): Json<ToolCallRequest>,
 ) -> Result<Json<ToolCallResponse>, McpError> {
+    if let Some(raw_key) = key_from_headers(&headers) {
+        let arguments = payload.arguments.as_object_mut().ok_or_else(|| {
+            McpError::invalid_arguments("MCP tool arguments must be a JSON object")
+        })?;
+        arguments
+            .entry("key".to_string())
+            .or_insert_with(|| Value::String(raw_key));
+    }
     Ok(Json(state.dispatch(payload).await?))
+}
+
+fn key_from_headers(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-meat-memory-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .map(str::to_string)
+        })
 }
 
 fn parse_arguments<T>(arguments: Value) -> Result<T, McpError>

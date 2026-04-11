@@ -297,19 +297,19 @@ fallbacks = ["chatgpt_vision", "claude_vision"]
 默认配置文件：
 
 ```text
-config/default.toml
+config/app.toml
 ```
 
 Docker Compose 使用：
 
 ```text
-config/docker.toml
+config/app.toml
 ```
 
 可通过环境变量覆盖：
 
 ```bash
-MEAT_MEMORY_CONFIG=config/local.toml cargo run -p memory-app
+MEAT_MEMORY_CONFIG=config/app.local.toml cargo run -p memory-app
 ```
 
 默认关键路径：
@@ -323,7 +323,7 @@ MEAT_MEMORY_CONFIG=config/local.toml cargo run -p memory-app
 
 ### 推荐的本地覆盖方式
 
-如果你不希望试跑数据直接写进仓库内的 `docs/`，建议创建 `config/local.toml`，例如：
+如果你不希望试跑数据直接写进仓库内的 `docs/`，建议创建 `config/app.local.toml`，例如：
 
 ```toml
 [logging]
@@ -346,7 +346,7 @@ enable_mcp = true
 然后用：
 
 ```bash
-MEAT_MEMORY_CONFIG=config/local.toml cargo run -p memory-app
+MEAT_MEMORY_CONFIG=config/app.local.toml cargo run -p memory-app
 ```
 
 ## 常用脚本
@@ -395,7 +395,7 @@ just dev-down
 
 详细报告见：
 
-- `test-task.md`
+- `docs/reports/test-coverage-report.md`
 - `target/coverage/unit-pass5/summary.json`
 - `target/coverage/unit-pass5/report.txt`
 
@@ -425,7 +425,6 @@ crates/
 config/
 scripts/
 docs/
-tasks/
 tests/
 ```
 
@@ -433,6 +432,7 @@ tests/
 
 - `docs/meat-memory-scheme-v1.md`
 - `docs/meat-memory-scheme-v2.md`
+- `docs/meat-memory-scheme-v2_2.md`
 - `docs/api/http-api-v1.md`
 - `docs/api/cli-v1.md`
 - `docs/api/mcp-tools-v1.md`
@@ -441,8 +441,9 @@ tests/
 - `docs/runbook/local-deploy-v1.md`
 - `docs/runbook/cloud-deploy-v1.md`
 - `docs/runbook/v1-acceptance.md`
-- `tasks/tasklist.md`
-- `tasks/task-log.md`
+- `docs/tasks/tasklist.md`
+- `docs/tasks/task-log.md`
+- `docs/reports/test-coverage-report.md`
 
 ## 当前 V1 边界
 

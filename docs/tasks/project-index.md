@@ -18,13 +18,16 @@
 │   ├── meat-memory-prompt.md
 │   ├── release-notes-v1.md
 │   ├── meat-memory-scheme-v1.md
-│   └── meat-memory-scheme-v2.md
+│   ├── meat-memory-scheme-v2.md
+│   ├── meat-memory-scheme-v2_2.md
+│   ├── reports/
+│   │   └── test-coverage-report.md
+│   └── tasks/
+│       ├── project-index.md
+│       ├── task-log.md
+│       └── tasklist.md
 ├── infra/
 ├── scripts/
-└── tasks/
-    ├── project-index.md
-    ├── task-log.md
-    └── tasklist.md
 ├── tests/
 ├── Cargo.toml
 ├── CHANGELOG.md
@@ -40,7 +43,7 @@
 
 - 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性 + V1 模型网关与图片理解基线 + 部署/文档/验收收口 + 中文系统化回归补齐 + V1 封板完成”。
 - 已具备 Rust workspace、核心领域模型、PG/Markdown 存储层、`memory-kernel` remember/search/publish 编排、entity/relation 抽取、`memory-models` capability traits + provider/model/route registry + 本地 vision gateway、HTTP remember/search/health/metrics 路由、CLI remember/search/serve 入口、MCP remember/search/fetch_context/publish tool 层、内存版 sync oplog/merge baseline、基础配置、脚本、CI skeleton、Dockerfile、compose、本地 pgvector 开发库、Helm chart、V1 文档包、V1 验收脚本与 Git hooks。
-- 当前最重要的有效输入变成了三类：`docs/` 下的设计文档、`tasks/` 下的执行文档、`crates/` 下的真实工程实现
+- 当前最重要的有效输入变成了三类：`docs/` 下的设计文档、`docs/tasks/` 下的执行文档、`crates/` 下的真实工程实现
 
 ## 2. 文件角色索引
 
@@ -64,27 +67,33 @@
 - 用途：定义对象模型、写入/检索链路、存储分层、同步、协议、Rust workspace 设计
 - 当前价值：后续实现的主依据
 
+`docs/meat-memory-scheme-v2_2.md`
+
+- 角色：V2.2 增强用户端使用体验方案
+- 用途：定义 key、权限隔离、存储模式、跨 key 图谱/索引和监控面板
+- 当前价值：V2.2 MVP 与 Full 阶段的设计依据
+
 `docs/release-notes-v1.md`
 
 - 角色：V1 封板说明
 - 用途：沉淀 V1 交付边界、验收摘要、递延范围和操作入口
 - 当前价值：作为 V1 对外交付与内部交接的统一摘要
 
-### 2.2 `tasks/`
+### 2.2 `docs/tasks/`
 
-`tasks/tasklist.md`
+`docs/tasks/tasklist.md`
 
 - 角色：原子任务总清单
 - 用途：从环境安装、仓库脚手架、内核实现到部署上线的执行路线图
 - 当前价值：执行入口文档
 
-`tasks/task-log.md`
+`docs/tasks/task-log.md`
 
 - 角色：结构化执行日志
 - 用途：记录索引、任务完成、决策、阻塞和下一步动作
 - 当前价值：执行过程上下文主日志
 
-`tasks/project-index.md`
+`docs/tasks/project-index.md`
 
 - 角色：项目现状索引
 - 用途：提供快速上下文、目录盘点、状态判断和开工入口
@@ -104,7 +113,7 @@
 - 用途：统一团队编译版本与组件
 - 当前价值：已固定到 `1.85.0`
 
-`config/default.toml`
+`config/app.toml`
 
 - 角色：默认运行配置
 - 用途：定义 bind、logging、markdown、postgres、assets、models、sync、features

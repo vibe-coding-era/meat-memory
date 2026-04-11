@@ -48,8 +48,8 @@
   duration: 0.5h
   status: ✅
   change_hash: N/A-no-git
-  key_output: 重新索引仓库当前状态，确认 `tasks/` 目录已存在，更新 tasklist 顶部快照，并新增 `tasks/project-index.md`
-  issues_decisions: 发现此前中断后仓库状态已变化，原 tasklist 顶部“仅 docs 文档”的快照过期，因此补做一次全量索引并将 `docs/` + `tasks/` 作为当前有效执行上下文
+  key_output: 重新索引仓库当时状态，确认旧 `tasks/` 目录已存在，更新 tasklist 顶部快照，并新增项目索引；后续已迁移到 `docs/tasks/`
+  issues_decisions: 发现此前中断后仓库状态已变化，原 tasklist 顶部“仅 docs 文档”的快照过期，因此补做一次全量索引；后续统一迁移为 `docs/` + `docs/tasks/` 当前有效执行上下文
   next_action: 后续可直接从 `MM-ENV-001` 开始进入真实环境搭建，或先继续补充 schema/domain/mcp 子文档
 
 - timestamp: 2026-04-02 (Asia/Shanghai)
@@ -308,7 +308,7 @@
   duration: 1.2h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 修复 `memory-kernel` 测试依赖缺口，为 `crates/memory-kernel/Cargo.toml` 补充 `serde_json.workspace = true`，恢复 `cargo test -p memory-kernel --lib --quiet` 与 `cargo test --workspace --lib --bins --quiet` 全绿；重跑单元覆盖率并生成 `target/coverage/unit-pass5/`，当前快照提升到 Line `95.46%`、Function `91.79%`、Region `87.91%`；同步回写 `tasks/tasklist.md` 与 `test-task.md`
+  key_output: 修复 `memory-kernel` 测试依赖缺口，为 `crates/memory-kernel/Cargo.toml` 补充 `serde_json.workspace = true`，恢复 `cargo test -p memory-kernel --lib --quiet` 与 `cargo test --workspace --lib --bins --quiet` 全绿；重跑单元覆盖率并生成 `target/coverage/unit-pass5/`，当前快照提升到 Line `95.46%`、Function `91.79%`、Region `87.91%`；同步回写 `docs/tasks/tasklist.md` 与 `docs/reports/test-coverage-report.md`
   issues_decisions: 继续沿用“带覆盖率插桩的测试二进制直接执行”方案，显式使用绝对 `LLVM_PROFILE_FILE` 路径，并改用 Rust toolchain 自带 `llvm-profdata` / `llvm-cov`，规避当前环境的相对路径 quirk 与 PATH 缺失问题
   next_action: 继续推进 `V1-ZH-001` 中文系统化验收语料收口，并把剩余覆盖率热点聚焦到 `memory-worker`、`memory-app`、`memory-store-pg` 等文件
 
@@ -328,7 +328,7 @@
   duration: 0.8h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 补齐 `docs/release-notes-v1.md`，同步更新 `CHANGELOG.md`、`README.md`、`docs/README.md`、`tasks/tasklist.md`、`tasks/project-index.md`，将仓库状态从“V1 封板中”收口到“V1 已完成”；同时复核 `docker compose config --quiet` 与 `helm lint infra/helm/meat-memory` 作为 V1 部署边界验收入口
+  key_output: 补齐 `docs/release-notes-v1.md`，同步更新 `CHANGELOG.md`、`README.md`、`docs/README.md`、`docs/tasks/tasklist.md`、`docs/tasks/project-index.md`，将仓库状态从“V1 封板中”收口到“V1 已完成”；同时复核 `docker compose config --quiet` 与 `helm lint infra/helm/meat-memory` 作为 V1 部署边界验收入口
   issues_decisions: V1 版本号继续维持 `0.1.0`，把 2026-04-09 作为当前封板日期；封板文档只声明 V1 已交付的文本+图片、中文优先、HTTP/CLI/MCP、本地/云独立部署和混合部署预留接口，不把团队隔离、中英双语、音视频链路提前纳入 V1 口径
   next_action: V1 已完成，后续进入 `V2-SCP-*`、`V2-LNG-*`、`V2-SYN-*` 范围准备
 
@@ -511,3 +511,63 @@
   key_output: 收口 V2.1 全量范围：补齐 `mcp info --check-http` 本地连通性检查；让交互式 TUI 的最终结果面板跟随语言切换；将英文交互流程纳入 `scripts/v2_1-acceptance.sh`；新增 `docs/runbook/v2_1-quickstart.md` 并完成 README/runbook 索引收口。至此 V2.1 的 CLI、MCP、Agent skill、TUI、文档与验收均已完成并可独立交付
   issues_decisions: 统一采用“沙箱友好的验收方式”，避免依赖测试内临时监听端口；`mcp info --check-http` 在服务未启动时明确返回 `unreachable`，保持诊断信息可预期而不是静默失败
   next_action: V2.1 已完成；后续可转入 V3 多模态能力，或继续增强全屏式 TUI 体验
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-POLISH
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 继续完善交互式 TUI：模型编号菜单现在显示 alias、provider、deployment、locale、priority，帮助用户不用查配置文件就能判断模型候选；当向导写出配置文件时，最终面板会给出 `MEAT_MEMORY_CONFIG=<path> memory-cli config check` 的下一步验证命令
+  issues_decisions: 保持标准输入/输出向导，不引入额外全屏 TUI 依赖；本轮重点优化信息密度和安装后的下一步指引。写配置 smoke 使用 `/tmp/meat-memory-tui.generated.toml`，验证后已清理临时文件
+  next_action: 如继续打磨，可再做 provider 分组、API key 环境变量提示，或进入真正全屏式 TUI
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: CFG-CONSOLIDATE-001/V2.1-TUI-002
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将应用运行配置从 `default/docker/cloud/local.example` 多文件收敛为单一 `config/app.toml`，新增 `config/README.md`；Docker、本地和云端差异改用 `MEAT_MEMORY_*` 环境变量覆盖；`memory-config` 支持 server/logging/storage/database/sync/locale/features 的环境变量覆盖；TUI 默认基于 `config/app.toml` 读写派生配置，并已通过 `/tmp/meat-memory-app.local.toml` 写配置 smoke
+  issues_decisions: Rust/Cargo/CI/Compose 等工具配置保留在工具约定位置，不强行移动到 `config/`，避免破坏工具自动发现；只统一应用运行配置。旧路径引用只保留在历史日志和未跟踪 `docs/default/` 投影中，不修改历史记录和用户未跟踪内容
+  next_action: 后续如需继续简化，可为 TUI 增加“保存为 config/app.local.toml 并提示加入 .gitignore”的专门选项
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: DOC-SCHEME-V3
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `docs/meat-memory-scheme-v3.md`，基于 `meat-memory-scheme-v2.md` 汇总 V2/V2.1 已完成能力、配置统一化结果、当前工程基线，以及 V3 音频/视频全多模态规划；同步更新 `docs/README.md` 文档索引
+  issues_decisions: 将 `Scheme V3` 明确区分为“当前方案文档版本”和“产品 V3 全多模态阶段”，避免把已完成的 V2.1 工程基线与后续音视频任务混在同一个完成状态里
+  next_action: 后续进入 V3 实现前，可继续细化音频/视频 object schema、asset metadata、timeline evidence 与 `scripts/v3-acceptance.sh`
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.2-IDX-002/V2.2-IDX-003/V2.2-QA-002
+  executor: Codex
+  duration: 0.5h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 补齐 V2.2 embedding 写入与最小混合检索链路：`memory-models` 新增 deterministic 1536 维 `EmbeddingGateway`；`memory-kernel` 在 all/vector 写入后保存 memory embedding，并在搜索时合并 keyword + vector 结果；`memory-store-pg` 新增 `memory_embeddings` upsert、pgvector `<->` 查询和 isolation_group 过滤。同步补齐模型层、PG 集成和 SQL builder 回归，并更新 V2.2 tasklist/方案状态
+  issues_decisions: 当前 embedding gateway 先采用确定性本地向量，优先打通存储和检索合同，不在本轮绑定外部 provider 调用；混合检索已完成 keyword + vector 合并，graph expansion 与 rerank 继续留在 `V2.2-IDX-003` 后续项
+  next_action: 继续推进 `V2.2-OBS-002` 监控面板增强，或补 `V2.2-QA-002` 的 vector-only HTTP/CLI e2e 验收
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.2-OBS-002/V2.2-QA-002
+  executor: Codex
+  duration: 0.5h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 完成 V2.2 监控面板与模式验收收口：HTTP 首页 Browser Console 新增监控概览卡片，实时展示 `/metrics` 与 `/api/v1/metrics/keys` 的搜索/写入 p95、命中率、key 成功率和 storage mode 分布；`memory-cli` 的 remember/search/remember-image 已支持 `--key` 与 `MEAT_MEMORY_KEY` 环境变量解析 key 上下文，并补齐 vector-only 的 CLI/HTTP e2e，验证 vector 模式只写 PG、不写 Markdown 但仍可检索
+  issues_decisions: 继续复用现有首页 console，而不是新建独立前端；CLI 的 key 接入优先采用请求级 `--key` 和环境变量，保持对已有 `key use` 输出的兼容
+  next_action: 继续推进 `V2.2-KG-001` 和 `V2.2-IDX-003` 剩余项，补 graph expansion 深度过滤与 rerank
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.2-HTTP-001/V2.2-TUI-001/V2.2-IDX-003/V2.2-KG-001
+  executor: Codex
+  duration: 1.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 收口 V2.2 剩余功能：`memory-store-pg` 新增按 key_id 查询、状态更新、usage stats 聚合；`memory-kernel` 新增 access key update/rotate/stats，并在 keyed remember/search 链路记录 `key_usage_events`。混合检索已补 graph expansion 与基础 rerank，且 expansion 阶段继续遵守 isolation_group 过滤。HTTP API 已补 `PATCH /api/v1/keys/{key_id}`、`POST /api/v1/keys/{key_id}/rotate`、`GET /api/v1/keys/{key_id}/stats`；CLI 已补 `key rotate`、`key stats --key-id`；TUI init 写配置后会自动生成默认 key 并写入 `access.key_store_path`
+  issues_decisions: graph expansion 采用基于已召回 memory 实体的二跳 keyword 扩展，优先保证跨 key 隔离和结果稳定性，不在本轮引入更重的独立图索引或复杂学习排序；TUI 默认 key 仅在写配置且 PG 可用时自动创建，避免 preview 模式产生副作用
+  next_action: V2.2 已完成；后续进入 V3 时，可把 hybrid planner 再升级为更强的 rerank 或多索引 late fusion

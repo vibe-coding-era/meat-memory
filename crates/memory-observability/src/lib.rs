@@ -48,6 +48,17 @@ pub struct WriteMetricsSnapshot {
 pub struct MetricsSnapshot {
     pub search: SearchMetricsSnapshot,
     pub write: WriteMetricsSnapshot,
+    pub key: KeyMetricsSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct KeyMetricsSnapshot {
+    pub keyed_operations: u64,
+    pub successful_operations: u64,
+    pub failed_operations: u64,
+    pub file_mode_operations: u64,
+    pub vector_mode_operations: u64,
+    pub all_mode_operations: u64,
 }
 
 #[derive(Debug)]
@@ -62,6 +73,12 @@ struct ObservabilityRegistry {
     write_failed: AtomicU64,
     write_pg: AtomicU64,
     write_markdown: AtomicU64,
+    key_operations: AtomicU64,
+    key_success: AtomicU64,
+    key_failed: AtomicU64,
+    key_file_mode: AtomicU64,
+    key_vector_mode: AtomicU64,
+    key_all_mode: AtomicU64,
     search_latency: Mutex<LatencyReservoir>,
     write_latency: Mutex<LatencyReservoir>,
 }
@@ -79,6 +96,12 @@ impl Default for ObservabilityRegistry {
             write_failed: AtomicU64::new(0),
             write_pg: AtomicU64::new(0),
             write_markdown: AtomicU64::new(0),
+            key_operations: AtomicU64::new(0),
+            key_success: AtomicU64::new(0),
+            key_failed: AtomicU64::new(0),
+            key_file_mode: AtomicU64::new(0),
+            key_vector_mode: AtomicU64::new(0),
+            key_all_mode: AtomicU64::new(0),
             search_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
             write_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
         }
@@ -213,6 +236,27 @@ pub fn record_write_failure(latency: Duration) {
     record_latency(&registry.write_latency, latency);
 }
 
+pub fn record_key_operation(storage_mode: &str, success: bool) {
+    let registry = registry();
+    registry.key_operations.fetch_add(1, Ordering::Relaxed);
+    if success {
+        registry.key_success.fetch_add(1, Ordering::Relaxed);
+    } else {
+        registry.key_failed.fetch_add(1, Ordering::Relaxed);
+    }
+    match storage_mode {
+        "file" => {
+            registry.key_file_mode.fetch_add(1, Ordering::Relaxed);
+        }
+        "vector" => {
+            registry.key_vector_mode.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {
+            registry.key_all_mode.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 pub fn metrics_snapshot() -> MetricsSnapshot {
     let registry = registry();
     let hit_queries = registry.search_hits.load(Ordering::Relaxed);
@@ -235,6 +279,14 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
             pg_writes: registry.write_pg.load(Ordering::Relaxed),
             markdown_writes: registry.write_markdown.load(Ordering::Relaxed),
             latency: registry.write_latency.lock().unwrap().snapshot(),
+        },
+        key: KeyMetricsSnapshot {
+            keyed_operations: registry.key_operations.load(Ordering::Relaxed),
+            successful_operations: registry.key_success.load(Ordering::Relaxed),
+            failed_operations: registry.key_failed.load(Ordering::Relaxed),
+            file_mode_operations: registry.key_file_mode.load(Ordering::Relaxed),
+            vector_mode_operations: registry.key_vector_mode.load(Ordering::Relaxed),
+            all_mode_operations: registry.key_all_mode.load(Ordering::Relaxed),
         },
     }
 }
@@ -267,7 +319,8 @@ fn rate(part: u64, total: u64) -> f64 {
 mod tests {
     use super::{
         LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
-        record_search_failure, record_search_success, record_write_failure, record_write_success,
+        record_key_operation, record_search_failure, record_search_success, record_write_failure,
+        record_write_success,
     };
     use std::time::Duration;
 
@@ -336,6 +389,9 @@ mod tests {
         record_write_success(true, false, Duration::from_millis(4));
         record_write_success(false, true, Duration::from_millis(12));
         record_write_failure(Duration::from_millis(20));
+        record_key_operation("file", true);
+        record_key_operation("vector", false);
+        record_key_operation("all", true);
 
         let after = metrics_snapshot();
 
@@ -394,6 +450,13 @@ mod tests {
                 .failed_requests
                 .saturating_sub(before.write.failed_requests)
                 >= 1
+        );
+        assert!(
+            after
+                .key
+                .keyed_operations
+                .saturating_sub(before.key.keyed_operations)
+                >= 3
         );
         assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);
         assert!(

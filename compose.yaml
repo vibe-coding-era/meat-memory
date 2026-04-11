@@ -34,7 +34,12 @@ services:
       dockerfile: Dockerfile
     container_name: meat-memory-app
     environment:
-      MEAT_MEMORY_CONFIG: /app/config/docker.toml
+      MEAT_MEMORY_CONFIG: /app/config/app.toml
+      MEAT_MEMORY_SERVER_BIND: 0.0.0.0:8080
+      MEAT_MEMORY_DATABASE_URL: postgres://postgres:postgres@pgvector:5432/meat_memory_dev
+      MEAT_MEMORY_MARKDOWN_ROOT: /app/docs
+      MEAT_MEMORY_ASSETS_ROOT: /app/storage/assets
+      MEAT_MEMORY_ENABLE_MCP: "true"
     depends_on:
       pgvector:
         condition: service_healthy
@@ -58,7 +63,12 @@ services:
     container_name: meat-memory-worker
     command: ["memory-worker"]
     environment:
-      MEAT_MEMORY_CONFIG: /app/config/docker.toml
+      MEAT_MEMORY_CONFIG: /app/config/app.toml
+      MEAT_MEMORY_SERVER_BIND: 0.0.0.0:8080
+      MEAT_MEMORY_DATABASE_URL: postgres://postgres:postgres@pgvector:5432/meat_memory_dev
+      MEAT_MEMORY_MARKDOWN_ROOT: /app/docs
+      MEAT_MEMORY_ASSETS_ROOT: /app/storage/assets
+      MEAT_MEMORY_ENABLE_MCP: "true"
     depends_on:
       pgvector:
         condition: service_healthy
