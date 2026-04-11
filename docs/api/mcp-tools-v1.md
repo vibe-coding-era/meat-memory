@@ -40,6 +40,7 @@ curl http://127.0.0.1:8080/mcp/tools
 ```bash
 cargo run -p memory-cli -- mcp info
 cargo run -p memory-cli -- mcp info --json
+cargo run -p memory-cli -- mcp info --check-http
 ```
 
 返回里会包含：
@@ -48,6 +49,11 @@ cargo run -p memory-cli -- mcp info --json
 - `version`
 - `transports`
 - `tools`
+
+如果你已经启动了本地服务，还可以用 `--check-http` 额外确认：
+
+- 当前 `http://127.0.0.1:8080/mcp/tools` 是否可达
+- 返回是否是预期的 `HTTP 200`
 
 ## 4. `memory.remember`
 

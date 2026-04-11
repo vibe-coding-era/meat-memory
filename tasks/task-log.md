@@ -461,3 +461,53 @@
   key_output: 新增并实跑 `scripts/v2_1-acceptance.sh`，覆盖 `memory-cli config check`、`mcp info`、`tui init`、`skills export` 与导出结果结构校验；同时将其接入 `scripts/write-test-reports.sh`，生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并把索引写入 `tests/reports/latest-run.md`
   issues_decisions: 在沙箱内刷新统一报告时，集成测试因本地 PostgreSQL 访问受限出现 `Operation not permitted (os error 1)`；改为在已获授权的非沙箱环境重跑 `./scripts/write-test-reports.sh` 后恢复正常，说明失败源自执行环境限制而非代码回归
   next_action: 继续推进 `V2.1-DOC-001` 的剩余 README/runbook 收口，或转入下一阶段的交互式 TUI 能力
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-001/V2.1-TUI-002/V2.1-TUI-003/V2.1-DOC-001/V2.1-QA-001
+  executor: Codex
+  duration: 0.6h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-cli tui init` 增加 `--interactive` 交互问答模式，支持逐步选择 MCP 开关、数据库 URL、Markdown/Assets 根目录、四类主模型 alias、数据库检查和配置写出；同时补齐交互模式单测、CLI 文档示例，并把 `scripts/v2_1-acceptance.sh` 扩展为覆盖交互式 smoke
+  issues_decisions: 这一轮优先采用标准输入/输出驱动的轻量交互，不引入额外 TUI 依赖，以保持脚本化兼容和实现稳定；`--interactive` 明确不与 `--json` 组合，避免破坏 JSON 输出格式
+  next_action: 若继续推进 TUI，可再升级为方向键/菜单式选择器，或转入 CLI/MCP 的错误提示优化收口
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-001/V2.1-TUI-003/V2.1-DOC-001/V2.1-QA-001
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将 `--interactive` 进一步升级为 setup wizard 形态，新增 `Local default` / `MCP-ready` / `Markdown-first` 三个 setup profile、分步骤标题、review summary 和最终确认；同时补齐取消路径单测，并更新 CLI 文档与 V2.1 验收脚本，使交互式 smoke 覆盖 profile + confirm 流程
+  issues_decisions: 继续保持标准输入驱动的实现，先把“流程结构清晰”和“可取消”补齐，而不立即引入方向键菜单或额外终端 UI 库；这样既保留自动化兼容，也便于后续逐步演进
+  next_action: 若继续推进 TUI，可增加编号菜单式模型选择和保存后自动校验，或再往真正全屏式 TUI 组件演进
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-001/V2.1-TUI-002/V2.1-DOC-001/V2.1-QA-001
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将 `--interactive` 的第一步前置为语言选择，支持 `中文 / English` 两种向导语言，并同步写入默认 locale；随后再进入 setup profile、存储、模型路由、校验与确认步骤。CLI 文档和 V2.1 验收脚本已更新为新的“先选语言，再做其他设置”流程
+  issues_decisions: 这一轮把“向导显示语言”和“默认 locale 配置”合并处理，减少用户重复设置；当前文案与步骤会跟语言切换，但最终结果面板仍保持原有通用格式，避免影响现有非交互输出与验收口径
+  next_action: 若继续推进 TUI，可把模型 alias 输入从自由文本升级为编号候选菜单，并补英文流程 smoke
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-002/V2.1-DOC-001/V2.1-QA-001
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将交互式 TUI 的 reasoning/extraction/vision/embedding 选择升级为编号候选菜单，显示当前可用 alias 列表与默认编号，用户回车可保留当前值、输入数字即可切换，不必再手输 alias；同时补齐单测和 CLI 文档说明
+  issues_decisions: 保留了“直接输入文本”的兼容回退，但默认体验已经转为编号选择，优先优化首次安装速度；当前候选列表按照现有 catalog 顺序展示，后续可再引入按 locale/provider 分组
+  next_action: 若继续推进 TUI，可补英文流程 smoke、provider 分组展示，或把最终结果面板也切到随语言切换
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-CLI-001/V2.1-CLI-002/V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003/V2.1-TUI-001/V2.1-TUI-002/V2.1-TUI-003/V2.1-DOC-001/V2.1-QA-001
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 收口 V2.1 全量范围：补齐 `mcp info --check-http` 本地连通性检查；让交互式 TUI 的最终结果面板跟随语言切换；将英文交互流程纳入 `scripts/v2_1-acceptance.sh`；新增 `docs/runbook/v2_1-quickstart.md` 并完成 README/runbook 索引收口。至此 V2.1 的 CLI、MCP、Agent skill、TUI、文档与验收均已完成并可独立交付
+  issues_decisions: 统一采用“沙箱友好的验收方式”，避免依赖测试内临时监听端口；`mcp info --check-http` 在服务未启动时明确返回 `unreachable`，保持诊断信息可预期而不是静默失败
+  next_action: V2.1 已完成；后续可转入 V3 多模态能力，或继续增强全屏式 TUI 体验

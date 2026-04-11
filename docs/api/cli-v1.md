@@ -44,6 +44,7 @@ cargo run -p memory-cli -- config check --json
 ```bash
 cargo run -p memory-cli -- mcp info
 cargo run -p memory-cli -- mcp info --json
+cargo run -p memory-cli -- mcp info --check-http
 ```
 
 导出 Agent skill：
@@ -83,6 +84,7 @@ cargo run -p memory-cli -- skills export --target codex --output-dir /tmp/codex-
 cargo run -p memory-cli -- tui init
 cargo run -p memory-cli -- tui init --check-database
 cargo run -p memory-cli -- tui init --json
+printf 'y\n\n\n\n\n\n\n\n\n\n\n' | cargo run -p memory-cli -- tui init --interactive
 ```
 
 当前 `tui init` 会展示 LLM 路由、存储、MCP 状态和推荐下一步，也可以生成推荐配置文件：
@@ -98,6 +100,7 @@ cargo run -p memory-cli -- tui init \
 
 常用覆盖项：
 
+- `--interactive`
 - `--enable-mcp` / `--disable-mcp`
 - `--database-url <url>`
 - `--markdown-root <path>`
@@ -109,6 +112,34 @@ cargo run -p memory-cli -- tui init \
 - `--write-config <path>`
 - `--force`
 - `--check-database`
+
+如果你希望安装后按步骤选择，而不是一次性传很多参数，可以直接使用：
+
+```bash
+cargo run -p memory-cli -- tui init --interactive
+```
+
+交互模式会逐步询问：
+
+- 语言：`中文 / English`
+- setup profile
+- 是否启用 MCP
+- 数据库 URL
+- Markdown / Assets 目录
+- reasoning / extraction / vision / embedding 的主模型编号菜单
+- 是否立即做数据库连通性检查
+- 是否写出配置文件以及是否允许覆盖
+- 最终 review summary 与确认
+
+说明：
+
+- 第一步会先选择向导语言，并同步设置默认 locale。
+- 交互模式会展示当前配置值，并允许按回车保留现状。
+- 当前提供 3 个 setup profile：`Local default`、`MCP-ready`、`Markdown-first`。
+- 模型路由现在会展示编号候选菜单，输入编号即可选择，不必手输 alias。
+- `mcp info --check-http` 可用于在本地快速确认 `/mcp/tools` 是否已经可达。
+- 交互模式不能与 `--json` 同时使用。
+- 非交互脚本场景仍建议继续使用参数式 `tui init`。
 
 写入后可这样验证：
 

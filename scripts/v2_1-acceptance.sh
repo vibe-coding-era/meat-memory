@@ -15,8 +15,17 @@ cargo run -p memory-cli -- config check
 echo "[v2.1] checking MCP summary"
 cargo run -p memory-cli -- mcp info
 
+echo "[v2.1] checking MCP summary with HTTP connectivity"
+cargo run -p memory-cli -- mcp info --check-http
+
 echo "[v2.1] checking TUI init preview"
 cargo run -p memory-cli -- tui init
+
+echo "[v2.1] checking interactive TUI init"
+printf '1\n2\ny\n\n\n\n\n\n\n\n\n\n\ny\n' | cargo run -p memory-cli -- tui init --interactive
+
+echo "[v2.1] checking interactive TUI init in English"
+printf '2\n1\nn\n\n\n\n\n\n\n\n\n\n\ny\n' | cargo run -p memory-cli -- tui init --interactive
 
 echo "[v2.1] exporting all agent skills"
 cargo run -p memory-cli -- skills export --target all --output-dir "${EXPORT_DIR}" --force

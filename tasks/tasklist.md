@@ -111,15 +111,15 @@
 
 | ID | 任务 | 状态 | 说明 |
 |---|---|---|---|
-| `V2.1-CLI-001` | CLI 使用体验升级：面向日常使用而非仅调试 | doing | 已启动，先补 `config show` / `config check` 配置发现与模型路由检查入口；后续继续补交互提示与错误提示 |
-| `V2.1-CLI-002` | MCP 使用体验升级：面向 Agent 稳定接入 | doing | 已启动，先补 `mcp info` 与 MCP tool 参数化说明；后续继续补连通性检查与错误返回优化 |
-| `V2.1-SKL-001` | 为 Codex 编写一套可直接使用的 Meat Memory skill | doing | 已新增 Codex skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target codex` 两种导出方式 |
-| `V2.1-SKL-002` | 为 Claude Code / TRAE / Qoder 等 Agent 编写配套 skill / 使用模板 | doing | 已新增协作型 Agent skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target claude-code` 导出 |
-| `V2.1-SKL-003` | 为 OpenClaw / CoWork / QoderWork 等执行型 Agent 编写 skill / 使用模板 | doing | 已新增执行型 Agent skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target execution-agent` 导出 |
-| `V2.1-TUI-001` | 新增安装后初始化 TUI：欢迎页、环境检测、配置向导 | doing | 已新增 `memory-cli tui init` 初始化面板预览，覆盖 LLM 路由、存储、MCP 状态和下一步指引；后续升级为可写配置向导 |
-| `V2.1-TUI-002` | TUI 配置项：LLM provider / model route / API Key env / 数据库 / Markdown / MCP 开关 | doing | 已支持通过 `tui init` 覆盖 MCP、数据库、Markdown、资产目录和四类模型路由，并可 `--write-config` 生成配置文件 |
-| `V2.1-TUI-003` | TUI 运维动作：配置测试、连通性检查、保存与生成推荐配置 | doing | 已支持生成配置后复用 `config check` 校验模型路由，新增 `config check --database` 与 `tui init --check-database` 实时数据库连通性检查，并输出下一步提示 |
-| `V2.1-DOC-001` | V2.1 文档包：CLI/MCP 快速使用、Agent skill 指南、TUI 使用说明 | doing | 已更新 CLI 文档与 Agent skill 指南，补齐 skill bundle 结构、UI metadata 与导出说明；后续继续收口 README、runbook 与配置说明 |
+| `V2.1-CLI-001` | CLI 使用体验升级：面向日常使用而非仅调试 | done | 已完成 `config show` / `config check`、数据库检查、交互式 TUI 初始化、输出摘要与下一步提示，CLI 已可作为安装后第一入口 |
+| `V2.1-CLI-002` | MCP 使用体验升级：面向 Agent 稳定接入 | done | 已完成 `mcp info`、MCP tool 参数化说明与 `mcp info --check-http` 本地连通性检查，Agent 接入信息可直接发现与验证 |
+| `V2.1-SKL-001` | 为 Codex 编写一套可直接使用的 Meat Memory skill | done | 已完成 Codex skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target codex` 两种导出方式 |
+| `V2.1-SKL-002` | 为 Claude Code / TRAE / Qoder 等 Agent 编写配套 skill / 使用模板 | done | 已完成协作型 Agent skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target claude-code` 导出 |
+| `V2.1-SKL-003` | 为 OpenClaw / CoWork / QoderWork 等执行型 Agent 编写 skill / 使用模板 | done | 已完成执行型 Agent skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target execution-agent` 导出 |
+| `V2.1-TUI-001` | 新增安装后初始化 TUI：欢迎页、环境检测、配置向导 | done | 已完成 `memory-cli tui init` 预览面板与 `--interactive` 向导，支持语言选择、profile、步骤分段、review summary 和确认 |
+| `V2.1-TUI-002` | TUI 配置项：LLM provider / model route / API Key env / 数据库 / Markdown / MCP 开关 | done | 已完成参数模式与交互模式的默认 locale、MCP、数据库、Markdown、资产目录和四类模型路由配置；交互模式模型选择已升级为编号候选菜单 |
+| `V2.1-TUI-003` | TUI 运维动作：配置测试、连通性检查、保存与生成推荐配置 | done | 已完成 `config check --database`、`tui init --check-database`、配置写出、review 确认和最终结果面板本地化展示 |
+| `V2.1-DOC-001` | V2.1 文档包：CLI/MCP 快速使用、Agent skill 指南、TUI 使用说明 | done | 已完成 CLI/MCP 文档、Agent skill 指南、README 总览、runbook 索引和 `docs/runbook/v2_1-quickstart.md` 收口 |
 | `V2.1-QA-001` | V2.1 验收：CLI / MCP / TUI / skill smoke 与回归报告 | done | 已新增并实跑 `scripts/v2_1-acceptance.sh`，覆盖 `config check`、`mcp info`、`tui init`、`skills export` 与导出结果校验；统一报告已生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并写入 `latest-run.md` |
 
 ### V2.1 建议执行顺序
@@ -180,4 +180,4 @@
 
 ## 当前下一步
 
-- 第一优先级：启动 V2.1，先收口 CLI / MCP 使用体验，再推进 Agent skill 与安装后 TUI 配置向导
+- V2.1 已完成，下一优先级可转入 V3 多模态扩展，或继续做交互式 TUI 的视觉化/全屏化增强

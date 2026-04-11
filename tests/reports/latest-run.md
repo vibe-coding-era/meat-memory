@@ -1,7 +1,7 @@
 # Latest Test Report Run
 
-- generated_at: 2026-04-11 10:42:29 CST
-- archive_tag: 20260411-104215
+- generated_at: 2026-04-11 12:05:20 CST
+- archive_tag: 20260411-120506
 - unit_report: `tests/reports/unit/latest/workspace-unit.txt`
 - integration_report: `tests/reports/integration/latest/v2-integration.txt`
 - e2e_report: `tests/reports/e2e/latest/cli-and-acceptance.txt`

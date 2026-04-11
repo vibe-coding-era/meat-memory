@@ -9,15 +9,17 @@ use memory_kernel::{
     SearchContextRequest,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
-use memory_models::CapabilityRoute;
+use memory_models::{CapabilityRoute, ModelCapability};
 use memory_store_pg::PgStore;
 use serde_json::json;
 use std::{
     env, fs,
     future::Future,
-    io::{self, Read},
+    io::{self, BufRead, Read, Write},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 #[derive(Debug, Parser)]
@@ -93,6 +95,8 @@ enum McpCommand {
 struct InspectArgs {
     #[arg(long)]
     json: bool,
+    #[arg(long)]
+    check_http: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -127,6 +131,10 @@ enum SkillExportTarget {
 struct TuiInitArgs {
     #[arg(long)]
     json: bool,
+    #[arg(long)]
+    interactive: bool,
+    #[arg(long)]
+    default_locale: Option<String>,
     #[arg(long)]
     write_config: Option<PathBuf>,
     #[arg(long)]
@@ -276,7 +284,20 @@ async fn tui_command(args: TuiArgs) -> Result<()> {
         TuiCommand::Init(init) => {
             let path = config_path();
             let mut config = AppConfig::from_file(&path)?;
+            if init.json && init.interactive {
+                bail!("tui init --interactive cannot be combined with --json");
+            }
+            let init = if init.interactive {
+                run_tui_init_interactive(&config, &init)?
+            } else {
+                init
+            };
             apply_tui_init_overrides(&mut config, &init);
+            let display_language = if init.interactive {
+                Some(wizard_language_from_locale(&config.models.default_locale))
+            } else {
+                None
+            };
             let check = config_check_report(&config, &path, init.check_database).await?;
             let wrote_config = write_tui_config_if_requested(&config, &init)?;
             if init.json {
@@ -287,7 +308,13 @@ async fn tui_command(args: TuiArgs) -> Result<()> {
                     &check,
                 ))?;
             } else {
-                for line in tui_init_lines(&config, &path, wrote_config.as_deref(), &check) {
+                for line in tui_init_lines(
+                    &config,
+                    &path,
+                    wrote_config.as_deref(),
+                    &check,
+                    display_language,
+                ) {
                     println!("{line}");
                 }
             }
@@ -331,10 +358,15 @@ fn mcp_command(args: McpArgs) -> Result<()> {
         McpCommand::Info(inspect) => {
             let path = config_path();
             let config = AppConfig::from_file(&path)?;
-            if inspect.json {
-                print_json(mcp_info_json(&config, &path))?;
+            let http_check = if inspect.check_http {
+                Some(check_mcp_http_endpoint(&config))
             } else {
-                for line in mcp_info_lines(&config, &path) {
+                None
+            };
+            if inspect.json {
+                print_json(mcp_info_json(&config, &path, http_check.as_ref()))?;
+            } else {
+                for line in mcp_info_lines(&config, &path, http_check.as_ref()) {
                     println!("{line}");
                 }
             }
@@ -759,7 +791,18 @@ fn config_check_lines(report: &ConfigCheckReport) -> Vec<String> {
     lines
 }
 
-fn mcp_info_json(config: &AppConfig, path: &str) -> serde_json::Value {
+#[derive(Debug, Clone)]
+struct HttpEndpointCheck {
+    checked: bool,
+    ok: bool,
+    message: String,
+}
+
+fn mcp_info_json(
+    config: &AppConfig,
+    path: &str,
+    http_check: Option<&HttpEndpointCheck>,
+) -> serde_json::Value {
     let tools = TOOL_SPECS
         .iter()
         .map(|tool| {
@@ -777,11 +820,20 @@ fn mcp_info_json(config: &AppConfig, path: &str) -> serde_json::Value {
         "base_url": format!("http://{}", config.server.bind),
         "tools_url": format!("http://{}/mcp/tools", config.server.bind),
         "call_url": format!("http://{}/mcp/tools/call", config.server.bind),
+        "http_check": http_check.map(|check| json!({
+            "checked": check.checked,
+            "ok": check.ok,
+            "message": check.message,
+        })),
         "tools": tools,
     })
 }
 
-fn mcp_info_lines(config: &AppConfig, path: &str) -> Vec<String> {
+fn mcp_info_lines(
+    config: &AppConfig,
+    path: &str,
+    http_check: Option<&HttpEndpointCheck>,
+) -> Vec<String> {
     let mut lines = vec![
         "Meat Memory MCP info".to_string(),
         format!("Config: {path}"),
@@ -789,14 +841,83 @@ fn mcp_info_lines(config: &AppConfig, path: &str) -> Vec<String> {
         format!("HTTP enabled: {}", config.features.enable_http),
         format!("Tools URL: http://{}/mcp/tools", config.server.bind),
         format!("Call URL: http://{}/mcp/tools/call", config.server.bind),
-        "Tools:".to_string(),
     ];
+    if let Some(check) = http_check {
+        lines.push(format!("HTTP check: {}", check.message));
+    }
+    lines.push("Tools:".to_string());
     lines.extend(
         TOOL_SPECS
             .iter()
             .map(|tool| format!("- {}: {}", tool.name, tool.description)),
     );
     lines
+}
+
+fn check_mcp_http_endpoint(config: &AppConfig) -> HttpEndpointCheck {
+    if !config.features.enable_http {
+        return HttpEndpointCheck {
+            checked: true,
+            ok: false,
+            message: "http disabled in config".to_string(),
+        };
+    }
+
+    match resolve_socket_addr(&config.server.bind)
+        .and_then(|addr| tcp_connect_with_timeout(addr, Duration::from_millis(800)))
+    {
+        Ok(mut stream) => {
+            let request = format!(
+                "GET /mcp/tools HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                config.server.bind
+            );
+            if let Err(error) = stream.write_all(request.as_bytes()) {
+                return HttpEndpointCheck {
+                    checked: true,
+                    ok: false,
+                    message: format!("tcp connected but request failed: {error}"),
+                };
+            }
+            let mut response = String::new();
+            if let Err(error) = stream.read_to_string(&mut response) {
+                return HttpEndpointCheck {
+                    checked: true,
+                    ok: false,
+                    message: format!("tcp connected but response read failed: {error}"),
+                };
+            }
+            let first_line = response.lines().next().unwrap_or_default().to_string();
+            let ok = first_line.contains("200");
+            HttpEndpointCheck {
+                checked: true,
+                ok,
+                message: if ok {
+                    "reachable (HTTP 200)".to_string()
+                } else if first_line.is_empty() {
+                    "reachable but empty response".to_string()
+                } else {
+                    format!("reachable but unexpected response: {first_line}")
+                },
+            }
+        }
+        Err(error) => HttpEndpointCheck {
+            checked: true,
+            ok: false,
+            message: format!("unreachable: {error}"),
+        },
+    }
+}
+
+fn resolve_socket_addr(bind: &str) -> Result<SocketAddr> {
+    bind.to_socket_addrs()
+        .context("failed to resolve MCP bind address")?
+        .next()
+        .context("no socket address resolved for MCP bind address")
+}
+
+fn tcp_connect_with_timeout(addr: SocketAddr, timeout: Duration) -> Result<TcpStream> {
+    TcpStream::connect_timeout(&addr, timeout)
+        .with_context(|| format!("failed to connect to {}", addr))
 }
 
 fn skill_export_target_label(target: SkillExportTarget) -> &'static str {
@@ -934,6 +1055,9 @@ fn render_skill_bundle_readme(source_dir: &Path, target: &str, exported: &[Strin
 }
 
 fn apply_tui_init_overrides(config: &mut AppConfig, args: &TuiInitArgs) {
+    if let Some(default_locale) = args.default_locale.as_ref() {
+        config.models.default_locale = default_locale.clone();
+    }
     if args.enable_mcp {
         config.features.enable_mcp = true;
     }
@@ -991,6 +1115,577 @@ fn write_tui_config_if_requested(config: &AppConfig, args: &TuiInitArgs) -> Resu
     Ok(Some(path.display().to_string()))
 }
 
+fn run_tui_init_interactive(config: &AppConfig, args: &TuiInitArgs) -> Result<TuiInitArgs> {
+    let stdin = io::stdin();
+    let mut reader = io::BufReader::new(stdin.lock());
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    run_tui_init_interactive_io(config, args, &mut reader, &mut writer)
+}
+
+fn run_tui_init_interactive_io<R: BufRead, W: Write>(
+    config: &AppConfig,
+    args: &TuiInitArgs,
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<TuiInitArgs> {
+    let mut updated = args.clone();
+    let default_language = wizard_language_from_locale(effective_text(
+        args.default_locale.as_deref(),
+        &config.models.default_locale,
+    ));
+
+    writeln!(
+        writer,
+        "Meat Memory interactive setup wizard / Meat Memory 交互式安装向导"
+    )?;
+    writeln!(
+        writer,
+        "Press Enter to keep the current value. / 直接回车可保留当前值。"
+    )?;
+    writeln!(writer)?;
+
+    let language_choice = prompt_choice(
+        reader,
+        writer,
+        "Choose language / 选择语言",
+        &[
+            ("中文", "使用中文提示，并将默认 locale 设为 zh-CN"),
+            (
+                "English",
+                "Use English prompts and set default locale to en-US",
+            ),
+        ],
+        default_language.as_choice_index(),
+    )?;
+    let language = WizardLanguage::from_choice_index(language_choice);
+    updated.default_locale = Some(language.locale().to_string());
+
+    writeln!(writer)?;
+    writeln!(
+        writer,
+        "{}",
+        wizard_text(
+            language,
+            "第 1/5 步：选择安装预设",
+            "Step 1/5: choose setup profile"
+        )
+    )?;
+    let profile = prompt_choice(
+        reader,
+        writer,
+        wizard_text(language, "选择安装预设", "Select setup profile"),
+        &[
+            (
+                wizard_text(language, "本地默认", "Local default"),
+                wizard_text(
+                    language,
+                    "保持当前存储和模型路由，适合首次本地试跑",
+                    "Keep current storage and routes, best for first local run",
+                ),
+            ),
+            (
+                wizard_text(language, "MCP 就绪", "MCP-ready"),
+                wizard_text(
+                    language,
+                    "默认启用 MCP，并保留双存储，适合 Agent 接入",
+                    "Enable MCP by default and keep dual storage for agent usage",
+                ),
+            ),
+            (
+                wizard_text(language, "Markdown 优先", "Markdown-first"),
+                wizard_text(
+                    language,
+                    "更偏向 Markdown 工作流，默认不启 MCP",
+                    "Prefer markdown workflow and leave MCP disabled by default",
+                ),
+            ),
+        ],
+        0,
+    )?;
+    apply_tui_profile_defaults(config, &mut updated, profile);
+
+    writeln!(writer)?;
+    writeln!(
+        writer,
+        "{}",
+        wizard_text(
+            language,
+            "第 2/5 步：存储与功能设置",
+            "Step 2/5: storage and feature settings"
+        )
+    )?;
+
+    let enable_mcp = prompt_bool(
+        reader,
+        writer,
+        wizard_text(language, "启用 MCP", "Enable MCP"),
+        effective_mcp_enabled(config, &updated),
+    )?;
+    if let Some(enable_mcp) = enable_mcp {
+        updated.enable_mcp = enable_mcp;
+        updated.disable_mcp = !enable_mcp;
+    }
+
+    updated.database_url = prompt_text(
+        reader,
+        writer,
+        wizard_text(language, "数据库 URL", "Database URL"),
+        effective_text(args.database_url.as_deref(), &config.postgres.database_url),
+    )?;
+    updated.markdown_root = prompt_text(
+        reader,
+        writer,
+        wizard_text(language, "Markdown 根目录", "Markdown root"),
+        effective_text(args.markdown_root.as_deref(), &config.markdown.root),
+    )?;
+    updated.assets_root = prompt_text(
+        reader,
+        writer,
+        wizard_text(language, "Assets 根目录", "Assets root"),
+        effective_text(args.assets_root.as_deref(), &config.assets.root),
+    )?;
+
+    writeln!(writer)?;
+    writeln!(
+        writer,
+        "{}",
+        wizard_text(language, "第 3/5 步：模型路由", "Step 3/5: model routing")
+    )?;
+    updated.reasoning_primary = prompt_model_alias(
+        reader,
+        writer,
+        config,
+        language,
+        wizard_text(language, "主 reasoning 模型", "Reasoning primary"),
+        ModelCapability::Reasoning,
+        effective_text(
+            args.reasoning_primary.as_deref(),
+            &config.models.routing.reasoning.primary,
+        ),
+    )?;
+    updated.extraction_primary = prompt_model_alias(
+        reader,
+        writer,
+        config,
+        language,
+        wizard_text(language, "主 extraction 模型", "Extraction primary"),
+        ModelCapability::Extraction,
+        effective_text(
+            args.extraction_primary.as_deref(),
+            &config.models.routing.extraction.primary,
+        ),
+    )?;
+    updated.vision_primary = prompt_model_alias(
+        reader,
+        writer,
+        config,
+        language,
+        wizard_text(language, "主 vision 模型", "Vision primary"),
+        ModelCapability::Vision,
+        effective_text(
+            args.vision_primary.as_deref(),
+            &config.models.routing.vision.primary,
+        ),
+    )?;
+    updated.embedding_primary = prompt_model_alias(
+        reader,
+        writer,
+        config,
+        language,
+        wizard_text(language, "主 embedding 模型", "Embedding primary"),
+        ModelCapability::Embedding,
+        effective_text(
+            args.embedding_primary.as_deref(),
+            &config.models.routing.embedding.primary,
+        ),
+    )?;
+
+    writeln!(writer)?;
+    writeln!(
+        writer,
+        "{}",
+        wizard_text(
+            language,
+            "第 4/5 步：校验与输出",
+            "Step 4/5: validation and output"
+        )
+    )?;
+    updated.check_database = prompt_bool(
+        reader,
+        writer,
+        wizard_text(
+            language,
+            "立即检查数据库连通性",
+            "Check database connectivity now",
+        ),
+        args.check_database,
+    )?
+    .unwrap_or(args.check_database);
+
+    updated.write_config = prompt_optional_path(
+        reader,
+        writer,
+        wizard_text(language, "将配置写入文件", "Write config to file"),
+        args.write_config.as_deref(),
+    )?;
+    if updated.write_config.is_some() {
+        updated.force = prompt_bool(
+            reader,
+            writer,
+            wizard_text(
+                language,
+                "如果文件已存在则覆盖",
+                "Overwrite target if it exists",
+            ),
+            args.force,
+        )?
+        .unwrap_or(args.force);
+    }
+
+    writeln!(writer)?;
+    writeln!(
+        writer,
+        "{}",
+        wizard_text(language, "第 5/5 步：确认设置", "Step 5/5: confirm setup")
+    )?;
+    writeln!(
+        writer,
+        "{}",
+        wizard_text(language, "配置摘要：", "Review summary:")
+    )?;
+    for line in render_tui_interactive_summary(config, &updated, language) {
+        writeln!(writer, "- {line}")?;
+    }
+    let confirmed = prompt_bool(
+        reader,
+        writer,
+        wizard_text(language, "应用这些设置", "Apply this interactive setup"),
+        true,
+    )?
+    .unwrap_or(true);
+    if !confirmed {
+        bail!(
+            "{}",
+            wizard_text(
+                language,
+                "交互式安装已由用户取消",
+                "interactive setup cancelled by user"
+            )
+        );
+    }
+
+    Ok(updated)
+}
+
+fn apply_tui_profile_defaults(config: &AppConfig, args: &mut TuiInitArgs, profile: usize) {
+    match profile {
+        1 => {
+            args.enable_mcp = true;
+            args.disable_mcp = false;
+        }
+        2 => {
+            args.enable_mcp = false;
+            args.disable_mcp = true;
+            if args.markdown_root.is_none() {
+                args.markdown_root = Some(config.markdown.root.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn render_tui_interactive_summary(
+    config: &AppConfig,
+    args: &TuiInitArgs,
+    language: WizardLanguage,
+) -> Vec<String> {
+    vec![
+        format!(
+            "{}: {}",
+            wizard_text(language, "语言", "Language"),
+            effective_text(
+                args.default_locale.as_deref(),
+                &config.models.default_locale
+            )
+        ),
+        format!("MCP: {}", effective_mcp_enabled(config, args)),
+        format!(
+            "{}: {}",
+            wizard_text(language, "数据库 URL", "Database URL"),
+            effective_text(args.database_url.as_deref(), &config.postgres.database_url)
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "Markdown 根目录", "Markdown root"),
+            effective_text(args.markdown_root.as_deref(), &config.markdown.root)
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "Assets 根目录", "Assets root"),
+            effective_text(args.assets_root.as_deref(), &config.assets.root)
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "Reasoning", "Reasoning"),
+            effective_text(
+                args.reasoning_primary.as_deref(),
+                &config.models.routing.reasoning.primary
+            )
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "Extraction", "Extraction"),
+            effective_text(
+                args.extraction_primary.as_deref(),
+                &config.models.routing.extraction.primary
+            )
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "Vision", "Vision"),
+            effective_text(
+                args.vision_primary.as_deref(),
+                &config.models.routing.vision.primary
+            )
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "Embedding", "Embedding"),
+            effective_text(
+                args.embedding_primary.as_deref(),
+                &config.models.routing.embedding.primary
+            )
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "立即检查数据库", "Check database now"),
+            args.check_database
+        ),
+        format!(
+            "{}: {}",
+            wizard_text(language, "写出配置", "Write config"),
+            args.write_config
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "preview only".to_string())
+        ),
+    ]
+}
+
+fn effective_mcp_enabled(config: &AppConfig, args: &TuiInitArgs) -> bool {
+    if args.enable_mcp {
+        true
+    } else if args.disable_mcp {
+        false
+    } else {
+        config.features.enable_mcp
+    }
+}
+
+fn effective_text<'a>(override_value: Option<&'a str>, current: &'a str) -> &'a str {
+    override_value.unwrap_or(current)
+}
+
+fn prompt_text<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    label: &str,
+    current: &str,
+) -> Result<Option<String>> {
+    write!(writer, "{label} [{current}]: ")?;
+    writer.flush()?;
+    let input = read_prompt_line(reader)?;
+    if input.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(input))
+    }
+}
+
+fn prompt_optional_path<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    label: &str,
+    current: Option<&Path>,
+) -> Result<Option<PathBuf>> {
+    let current_display = current
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "preview only".to_string());
+    write!(writer, "{label} [{current_display}]: ")?;
+    writer.flush()?;
+    let input = read_prompt_line(reader)?;
+    if input.is_empty() {
+        Ok(current.map(Path::to_path_buf))
+    } else {
+        Ok(Some(PathBuf::from(input)))
+    }
+}
+
+fn prompt_bool<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    label: &str,
+    current: bool,
+) -> Result<Option<bool>> {
+    let current_label = if current { "Y/n" } else { "y/N" };
+    write!(writer, "{label} [{current_label}]: ")?;
+    writer.flush()?;
+    let input = read_prompt_line(reader)?;
+    if input.is_empty() {
+        return Ok(None);
+    }
+    match input.to_ascii_lowercase().as_str() {
+        "y" | "yes" | "true" | "1" => Ok(Some(true)),
+        "n" | "no" | "false" | "0" => Ok(Some(false)),
+        other => bail!("unsupported answer for {label}: {other}"),
+    }
+}
+
+fn prompt_choice<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    label: &str,
+    choices: &[(&str, &str)],
+    default: usize,
+) -> Result<usize> {
+    writeln!(writer, "{label}:")?;
+    for (index, (title, description)) in choices.iter().enumerate() {
+        writeln!(writer, "  {}. {} - {}", index + 1, title, description)?;
+    }
+    write!(writer, "Choose [{}]: ", default + 1)?;
+    writer.flush()?;
+    let input = read_prompt_line(reader)?;
+    if input.is_empty() {
+        return Ok(default);
+    }
+    let selected = input
+        .parse::<usize>()
+        .with_context(|| format!("invalid selection for {label}: {input}"))?;
+    if selected == 0 || selected > choices.len() {
+        bail!("selection out of range for {label}: {selected}");
+    }
+    Ok(selected - 1)
+}
+
+fn prompt_model_alias<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    config: &AppConfig,
+    language: WizardLanguage,
+    label: &str,
+    capability: ModelCapability,
+    current: &str,
+) -> Result<Option<String>> {
+    let aliases = available_model_aliases(config, capability);
+    if !aliases.is_empty() {
+        writeln!(
+            writer,
+            "{} {capability} aliases:",
+            wizard_text(language, "可用", "Available"),
+        )?;
+        for (index, alias) in aliases.iter().enumerate() {
+            writeln!(writer, "  {}. {}", index + 1, alias)?;
+        }
+        let default_choice = aliases
+            .iter()
+            .position(|alias| alias == current)
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let default_hint = if default_choice > 0 {
+            format!("{default_choice}")
+        } else {
+            current.to_string()
+        };
+        write!(
+            writer,
+            "{} [{}]: ",
+            wizard_text(
+                language,
+                label,
+                &format!("{label} (choose a number or keep current)")
+            ),
+            default_hint
+        )?;
+        writer.flush()?;
+        let input = read_prompt_line(reader)?;
+        if input.is_empty() {
+            return Ok(None);
+        }
+        if let Ok(selected) = input.parse::<usize>() {
+            if selected == 0 || selected > aliases.len() {
+                bail!("selection out of range for {label}: {selected}");
+            }
+            return Ok(Some(aliases[selected - 1].clone()));
+        }
+        return Ok(Some(input));
+    }
+    prompt_text(reader, writer, label, current)
+}
+
+fn available_model_aliases(config: &AppConfig, capability: ModelCapability) -> Vec<String> {
+    config
+        .models
+        .catalog
+        .iter()
+        .filter(|model| model.enabled && model.supports(capability))
+        .map(|model| model.alias.clone())
+        .collect()
+}
+
+fn read_prompt_line<R: BufRead>(reader: &mut R) -> Result<String> {
+    let mut input = String::new();
+    let bytes = reader.read_line(&mut input)?;
+    if bytes == 0 {
+        return Ok(String::new());
+    }
+    Ok(input.trim().to_string())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WizardLanguage {
+    Zh,
+    En,
+}
+
+impl WizardLanguage {
+    fn from_choice_index(index: usize) -> Self {
+        match index {
+            1 => Self::En,
+            _ => Self::Zh,
+        }
+    }
+
+    fn as_choice_index(self) -> usize {
+        match self {
+            Self::Zh => 0,
+            Self::En => 1,
+        }
+    }
+
+    fn locale(self) -> &'static str {
+        match self {
+            Self::Zh => "zh-CN",
+            Self::En => "en-US",
+        }
+    }
+}
+
+fn wizard_language_from_locale(locale: &str) -> WizardLanguage {
+    if locale.to_ascii_lowercase().starts_with("en") {
+        WizardLanguage::En
+    } else {
+        WizardLanguage::Zh
+    }
+}
+
+fn wizard_text<'a>(language: WizardLanguage, zh: &'a str, en: &'a str) -> &'a str {
+    match language {
+        WizardLanguage::Zh => zh,
+        WizardLanguage::En => en,
+    }
+}
+
 fn tui_init_json(
     config: &AppConfig,
     path: &str,
@@ -1041,32 +1736,75 @@ fn tui_init_lines(
     path: &str,
     wrote_config: Option<&str>,
     check: &ConfigCheckReport,
+    language: Option<WizardLanguage>,
 ) -> Vec<String> {
+    let title = match language {
+        Some(WizardLanguage::Zh) => "Meat Memory 安装向导",
+        _ => "Meat Memory Setup TUI",
+    };
+    let label = |zh: &'static str, en: &'static str| match language {
+        Some(lang) => wizard_text(lang, zh, en),
+        None => en,
+    };
     let mut lines = vec![
         "┌──────────────────────────────────────────────┐".to_string(),
-        "│ Meat Memory Setup TUI                        │".to_string(),
+        format!("│ {title:<44}│"),
         "├──────────────────────────────────────────────┤".to_string(),
-        format!("│ Config: {path}"),
-        format!("│ LLM locale: {}", config.models.default_locale),
-        format!("│ Reasoning: {}", config.models.routing.reasoning.primary),
-        format!("│ Extraction: {}", config.models.routing.extraction.primary),
-        format!("│ Vision: {}", config.models.routing.vision.primary),
-        format!("│ Embedding: {}", config.models.routing.embedding.primary),
+        format!("│ {}: {path}", label("配置", "Config")),
         format!(
-            "│ Stores: pg={}, markdown={}",
-            config.features.enable_pg, config.features.enable_markdown
+            "│ {}: {}",
+            label("LLM 语言", "LLM locale"),
+            config.models.default_locale
         ),
-        format!("│ Markdown: {}", config.markdown.root),
-        format!("│ Assets: {}", config.assets.root),
+        format!(
+            "│ {}: {}",
+            label("Reasoning", "Reasoning"),
+            config.models.routing.reasoning.primary
+        ),
+        format!(
+            "│ {}: {}",
+            label("Extraction", "Extraction"),
+            config.models.routing.extraction.primary
+        ),
+        format!(
+            "│ {}: {}",
+            label("Vision", "Vision"),
+            config.models.routing.vision.primary
+        ),
+        format!(
+            "│ {}: {}",
+            label("Embedding", "Embedding"),
+            config.models.routing.embedding.primary
+        ),
+        format!(
+            "│ {}: pg={}, markdown={}",
+            label("存储", "Stores"),
+            config.features.enable_pg,
+            config.features.enable_markdown
+        ),
+        format!(
+            "│ {}: {}",
+            label("Markdown", "Markdown"),
+            config.markdown.root
+        ),
+        format!("│ {}: {}", label("Assets", "Assets"), config.assets.root),
         format!("│ MCP: {}", config.features.enable_mcp),
-        format!("│ Check: {}", if check.ok { "ok" } else { "warning" }),
-        format!("│ Database: {}", check.database.message),
+        format!(
+            "│ {}: {}",
+            label("检查", "Check"),
+            if check.ok { "ok" } else { "warning" }
+        ),
+        format!(
+            "│ {}: {}",
+            label("数据库", "Database"),
+            check.database.message
+        ),
     ];
     if let Some(path) = wrote_config {
-        lines.push(format!("│ Wrote config: {path}"));
+        lines.push(format!("│ {}: {path}", label("已写出配置", "Wrote config")));
     }
     if !check.warnings.is_empty() {
-        lines.push("│ Warnings:".to_string());
+        lines.push(format!("│ {}:", label("告警", "Warnings")));
         lines.extend(
             check
                 .warnings
@@ -1076,9 +1814,9 @@ fn tui_init_lines(
     }
     lines.extend([
         "├──────────────────────────────────────────────┤".to_string(),
-        "│ Next: memory-cli config check                │".to_string(),
-        "│ Next: memory-cli mcp info                    │".to_string(),
-        "│ Next: memory-cli serve                       │".to_string(),
+        format!("│ {}: memory-cli config check", label("下一步", "Next")),
+        format!("│ {}: memory-cli mcp info", label("下一步", "Next")),
+        format!("│ {}: memory-cli serve", label("下一步", "Next")),
         "└──────────────────────────────────────────────┘".to_string(),
     ]);
     lines
@@ -2019,6 +2757,8 @@ fallbacks = []
         let mut config = sample_config("/tmp/md", "/tmp/assets", false);
         let args = super::TuiInitArgs {
             json: false,
+            interactive: false,
+            default_locale: None,
             write_config: Some(output.clone()),
             force: false,
             check_database: false,
@@ -2040,7 +2780,13 @@ fallbacks = []
         let wrote = write_tui_config_if_requested(&config, &args).unwrap();
         let rendered = fs::read_to_string(&output).unwrap();
         let payload = tui_init_json(&config, "config/default.toml", wrote.as_deref(), &report);
-        let lines = tui_init_lines(&config, "config/default.toml", wrote.as_deref(), &report);
+        let lines = tui_init_lines(
+            &config,
+            "config/default.toml",
+            wrote.as_deref(),
+            &report,
+            None,
+        );
 
         assert!(report.ok);
         assert_eq!(wrote.as_deref(), Some(output.to_str().unwrap()));
@@ -2051,6 +2797,116 @@ fallbacks = []
         );
         assert_eq!(payload["mode"], "generated_config");
         assert!(lines.iter().any(|line| line.contains("Wrote config")));
+    }
+
+    #[test]
+    fn interactive_tui_init_collects_user_overrides() {
+        let config = sample_config("/tmp/md", "/tmp/assets", false);
+        let args = super::TuiInitArgs {
+            json: false,
+            interactive: true,
+            default_locale: None,
+            write_config: None,
+            force: false,
+            check_database: false,
+            enable_mcp: false,
+            disable_mcp: false,
+            database_url: None,
+            markdown_root: None,
+            assets_root: None,
+            reasoning_primary: None,
+            extraction_primary: None,
+            vision_primary: None,
+            embedding_primary: None,
+        };
+        let input = b"2\n2\ny\npostgres://postgres:postgres@127.0.0.1:5433/interactive\n./docs/interactive\n./storage/interactive-assets\n1\n1\n1\n1\ny\nconfig/local.interactive.toml\ny\ny\n";
+        let mut reader = Cursor::new(input.as_slice());
+        let mut output = Vec::new();
+
+        let updated =
+            super::run_tui_init_interactive_io(&config, &args, &mut reader, &mut output).unwrap();
+
+        assert!(updated.enable_mcp);
+        assert!(!updated.disable_mcp);
+        assert_eq!(updated.default_locale.as_deref(), Some("en-US"));
+        assert_eq!(
+            updated.database_url.as_deref(),
+            Some("postgres://postgres:postgres@127.0.0.1:5433/interactive")
+        );
+        assert_eq!(updated.markdown_root.as_deref(), Some("./docs/interactive"));
+        assert_eq!(
+            updated.assets_root.as_deref(),
+            Some("./storage/interactive-assets")
+        );
+        assert_eq!(
+            updated.reasoning_primary.as_deref(),
+            Some("chatgpt_reasoning")
+        );
+        assert_eq!(
+            updated.extraction_primary.as_deref(),
+            Some("chatgpt_reasoning")
+        );
+        assert_eq!(updated.vision_primary.as_deref(), Some("chatgpt_vision"));
+        assert_eq!(
+            updated.embedding_primary.as_deref(),
+            Some("chatgpt_embedding")
+        );
+        assert!(updated.check_database);
+        assert_eq!(
+            updated.write_config.as_deref(),
+            Some(Path::new("config/local.interactive.toml"))
+        );
+        assert!(updated.force);
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains("Choose language / 选择语言"));
+        assert!(rendered.contains("Step 1/5: choose setup profile"));
+        assert!(rendered.contains("MCP-ready"));
+        assert!(rendered.contains("Available reasoning aliases"));
+        assert!(rendered.contains("1. chatgpt_reasoning"));
+        assert!(rendered.contains("Review summary"));
+        assert!(rendered.contains("Write config to file"));
+    }
+
+    #[test]
+    fn interactive_tui_init_can_be_cancelled() {
+        let config = sample_config("/tmp/md", "/tmp/assets", false);
+        let args = super::TuiInitArgs {
+            json: false,
+            interactive: true,
+            default_locale: None,
+            write_config: None,
+            force: false,
+            check_database: false,
+            enable_mcp: false,
+            disable_mcp: false,
+            database_url: None,
+            markdown_root: None,
+            assets_root: None,
+            reasoning_primary: None,
+            extraction_primary: None,
+            vision_primary: None,
+            embedding_primary: None,
+        };
+        let input = b"\n\n\n\n\n\n\n\n\n\n\n\nn\n";
+        let mut reader = Cursor::new(input.as_slice());
+        let mut output = Vec::new();
+
+        let error = super::run_tui_init_interactive_io(&config, &args, &mut reader, &mut output)
+            .expect_err("interactive flow should support cancel");
+
+        assert!(error.to_string().contains("取消") || error.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn mcp_http_check_reports_unreachable_endpoint() {
+        let mut config = sample_config("/tmp/md", "/tmp/assets", true);
+        config.server.bind = "127.0.0.1:9".to_string();
+
+        let check = super::check_mcp_http_endpoint(&config);
+
+        assert!(check.checked);
+        assert!(!check.ok);
+        assert!(check.message.contains("unreachable"));
     }
 
     #[test]

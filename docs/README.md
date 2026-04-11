@@ -11,3 +11,4 @@
 - `architecture/`: implementation architecture supplements
 - `api/`: API and protocol references
 - `runbook/`: operational runbooks
+- `runbook/v2_1-quickstart.md`: V2.1 安装后快速配置、MCP 检查、skill 导出与验收入口
