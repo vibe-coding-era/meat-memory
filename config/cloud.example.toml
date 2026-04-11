@@ -1,11 +1,21 @@
+# Meat Memory 云端部署配置示例
+# 用途：给云主机 / 容器 / Kubernetes 部署提供参考配置。
+# 使用方式：
+# 1. 复制为实际部署文件，例如 `config/cloud.toml`
+# 2. 替换数据库地址、挂载目录、模型 API Key 环境变量
+# 3. 启动时设置 `MEAT_MEMORY_CONFIG=/app/config/cloud.toml`
+
+# 云环境默认监听全部网卡，便于被网关或 Ingress 访问。
 [server]
 bind = "0.0.0.0:8080"
 shutdown_grace_period_secs = 10
 
+# 云端日志建议使用 JSON，便于接入集中日志系统。
 [logging]
 level = "info"
 format = "json"
 
+# 云端 Markdown 和资产目录建议挂到持久卷。
 [markdown]
 root = "/data/markdown"
 
@@ -216,9 +226,11 @@ fallbacks = ["chatgpt_vision", "claude_vision"]
 primary = "qwen_embedding"
 fallbacks = ["chatgpt_embedding", "glm_embedding"]
 
+# 同步模式：当前示例仍采用 dual_write。
 [sync]
 mode = "dual_write"
 
+# 云环境通常同时启用 HTTP 与 MCP。
 [features]
 enable_pg = true
 enable_markdown = true

@@ -351,3 +351,113 @@
   key_output: 完成 V2 主线实现收口：为 `Memory` 增加 `owner_scope_id` / `published_from_scope_id` / `language_code` 并贯通 PG+Markdown；`memory-policy` 增加 scope-aware publish policy 与 redaction；`memory-kernel` 增加 `promote_memory`、markdown fallback `get_memory` 与语言透传；`memory-http` / `memory-mcp` 增加 promote 入口；`memory-sync` 增加 `FileReplicationEngine`、`ConflictRecord`、`SyncStatus`；`memory-config` / `memory-worker` 增加 sync `node_id` / `state_path` runtime 配置；新增 `tests/integration/v2-bilingual-acceptance.md`
   issues_decisions: V2 的同步持久化先采用本地 file-backed state，而不是一次性绑定数据库表或远端协议，实现目标是先把 pull/apply/conflict/audit 语义坐实；跨 scope promotion 采用“生成新 memory + 保留 owner_scope/published_from_scope + 按策略进入 active/candidate”的保守实现，避免直接改写原对象归属
   next_action: V2 已完成，后续主线进入 `V3-MM-*` 全多模态范围
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2-QA-PERF/V2-QA-INT
+  executor: Codex
+  duration: 1.5h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `scripts/v2-perf.sh` 与 `memory-kernel` / `memory-sync` ignored perf smoke tests，输出 `target/perf/*.txt` 基准报告；同时补强 `kernel/http/mcp/sync` 外部测试，覆盖 markdown-only `get_memory + promote`、HTTP `/api/v1/memories/promote`、MCP `memory.promote`、file-backed sync reopen/status/conflict 回归
+  issues_decisions: 性能测试先采用 deterministic smoke benchmark 而非引入额外 benchmark 框架，优先确保 CI/本地都能低门槛复现并生成可比对文本报告；integration 强化重点放在 V2 新增的跨 scope promotion 与 file-backed sync 持久化链路，而不是重复已有 remember/search happy path
+  next_action: 若进入 V3，可在此基础上接入更大规模数据集、并发压测与长期 trend snapshot
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2-QA-REPORTS
+  executor: Codex
+  duration: 1.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `tests/reports/` 目录体系与分类 `README.md`，提供 `scripts/write-test-reports.sh` 一键生成 unit/integration/e2e/perf 报告并归档到 `latest/archive`；同时调整 `scripts/v2-perf.sh` 默认输出到 `tests/reports/perf/latest/`，清理旧的 `target/perf` 临时产物路径
+  issues_decisions: 报告体系先采用“可读文本日志 + perf 原始 JSON 行输出 + latest/archive 双层目录”的轻量方案，不引入额外测试报告框架；`security` 目录先保留 placeholder，待后续补上可执行安全检查后再写实跑脚本
+  next_action: 后续如需接入 CI，可直接把 `./scripts/write-test-reports.sh` 作为统一测试报告入口
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-CLI-001/V2.1-CLI-002/V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003/V2.1-TUI-001
+  executor: Codex
+  duration: 1.2h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 启动 V2.1：为 `memory-cli` 新增 `config show`、`config check`、`mcp info`、`tui init` 入口；增强 MCP tool 描述中的必填/可选参数提示；新增 `docs/agent-skills/` 下 Codex、Claude Code/TRAE/Qoder、OpenClaw/CoWork/QoderWork 三类 Agent skill 源模板，并同步更新 CLI/MCP 文档与 tasklist 状态
+  issues_decisions: TUI 先采用可运行的初始化面板预览，不在第一步直接写配置文件，以避免误改用户配置；Agent skill 先作为仓库内源模板沉淀，后续再补安装/发布路径和平台差异细节
+  next_action: 继续推进 `V2.1-TUI-002` / `V2.1-TUI-003`，把 `tui init` 从只读预览升级为可校验、可生成推荐配置的向导
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-002/V2.1-TUI-003
+  executor: Codex
+  duration: 0.8h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 将 `memory-cli tui init` 从只读预览升级为可生成配置文件的初始化向导，支持 `--write-config`、`--force`、MCP 开关、数据库 URL、Markdown/Assets 根目录和 reasoning/extraction/vision/embedding 路由覆盖；写配置前复用 model registry 校验，并自动去除 primary/fallback 重复 alias
+  issues_decisions: 当前仍保持非交互参数式 TUI，避免在自动化测试和 Agent 执行中引入难以控制的交互状态；数据库实时连通性检查留到下一步，先确保配置生成与模型路由校验稳定
+  next_action: 继续补 `V2.1-TUI-003` 的数据库连通性检查，并开始规划 Agent skill 的安装/分发路径
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-TUI-003
+  executor: Codex
+  duration: 0.4h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 为配置向导补齐显式数据库连通性检查：`memory-cli config check --database` 与 `memory-cli tui init --check-database` 会在 PG 启用时连接当前 `database_url`，并把 connected / warning 状态写入文本与 JSON 输出
+  issues_decisions: 数据库检查保持 opt-in，不作为默认 `config check` 行为，避免用户未启动 PG 时影响快速查看配置；本地默认配置实测数据库 connected
+  next_action: 继续推进 Agent skill 安装/分发路径，或把 TUI 从参数式面板进一步升级成交互式选择器
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003
+  executor: Codex
+  duration: 0.4h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 新增 `scripts/export-agent-skills.sh`，支持按 `codex`、`claude-code`、`execution-agent` 或 `all` 导出 skill 模板到指定目录，并自动生成 bundle `README.md`；同步更新 `docs/agent-skills/README.md` 的导出用法
+  issues_decisions: 先采用“仓库内源模板 + 导出脚本”的轻量分发方式，不直接写入用户全局 skill 目录，避免污染本机环境；导出目录默认放到 `dist/agent-skills`，也支持显式指定输出路径
+  next_action: 若继续推进，可补平台专用 metadata 文件，或让 CLI 直接包装 skill 导出命令
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003
+  executor: Codex
+  duration: 0.4h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-cli` 增加 `skills export` 子命令，支持按 `codex` / `claude-code` / `execution-agent` / `all` 导出 Agent skill 模板到指定目录；实测导出到 `/tmp/meat-memory-agent-skills-cli` 成功，并补齐 CLI 文档与 Agent skill README 的命令示例
+  issues_decisions: CLI 导出默认基于当前仓库根目录下的 `docs/agent-skills` 源模板工作，并要求输出目录不存在或显式传 `--force`，避免覆盖用户已有技能包
+  next_action: 后续可继续补平台专用 metadata 文件，例如 Codex skill 的 `agents/openai.yaml` 或其他 Agent 平台的清单格式
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003
+  executor: Codex
+  duration: 0.2h
+  status: ⏳
+  change_hash: N/A-uncommitted
+  key_output: 为三套 Agent skill 的 `agents/openai.yaml` 补齐 UI metadata，新增 `brand_color`，并确认导出包现在包含 `SKILL.md + agents/openai.yaml` 的完整结构；同步更新 Agent skill README 与 tasklist 状态描述
+  issues_decisions: 本轮只补 `brand_color`，不额外引入图标资源，避免为 UI 装饰增加无关资产维护成本；后续若需要可再补 `icon_small` / `icon_large`
+  next_action: 如继续打磨 skill，可补图标资产与平台专用 metadata，或转回推进交互式 TUI
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003/V2.1-DOC-001
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为三套 Agent skill 补齐 `assets/icon.svg` 视觉资产，并将 `agents/openai.yaml` 扩展为包含 `icon_small`、`icon_large`、`brand_color`、`default_prompt` 的完整 UI metadata；同步更新 Agent skill README、CLI 文档与 tasklist，使导出包结构明确为 `SKILL.md + agents/openai.yaml + assets/icon.svg`
+  issues_decisions: 图标先采用仓库内可维护的 SVG 资产，不引入额外位图或品牌资源管线；优先保证导出包可直接安装、字段清晰、跨平台可复用
+  next_action: 继续推进 `V2.1-DOC-001` 与 `V2.1-QA-001`，补 README/runbook 收口和 skill/CLI/TUI 验收脚本
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-DOC-001
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 在根 `README.md`、`docs/README.md` 与 `docs/api/README.md` 增补 V2.1 快速入口，明确 `config check`、`mcp info`、`tui init`、`skills export` 的推荐起手顺序，把 CLI/TUI/skill 的安装后使用路径收口到第一层文档
+  issues_decisions: 文档优先解决“新用户第一步做什么”的发现问题，不在 README 顶层展开过多参数细节；细节继续下沉到 `docs/api/cli-v1.md` 与 `docs/agent-skills/README.md`
+  next_action: 继续推进 `V2.1-QA-001`，补一键式 V2.1 smoke 验收脚本与报告输出
+
+- timestamp: 2026-04-11 (Asia/Shanghai)
+  task_id: V2.1-QA-001
+  executor: Codex
+  duration: 0.5h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增并实跑 `scripts/v2_1-acceptance.sh`，覆盖 `memory-cli config check`、`mcp info`、`tui init`、`skills export` 与导出结果结构校验；同时将其接入 `scripts/write-test-reports.sh`，生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并把索引写入 `tests/reports/latest-run.md`
+  issues_decisions: 在沙箱内刷新统一报告时，集成测试因本地 PostgreSQL 访问受限出现 `Operation not permitted (os error 1)`；改为在已获授权的非沙箱环境重跑 `./scripts/write-test-reports.sh` 后恢复正常，说明失败源自执行环境限制而非代码回归
+  next_action: 继续推进 `V2.1-DOC-001` 的剩余 README/runbook 收口，或转入下一阶段的交互式 TUI 能力

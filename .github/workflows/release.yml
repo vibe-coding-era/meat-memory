@@ -1,3 +1,9 @@
+# GitHub Release 工作流
+# 用途：当推送 `v*` tag 时构建 release 版本产物。
+# 使用方式：
+# 1. 创建并推送 tag，例如 `git tag v0.1.0 && git push origin v0.1.0`
+# 2. GitHub Actions 会自动运行本流程
+
 name: Release
 
 on:
@@ -7,6 +13,7 @@ on:
 
 jobs:
   build-release:
+    # Release 构建作业。
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,4 +29,3 @@ jobs:
 
       - name: Build release artifacts
         run: cargo build --workspace --release
-

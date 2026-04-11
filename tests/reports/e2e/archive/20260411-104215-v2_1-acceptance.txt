@@ -1,0 +1,76 @@
+# report_category: e2e
+# report_name: v2_1-acceptance.txt
+# started_at: 2026-04-11 10:42:25 CST
+# workdir: /Users/Rou/dev_projects/meat-memory
+# command: ./scripts/v2_1-acceptance.sh
+
+[v2.1] checking CLI binary tests
+
+running 27 tests
+...........................
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[v2.1] checking configuration summary
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/memory-cli config check`
+Config check: ok
+Config: config/default.toml
+Model registry: providers=7, models=12, routes=4
+Database: skipped; pass --database or --check-database
+Warnings: none
+[v2.1] checking MCP summary
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli mcp info`
+Meat Memory MCP info
+Config: config/default.toml
+Enabled: false
+HTTP enabled: true
+Tools URL: http://127.0.0.1:8080/mcp/tools
+Call URL: http://127.0.0.1:8080/mcp/tools/call
+Tools:
+- memory.remember: Create a memory from text content. Required arguments: body. Optional: scope_id, title, artifact_kind, memory_kind, visibility, sensitivity, source_refs.
+- memory.fetch_context: Fetch memories plus graph context for an Agent prompt. Required arguments: query. Optional: scope_id, limit.
+- memory.search: Search memories in a scope and return graph-aware context. Required arguments: query. Optional: scope_id, limit.
+- memory.publish: Promote an existing memory to a broader visibility level. Required arguments: scope_id, memory_id, target_visibility.
+- memory.promote: Publish an existing memory into another scope with review-aware promotion. Required arguments: source_scope_id, memory_id, source_scope_type, target_scope_id, target_scope_type, target_visibility.
+[v2.1] checking TUI init preview
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli tui init`
+┌──────────────────────────────────────────────┐
+│ Meat Memory Setup TUI                        │
+├──────────────────────────────────────────────┤
+│ Config: config/default.toml
+│ LLM locale: zh-CN
+│ Reasoning: chatgpt_reasoning
+│ Extraction: qwen_reasoning
+│ Vision: gemini_vision
+│ Embedding: qwen_embedding
+│ Stores: pg=true, markdown=true
+│ Markdown: ./docs
+│ Assets: ./storage/assets
+│ MCP: false
+│ Check: ok
+│ Database: skipped; pass --database or --check-database
+├──────────────────────────────────────────────┤
+│ Next: memory-cli config check                │
+│ Next: memory-cli mcp info                    │
+│ Next: memory-cli serve                       │
+└──────────────────────────────────────────────┘
+[v2.1] exporting all agent skills
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli skills export --target all --output-dir /tmp/meat-memory-v21-acceptance-skills --force`
+Exported 9 skill bundle(s) to /tmp/meat-memory-v21-acceptance-skills
+- codex-meat-memory/SKILL.md
+- codex-meat-memory/agents/openai.yaml
+- codex-meat-memory/assets/icon.svg
+- claude-code-meat-memory/SKILL.md
+- claude-code-meat-memory/agents/openai.yaml
+- claude-code-meat-memory/assets/icon.svg
+- execution-agent-meat-memory/SKILL.md
+- execution-agent-meat-memory/agents/openai.yaml
+- execution-agent-meat-memory/assets/icon.svg
+[v2.1] validating exported bundle structure
+[v2.1] acceptance completed
+
+# exit_code: 0
+# finished_at: 2026-04-11 10:42:28 CST

@@ -282,6 +282,52 @@ async fn http_create_image_flow_returns_llm_failover_notice() {
     );
 }
 
+#[tokio::test]
+async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope() {
+    let app = build_test_app().await;
+
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"scope_id":"scp_user_http_alice","title":"Alice 发布凭证","body":"token: abc123 联系人 alice@example.com","memory_kind":"procedure","visibility":"private","sensitivity":"restricted"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+
+    let created_bytes = to_bytes(created.into_body(), usize::MAX).await.unwrap();
+    let created_payload = serde_json::from_slice::<serde_json::Value>(&created_bytes).unwrap();
+    let memory_id = created_payload["memory_id"].as_str().unwrap();
+
+    let promoted = app
+        .oneshot(
+            Request::post("/api/v1/memories/promote")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"source_scope_id":"scp_user_http_alice","memory_id":"{memory_id}","source_scope_type":"user","target_scope_id":"scp_project_http_demo","target_scope_type":"project","target_visibility":"project"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(promoted.status(), StatusCode::CREATED);
+
+    let promoted_bytes = to_bytes(promoted.into_body(), usize::MAX).await.unwrap();
+    let payload = serde_json::from_slice::<serde_json::Value>(&promoted_bytes).unwrap();
+    assert_eq!(payload["scope_id"], "scp_project_http_demo");
+    assert_eq!(payload["owner_scope_id"], "scp_user_http_alice");
+    assert_eq!(payload["published_from_scope_id"], "scp_user_http_alice");
+    assert_eq!(payload["memory_state"], "candidate");
+    assert_eq!(payload["visibility"], "project");
+    assert!(payload["body"].as_str().unwrap().contains("[REDACTED]"));
+}
+
 fn test_model_registry() -> ModelRegistry {
     ModelRegistry::build(
         vec![ProviderDescriptor {

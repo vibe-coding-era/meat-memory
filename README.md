@@ -17,6 +17,32 @@
 | 知识图谱 | 已支持 entity / relation / graph context baseline |
 | 中文优先 | 已支持，已补齐系统化中文验收集与回归入口 |
 
+## V2.1 快速入口
+
+安装完成后，如果你想先确认配置、导出 skill，或者快速生成一份可用配置，推荐先走下面这一组命令：
+
+```bash
+cargo run -p memory-cli -- config check
+cargo run -p memory-cli -- mcp info
+cargo run -p memory-cli -- tui init
+cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-skills --force
+```
+
+这组命令分别用于：
+
+- 检查当前配置和模型路由是否可用
+- 查看 MCP 是否启用，以及 `/mcp/tools` / `/mcp/tools/call` 的接入地址
+- 预览安装后初始化面板，并按需生成推荐配置
+- 导出可直接复制给不同 Agent 平台使用的 skill bundle
+
+如果需要数据库连通性检查，可额外执行：
+
+```bash
+cargo run -p memory-cli -- config check --database
+```
+
+更多命令说明见 [`docs/api/cli-v1.md`](docs/api/cli-v1.md)；skill 包结构与安装说明见 [`docs/agent-skills/README.md`](docs/agent-skills/README.md)。
+
 ## 快速开始
 
 如果你只是想先把服务跑起来，推荐直接走 Docker Compose。

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Claude Code Meat Memory"
+  short_description: "Use Meat Memory with Claude Code style agents"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#1D4ED8"
+  default_prompt: "Use $claude-code-meat-memory to load and store durable codebase memory for this project."

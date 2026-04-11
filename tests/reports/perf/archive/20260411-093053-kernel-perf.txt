@@ -1,0 +1,9 @@
+
+running 1 test
+{"suite":"memory-kernel","op":"remember_text","count":200,"min_ms":0,"p50_ms":0,"p95_ms":0,"max_ms":2,"throughput_per_sec":100000.00}
+{"suite":"memory-kernel","op":"browse_memories","count":40,"min_ms":15,"p50_ms":15,"p95_ms":15,"max_ms":16,"throughput_per_sec":66.56}
+{"suite":"memory-kernel","op":"promote_memory","count":40,"min_ms":0,"p50_ms":0,"p95_ms":0,"max_ms":0,"throughput_per_sec":40.00}
+test markdown_kernel_smoke_benchmark_reports_latency_percentiles ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+

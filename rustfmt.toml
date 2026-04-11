@@ -1,5 +1,8 @@
+# Rustfmt 格式化配置
+# 用途：统一 Rust 代码格式。
+# 使用方式：执行 `cargo fmt --all`
+
 edition = "2024"
 max_width = 100
 newline_style = "Unix"
 use_field_init_shorthand = true
-

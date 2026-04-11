@@ -1,5 +1,8 @@
+# Rust 工具链固定文件
+# 用途：保证团队、本地、CI 使用同一 Rust 版本。
+# 使用方式：安装 rustup 后，进入仓库执行任意 cargo 命令会自动读取本文件。
+
 [toolchain]
 channel = "1.85.0"
 components = ["clippy", "rustfmt"]
 profile = "minimal"
-

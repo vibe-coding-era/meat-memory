@@ -22,6 +22,7 @@ V1 已提供 MCP HTTP transport：
 | `memory.fetch_context` | 搜索并返回图谱增强上下文 |
 | `memory.search` | 搜索上下文 |
 | `memory.publish` | 提升既有记忆的可见级别 |
+| `memory.promote` | 跨 scope 发布并按策略进入 active / candidate |
 
 V1 说明：
 
@@ -32,6 +33,13 @@ V1 说明：
 
 ```bash
 curl http://127.0.0.1:8080/mcp/tools
+```
+
+也可以通过 CLI 查看当前配置下的 MCP 信息：
+
+```bash
+cargo run -p memory-cli -- mcp info
+cargo run -p memory-cli -- mcp info --json
 ```
 
 返回里会包含：
@@ -103,7 +111,33 @@ curl http://127.0.0.1:8080/mcp/tools
 }
 ```
 
-## 8. 错误模型
+## 8. `memory.promote`
+
+请求：
+
+```json
+{
+  "name": "memory.promote",
+  "arguments": {
+    "source_scope_id": "scp_user_alice",
+    "memory_id": "mem_01...",
+    "source_scope_type": "user",
+    "target_scope_id": "scp_project_demo",
+    "target_scope_type": "project",
+    "target_visibility": "project"
+  }
+}
+```
+
+返回中包含：
+
+- `scope_id`
+- `owner_scope_id`
+- `published_from_scope_id`
+- `memory_state`
+- `visibility`
+
+## 9. 错误模型
 
 统一返回：
 
@@ -124,7 +158,7 @@ curl http://127.0.0.1:8080/mcp/tools
 - `forbidden`
 - `internal_error`
 
-## 9. 接入建议
+## 10. 接入建议
 
 - 需要标准化工具发现与调用的 Agent 平台，优先走 MCP。
 - 需要图片写入的场景，MCP + HTTP 双轨最实用：文本/检索走 MCP，图片补录走 HTTP。

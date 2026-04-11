@@ -1,11 +1,21 @@
+# Meat Memory Docker 运行配置
+# 用途：配合 `compose.yaml` 在容器环境中启动 app / worker。
+# 使用方式：
+# 1. 直接通过 `docker compose up -d` 使用
+# 2. App/Worker 会读取 `MEAT_MEMORY_CONFIG=/app/config/docker.toml`
+# 3. 如需改挂载目录或数据库主机名，请同步调整 `compose.yaml`
+
+# Docker 内监听全部网卡，供宿主机端口映射访问。
 [server]
 bind = "0.0.0.0:8080"
 shutdown_grace_period_secs = 10
 
+# 容器本地调试默认保留 pretty 日志。
 [logging]
 level = "info"
 format = "pretty"
 
+# Compose 会把卷挂到这些目录。
 [markdown]
 root = "/app/docs"
 
@@ -216,9 +226,11 @@ fallbacks = ["chatgpt_vision", "claude_vision"]
 primary = "qwen_embedding"
 fallbacks = ["chatgpt_embedding", "glm_embedding"]
 
+# 当前同步模式仍为 dual_write。
 [sync]
 mode = "dual_write"
 
+# Docker 场景默认同时打开 HTTP 与 MCP。
 [features]
 enable_pg = true
 enable_markdown = true

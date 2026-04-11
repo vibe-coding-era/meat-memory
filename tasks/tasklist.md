@@ -1,6 +1,6 @@
 # Meat Memory 版本化 TaskList
 
-更新时间：2026-04-10
+更新时间：2026-04-11
 
 ## 规划原则
 
@@ -15,7 +15,7 @@
 - 已完成底座：Rust workspace、PGSQL + Markdown 双存储、kernel `remember/search/publish`、知识图谱抽取、HTTP/CLI/MCP 接入层、基础 observability、sync oplog/merge baseline、V1 多模型能力抽象与 provider/model/route registry、V1 图片资产存储与寻址基线、V1 `remember_image` 写入链路、V1 最小图片理解链路、Agent 接入文档、Docker/Helm 部署骨架、V1 验收脚本与文档包、中文系统化验收语料、Browser Console / failover 回归入口，以及 V1 release notes / 封板说明。
 - 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
-- 当前最重要的未完成范围：V3 的全多模态扩展；V2 已完成并进入稳定化。
+- 当前最重要的未完成范围：V2.1 的 Agent 可用性增强与安装后配置体验；V2 已完成并进入稳定化。
 
 ## 版本范围总览
 
@@ -23,6 +23,7 @@
 |---|---|---|
 | V1 | PGSQL + Markdown、云或本地独立部署、为混合部署预留接口、支持 Codex/Claude Code/TRAE/Qoder 与 OpenClaw/CoWork/QoderWork、跨大模型抽象、文本+图片、中文优先、知识图谱 | 不做多团队/个人隔离与合并，不做英文，不做音频/视频 |
 | V2 | 多团队/个人隔离与合并、多语言扩展到中/英 | 不做音频/视频 |
+| V2.1 | 强化 CLI / MCP 实用性、补齐多 Agent skill、提供安装后可快速配置系统的 TUI | 不做音频/视频，不做完整 GUI 桌面端 |
 | V3 | 补齐全多模态，完成音频/视频 | 无 |
 
 ## V1 交付清单
@@ -98,6 +99,44 @@
 
 ## V3 交付清单
 
+## V2.1 交付清单
+
+### V2.1 版本验收标准
+
+- 支持以 CLI / MCP 作为一线使用入口，而不仅是底层调试入口。
+- 为不同 Agent 提供可直接复用的 skill / 接入模板，降低首次接入成本。
+- 在安装后可通过 TUI 快速完成系统初始化与关键配置，至少覆盖 LLM、配置文件路径、数据库与功能开关。
+
+### V2.1 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.1-CLI-001` | CLI 使用体验升级：面向日常使用而非仅调试 | doing | 已启动，先补 `config show` / `config check` 配置发现与模型路由检查入口；后续继续补交互提示与错误提示 |
+| `V2.1-CLI-002` | MCP 使用体验升级：面向 Agent 稳定接入 | doing | 已启动，先补 `mcp info` 与 MCP tool 参数化说明；后续继续补连通性检查与错误返回优化 |
+| `V2.1-SKL-001` | 为 Codex 编写一套可直接使用的 Meat Memory skill | doing | 已新增 Codex skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target codex` 两种导出方式 |
+| `V2.1-SKL-002` | 为 Claude Code / TRAE / Qoder 等 Agent 编写配套 skill / 使用模板 | doing | 已新增协作型 Agent skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target claude-code` 导出 |
+| `V2.1-SKL-003` | 为 OpenClaw / CoWork / QoderWork 等执行型 Agent 编写 skill / 使用模板 | doing | 已新增执行型 Agent skill 源模板、`agents/openai.yaml` metadata、`assets/icon.svg`，并支持脚本与 `memory-cli skills export --target execution-agent` 导出 |
+| `V2.1-TUI-001` | 新增安装后初始化 TUI：欢迎页、环境检测、配置向导 | doing | 已新增 `memory-cli tui init` 初始化面板预览，覆盖 LLM 路由、存储、MCP 状态和下一步指引；后续升级为可写配置向导 |
+| `V2.1-TUI-002` | TUI 配置项：LLM provider / model route / API Key env / 数据库 / Markdown / MCP 开关 | doing | 已支持通过 `tui init` 覆盖 MCP、数据库、Markdown、资产目录和四类模型路由，并可 `--write-config` 生成配置文件 |
+| `V2.1-TUI-003` | TUI 运维动作：配置测试、连通性检查、保存与生成推荐配置 | doing | 已支持生成配置后复用 `config check` 校验模型路由，新增 `config check --database` 与 `tui init --check-database` 实时数据库连通性检查，并输出下一步提示 |
+| `V2.1-DOC-001` | V2.1 文档包：CLI/MCP 快速使用、Agent skill 指南、TUI 使用说明 | doing | 已更新 CLI 文档与 Agent skill 指南，补齐 skill bundle 结构、UI metadata 与导出说明；后续继续收口 README、runbook 与配置说明 |
+| `V2.1-QA-001` | V2.1 验收：CLI / MCP / TUI / skill smoke 与回归报告 | done | 已新增并实跑 `scripts/v2_1-acceptance.sh`，覆盖 `config check`、`mcp info`、`tui init`、`skills export` 与导出结果校验；统一报告已生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并写入 `latest-run.md` |
+
+### V2.1 建议执行顺序
+
+1. `V2.1-CLI-001`
+2. `V2.1-CLI-002`
+3. `V2.1-TUI-001`
+4. `V2.1-TUI-002`
+5. `V2.1-TUI-003`
+6. `V2.1-SKL-001`
+7. `V2.1-SKL-002`
+8. `V2.1-SKL-003`
+9. `V2.1-DOC-001`
+10. `V2.1-QA-001`
+
+## V3 交付清单
+
 ### V3 版本验收标准
 
 - 补齐音频和视频链路。
@@ -141,4 +180,4 @@
 
 ## 当前下一步
 
-- 第一优先级：准备 V2 的 scope/多语言工作
+- 第一优先级：启动 V2.1，先收口 CLI / MCP 使用体验，再推进 Agent skill 与安装后 TUI 配置向导

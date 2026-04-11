@@ -1,9 +1,17 @@
+# Rust/Cargo 构建配置
+# 用途：固定 target 目录，并在 macOS 下显式指定 clang，避免系统环境被外部 `cc` 污染。
+# 使用方式：
+# 1. 正常执行 `cargo build` / `cargo test` 即会自动读取
+# 2. 如更换 macOS 编译器路径，请同步修改下面的 CC/CXX/linker
+
 [build]
 target-dir = "target"
 
 [env]
+# Apple Silicon/macOS 的 C/C++ 编译器。
 CC_aarch64_apple_darwin = "/usr/bin/clang"
 CXX_aarch64_apple_darwin = "/usr/bin/clang++"
+# Intel/macOS 的 C/C++ 编译器。
 CC_x86_64_apple_darwin = "/usr/bin/clang"
 CXX_x86_64_apple_darwin = "/usr/bin/clang++"
 

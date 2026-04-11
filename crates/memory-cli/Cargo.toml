@@ -13,7 +13,9 @@ memory-domain = { path = "../memory-domain" }
 memory-http = { path = "../memory-http" }
 memory-kernel = { path = "../memory-kernel" }
 memory-mcp = { path = "../memory-mcp" }
+memory-models = { path = "../memory-models" }
 memory-observability = { path = "../memory-observability" }
+memory-store-pg = { path = "../memory-store-pg" }
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -21,7 +23,6 @@ tracing.workspace = true
 [dev-dependencies]
 assert_cmd = "2.1.1"
 memory-assets = { path = "../memory-assets" }
-memory-models = { path = "../memory-models" }
 tempfile = "3.20.0"
 time.workspace = true
 tower = "0.5.2"

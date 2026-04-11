@@ -208,3 +208,55 @@ async fn mcp_stdio_transport_serializes_errors() {
 
     assert_eq!(payload["error"]["code"], "unsupported_tool");
 }
+
+#[tokio::test]
+async fn mcp_dispatches_promote_and_preserves_scope_lineage() {
+    let tempdir = tempdir().unwrap();
+    let server = build_test_server(tempdir.path()).await;
+
+    let remembered = server
+        .dispatch(ToolCallRequest {
+            name: "memory.remember".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": "scp_user_mcp_alice",
+                "title": "Alice MCP 发布凭证",
+                "body": "token: abc123 联系人 alice@example.com",
+                "memory_kind": "procedure",
+                "visibility": "private",
+                "sensitivity": "restricted"
+            }),
+        })
+        .await
+        .unwrap();
+
+    let promoted = server
+        .dispatch(ToolCallRequest {
+            name: "memory.promote".to_string(),
+            arguments: serde_json::json!({
+                "source_scope_id": "scp_user_mcp_alice",
+                "memory_id": remembered.data["memory_id"],
+                "source_scope_type": "user",
+                "target_scope_id": "scp_project_mcp_demo",
+                "target_scope_type": "project",
+                "target_visibility": "project"
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(promoted.tool, "memory.promote");
+    assert_eq!(promoted.data["scope_id"], "scp_project_mcp_demo");
+    assert_eq!(promoted.data["owner_scope_id"], "scp_user_mcp_alice");
+    assert_eq!(
+        promoted.data["published_from_scope_id"],
+        "scp_user_mcp_alice"
+    );
+    assert_eq!(promoted.data["memory_state"], "candidate");
+    assert_eq!(promoted.data["visibility"], "project");
+    assert!(
+        promoted.data["body"]
+            .as_str()
+            .unwrap()
+            .contains("[REDACTED]")
+    );
+}

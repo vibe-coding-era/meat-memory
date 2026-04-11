@@ -34,23 +34,23 @@ pub struct ToolSpec {
 pub const TOOL_SPECS: &[ToolSpec] = &[
     ToolSpec {
         name: "memory.remember",
-        description: "Create a memory from text content and persist it to active stores.",
+        description: "Create a memory from text content. Required arguments: body. Optional: scope_id, title, artifact_kind, memory_kind, visibility, sensitivity, source_refs.",
     },
     ToolSpec {
         name: "memory.fetch_context",
-        description: "Fetch memories plus graph context for a query in a scope.",
+        description: "Fetch memories plus graph context for an Agent prompt. Required arguments: query. Optional: scope_id, limit.",
     },
     ToolSpec {
         name: "memory.search",
-        description: "Search memories in a scope and return graph-aware context.",
+        description: "Search memories in a scope and return graph-aware context. Required arguments: query. Optional: scope_id, limit.",
     },
     ToolSpec {
         name: "memory.publish",
-        description: "Promote an existing memory to a broader visibility level.",
+        description: "Promote an existing memory to a broader visibility level. Required arguments: scope_id, memory_id, target_visibility.",
     },
     ToolSpec {
         name: "memory.promote",
-        description: "Publish an existing memory into another scope with review-aware promotion.",
+        description: "Publish an existing memory into another scope with review-aware promotion. Required arguments: source_scope_id, memory_id, source_scope_type, target_scope_id, target_scope_type, target_visibility.",
     },
 ];
 

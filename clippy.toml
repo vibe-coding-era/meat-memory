@@ -1,4 +1,7 @@
+# Clippy 规则配置
+# 用途：统一 lint 边界，减少团队风格漂移。
+# 使用方式：执行 `cargo clippy --workspace --all-targets -- -D warnings`
+
 msrv = "1.85.0"
 too-many-arguments-threshold = 8
 enum-variant-name-threshold = 4
-

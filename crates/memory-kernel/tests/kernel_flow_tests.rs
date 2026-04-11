@@ -1,5 +1,5 @@
-use memory_domain::{ScopeId, Visibility};
-use memory_kernel::{Kernel, RememberTextRequest, SearchContextRequest};
+use memory_domain::{MemoryId, MemoryState, ScopeId, ScopeType, Sensitivity, Visibility};
+use memory_kernel::{Kernel, PromoteMemoryRequest, RememberTextRequest, SearchContextRequest};
 use std::env;
 use tempfile::tempdir;
 
@@ -125,4 +125,75 @@ async fn remember_search_publish_flow_supports_chinese_context_and_relations() {
     .unwrap();
     assert!(raw.contains("中文发布验收规则"));
     assert!(raw.contains("visibility: project"));
+}
+
+#[tokio::test]
+async fn markdown_only_get_memory_and_promote_flow_preserves_scope_lineage() {
+    let tempdir = tempdir().unwrap();
+    let kernel = Kernel::builder()
+        .with_markdown_root(tempdir.path())
+        .unwrap()
+        .build()
+        .unwrap();
+    let source_scope_id = ScopeId::from_string("scp_user_alice");
+
+    let mut request = RememberTextRequest::new(
+        source_scope_id.clone(),
+        "token: abc123 联系人 alice@example.com 发布前需要审批",
+    );
+    request.title = Some("Alice 私有发布凭证".to_string());
+    request.visibility = Visibility::Private;
+    request.sensitivity = Sensitivity::Restricted;
+
+    let remembered = kernel.remember_text(request).await.unwrap();
+    assert!(!remembered.wrote_pg);
+    assert!(remembered.wrote_markdown);
+
+    let fetched = kernel
+        .get_memory(source_scope_id.clone(), remembered.memory.id.clone())
+        .await
+        .unwrap()
+        .expect("markdown fallback should load remembered memory");
+    assert_eq!(fetched.id, remembered.memory.id);
+    assert_eq!(fetched.scope_id, source_scope_id);
+
+    let promoted = kernel
+        .promote_memory_by_id(
+            source_scope_id,
+            remembered.memory.id.clone(),
+            PromoteMemoryRequest {
+                source_scope_type: ScopeType::User,
+                target_scope_id: ScopeId::from_string("scp_project_demo"),
+                target_scope_type: ScopeType::Project,
+                target_visibility: Visibility::Project,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!promoted.wrote_pg);
+    assert!(promoted.wrote_markdown);
+    assert_eq!(promoted.memory.scope_id.as_str(), "scp_project_demo");
+    assert_eq!(promoted.memory.owner_scope_id.as_str(), "scp_user_alice");
+    assert_eq!(
+        promoted
+            .memory
+            .published_from_scope_id
+            .as_ref()
+            .map(|scope_id| scope_id.as_str()),
+        Some("scp_user_alice")
+    );
+    assert_eq!(promoted.memory.state, MemoryState::Candidate);
+    assert!(promoted.memory.body.contains("[REDACTED]"));
+
+    let promoted_memory = kernel
+        .get_memory(
+            ScopeId::from_string("scp_project_demo"),
+            MemoryId::from_string(promoted.memory.id.as_str()),
+        )
+        .await
+        .unwrap()
+        .expect("promoted memory should be readable from markdown store");
+    assert_eq!(promoted_memory.scope_id.as_str(), "scp_project_demo");
+    assert_eq!(promoted_memory.owner_scope_id.as_str(), "scp_user_alice");
 }

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Execution Agent Meat Memory"
+  short_description: "Use Meat Memory for execution and handoff workflows"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#B45309"
+  default_prompt: "Use $execution-agent-meat-memory to coordinate durable execution memory and handoff context."

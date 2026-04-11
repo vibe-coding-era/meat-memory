@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Meat Memory"
+  short_description: "Use Meat Memory for Codex project memory"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#0F766E"
+  default_prompt: "Use $codex-meat-memory to persist and retrieve durable project memory for this repo."

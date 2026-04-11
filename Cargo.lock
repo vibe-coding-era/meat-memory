@@ -1034,6 +1034,7 @@ dependencies = [
  "memory-mcp",
  "memory-models",
  "memory-observability",
+ "memory-store-pg",
  "serde_json",
  "tempfile",
  "time",

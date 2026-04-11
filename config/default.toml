@@ -1,24 +1,38 @@
+# Meat Memory 默认配置
+# 用途：本地开发和默认启动场景的基线配置。
+# 使用方式：
+# 1. 搭配 `.env` 中的 `MEAT_MEMORY_CONFIG=config/default.toml`
+# 2. 本地直接运行：`cargo run -p memory-app`
+# 3. 如需覆盖，复制到 `config/local.toml` 或使用 `config/local.example.toml`
+
+# 服务监听地址与优雅关闭时间。
 [server]
 bind = "127.0.0.1:8080"
 shutdown_grace_period_secs = 10
 
+# 日志配置：本地建议 `pretty`，便于人看。
 [logging]
 level = "info"
 format = "pretty"
 
+# Markdown 持久化根目录。当前项目默认直接写到仓库内 `docs/`。
 [markdown]
 root = "./docs"
 
+# PostgreSQL / pgvector 连接配置。
 [postgres]
 app_name = "meat-memory"
 database_url = "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev"
 
+# 图片等二进制资产的本地落盘目录。
 [assets]
 root = "./storage/assets"
 
+# 模型注册表：默认语言、Provider 和模型路由都在这里定义。
 [models]
 default_locale = "zh-CN"
 
+# Provider 列表：只要填好对应的 API Key 环境变量即可启用。
 [[models.providers]]
 provider = "openai"
 display_name = "ChatGPT / OpenAI"
@@ -216,9 +230,11 @@ fallbacks = ["chatgpt_vision", "claude_vision"]
 primary = "qwen_embedding"
 fallbacks = ["chatgpt_embedding", "glm_embedding"]
 
+# 同步模式：当前 V2 基线使用 dual_write。
 [sync]
 mode = "dual_write"
 
+# 功能开关：控制 PG / Markdown / HTTP / MCP 等运行面。
 [features]
 enable_pg = true
 enable_markdown = true

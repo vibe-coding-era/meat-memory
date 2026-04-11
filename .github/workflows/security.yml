@@ -1,3 +1,9 @@
+# GitHub Security 工作流
+# 用途：在 PR 和 main 分支推送时执行依赖安全审计。
+# 使用方式：
+# 1. 提交 PR 或推送 main 后自动触发
+# 2. 本地也可执行 `cargo install cargo-audit --locked && cargo audit`
+
 name: Security
 
 on:
@@ -7,6 +13,7 @@ on:
 
 jobs:
   cargo-audit:
+    # 依赖漏洞扫描作业。
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,4 +29,3 @@ jobs:
 
       - name: Run audit
         run: cargo audit
-

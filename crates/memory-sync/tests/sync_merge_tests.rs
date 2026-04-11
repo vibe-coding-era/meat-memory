@@ -1,6 +1,7 @@
 use memory_sync::{
-    ApplyBatchResult, InMemoryReplicationEngine, MergeDecision, OplogEntry, OplogOperation,
-    ReplicationEngine, SyncBatch, SyncCursor, SyncObjectKind, append_oplog_entry, merge_ops,
+    ApplyBatchResult, FileReplicationEngine, InMemoryReplicationEngine, MergeDecision, OplogEntry,
+    OplogOperation, ReplicationEngine, SyncBatch, SyncCursor, SyncObjectKind, append_oplog_entry,
+    merge_ops,
 };
 
 #[tokio::test]
@@ -132,4 +133,64 @@ async fn apply_counts_applied_conflicted_and_skipped_entries() {
     assert_eq!(result.conflicts, 1);
     assert_eq!(result.applied, 1);
     assert_eq!(engine.entries().len(), 2);
+}
+
+#[tokio::test]
+async fn file_engine_persists_status_and_conflicts_after_reopen() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path = tempdir.path().join("sync-state.json");
+    let engine = FileReplicationEngine::open(&path).unwrap();
+
+    let existing = append_oplog_entry(
+        &engine,
+        OplogOperation::CreateObject,
+        SyncObjectKind::Memory,
+        "mem_file_external",
+        "node-a",
+        "actor-a",
+        0,
+        1,
+        serde_json::json!({"title":"v1"}),
+    )
+    .await
+    .unwrap();
+
+    let conflict = OplogEntry::new(
+        OplogOperation::UpdateObject,
+        SyncObjectKind::Memory,
+        "mem_file_external",
+        "node-b",
+        "actor-b",
+        0,
+        1,
+        serde_json::json!({"title":"fork"}),
+    );
+
+    let result = engine
+        .apply(SyncBatch {
+            entries: vec![existing.clone(), conflict.clone()],
+            next_cursor: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.skipped, 1);
+    assert_eq!(result.conflicts, 1);
+    assert_eq!(engine.status().entry_count, 1);
+    assert_eq!(engine.status().conflict_count, 1);
+
+    let pulled = engine
+        .pull(SyncCursor {
+            after_op_id: None,
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    assert_eq!(pulled.entries.len(), 1);
+    assert_eq!(pulled.entries[0].object_id, "mem_file_external");
+
+    let reopened = FileReplicationEngine::open(&path).unwrap();
+    assert_eq!(reopened.entries().len(), 1);
+    assert_eq!(reopened.conflicts().len(), 1);
+    assert_eq!(reopened.status().last_op_id, Some(existing.op_id));
 }

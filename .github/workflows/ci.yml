@@ -1,3 +1,9 @@
+# GitHub CI 工作流
+# 用途：在 PR 和 main 分支推送时执行格式化、lint、测试、构建和 Docker build。
+# 使用方式：
+# 1. 推送分支或提交 PR 后自动触发
+# 2. 本地可用同类命令预跑：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`
+
 name: CI
 
 on:
@@ -7,6 +13,7 @@ on:
 
 jobs:
   lint-test-build:
+    # 主 CI 作业：保证代码质量和构建可用性。
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -2,13 +2,13 @@ use anyhow::{Context, Result};
 use memory_models::{
     CapabilityRoute, ModelCapability, ModelDescriptor, ModelRegistry, ProviderDescriptor,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
@@ -20,35 +20,35 @@ pub struct AppConfig {
     pub features: FeaturesConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub bind: String,
     pub shutdown_grace_period_secs: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LoggingConfig {
     pub level: String,
     pub format: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MarkdownConfig {
     pub root: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PostgresConfig {
     pub app_name: String,
     pub database_url: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssetsConfig {
     pub root: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelsConfig {
     #[serde(default = "default_locale")]
     pub default_locale: String,
@@ -59,7 +59,7 @@ pub struct ModelsConfig {
     pub routing: ModelRoutingConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelRoutingConfig {
     pub reasoning: CapabilityRoute,
     pub extraction: CapabilityRoute,
@@ -67,7 +67,7 @@ pub struct ModelRoutingConfig {
     pub embedding: CapabilityRoute,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SyncConfig {
     pub mode: String,
     #[serde(default = "default_sync_node_id")]
@@ -76,7 +76,7 @@ pub struct SyncConfig {
     pub state_path: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeaturesConfig {
     pub enable_pg: bool,
     pub enable_markdown: bool,
@@ -113,6 +113,10 @@ impl AppConfig {
 
     pub fn from_toml_str(raw: &str) -> Result<Self> {
         toml::from_str(raw).context("failed to deserialize app config")
+    }
+
+    pub fn to_toml_string_pretty(&self) -> Result<String> {
+        toml::to_string_pretty(self).context("failed to serialize app config")
     }
 
     pub fn model_registry(&self) -> Result<ModelRegistry> {
@@ -180,6 +184,19 @@ mod tests {
         assert_eq!(routes[3].0, ModelCapability::Embedding);
         assert_eq!(routes[0].1.primary, "chatgpt_reasoning");
         assert_eq!(routes[3].1.primary, "chatgpt_embedding");
+    }
+
+    #[test]
+    fn serializes_config_back_to_toml() {
+        let config = AppConfig::from_toml_str(&sample_toml(true)).expect("config should parse");
+        let rendered = config
+            .to_toml_string_pretty()
+            .expect("config should serialize");
+
+        assert!(rendered.contains("[server]"));
+        assert!(rendered.contains("bind = \"127.0.0.1:8080\""));
+        assert!(rendered.contains("[models.routing.reasoning]"));
+        assert!(rendered.contains("primary = \"chatgpt_reasoning\""));
     }
 
     #[test]
