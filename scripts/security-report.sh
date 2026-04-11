@@ -7,8 +7,7 @@ ARCHIVE_DIR="$ROOT_DIR/tests/reports/security/archive"
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
 SUMMARY_FILE="$REPORT_DIR/security-summary.txt"
 ARCHIVE_FILE="$ARCHIVE_DIR/${TIMESTAMP}-security-summary.txt"
-
-mkdir -p "$REPORT_DIR" "$ARCHIVE_DIR"
+WRITE_REPORT="${SECURITY_REPORT_WRITE:-1}"
 
 run_test() {
   local title="$1"
@@ -19,7 +18,7 @@ run_test() {
   echo
 }
 
-{
+generate_summary() {
   echo "# Security Summary"
   echo
   echo "- generated_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -30,7 +29,16 @@ run_test() {
     cargo test -p memory-http --test http_api_tests --quiet -- --test-threads=1
   run_test "MCP security-sensitive regression" \
     cargo test -p memory-mcp --test mcp_tools_tests --quiet -- --test-threads=1
-} > "$SUMMARY_FILE" 2>&1
+}
+
+if [[ "$WRITE_REPORT" == "0" ]]; then
+  generate_summary
+  exit 0
+fi
+
+mkdir -p "$REPORT_DIR" "$ARCHIVE_DIR"
+
+generate_summary > "$SUMMARY_FILE" 2>&1
 
 cp "$SUMMARY_FILE" "$ARCHIVE_FILE"
 

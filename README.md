@@ -392,7 +392,7 @@ just dev-down
 说明：
 
 - `test-required.sh` 是当前仓库的必跑测试入口。
-- 它会先执行 `cargo test --workspace --quiet`，再执行 `./scripts/security-report.sh`。
+- 它会先串行执行 `cargo test --workspace --quiet -- --test-threads=1`，再以不写报告产物的方式执行 `./scripts/security-report.sh`。
 - 从 V2.3 起，安全测试已经被提升为每次标准验证的一部分，而不是额外可选项。
 
 最新单测覆盖率快照：
