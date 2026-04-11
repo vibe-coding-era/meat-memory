@@ -18,6 +18,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 use time::format_description::well_known::Rfc3339;
+use tracing::error;
+
+const MAX_MEMORY_BODY_CHARS: usize = 16_000;
+const MAX_QUERY_CHARS: usize = 1_024;
+const MAX_PROMPT_CHARS: usize = 4_000;
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 
 pub const HTTP_ROUTES: &[&str] = &[
     "/",
@@ -437,10 +443,12 @@ async fn create_access_key(
 
 async fn list_access_keys(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<AccessKeyResponse>>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
     let keys = state
         .kernel
-        .list_access_keys(200)
+        .list_access_keys_for_context(&context, 200)
         .await
         .map_err(api_error_from_anyhow)?;
     Ok(Json(
@@ -452,26 +460,31 @@ async fn list_access_keys(
 
 async fn update_access_key(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Path(key_id): Path<String>,
     Json(payload): Json<UpdateAccessKeyHttpRequest>,
 ) -> Result<Json<AccessKeyResponse>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
     let updated = state
         .kernel
-        .update_access_key(UpdateAccessKeyRequest {
-            key_id: AccessKeyId::from_string(key_id),
-            display_name: payload.name,
-            storage_mode: payload
-                .storage_mode
-                .as_deref()
-                .map(parse_storage_mode)
-                .transpose()?,
-            status: payload
-                .status
-                .as_deref()
-                .map(parse_key_status)
-                .transpose()?,
-            is_fully_isolated: payload.isolated,
-        })
+        .update_access_key_for_context(
+            &context,
+            UpdateAccessKeyRequest {
+                key_id: AccessKeyId::from_string(key_id),
+                display_name: payload.name,
+                storage_mode: payload
+                    .storage_mode
+                    .as_deref()
+                    .map(parse_storage_mode)
+                    .transpose()?,
+                status: payload
+                    .status
+                    .as_deref()
+                    .map(parse_key_status)
+                    .transpose()?,
+                is_fully_isolated: payload.isolated,
+            },
+        )
         .await
         .map_err(api_error_from_anyhow)?;
     Ok(Json(access_key_response(updated, None)))
@@ -479,11 +492,13 @@ async fn update_access_key(
 
 async fn rotate_access_key(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Path(key_id): Path<String>,
 ) -> Result<(StatusCode, Json<AccessKeyResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
     let result = state
         .kernel
-        .rotate_access_key(&AccessKeyId::from_string(key_id), None)
+        .rotate_access_key_for_context(&context, &AccessKeyId::from_string(key_id), None)
         .await
         .map_err(api_error_from_anyhow)?;
     Ok((
@@ -494,11 +509,13 @@ async fn rotate_access_key(
 
 async fn access_key_stats(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Path(key_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
     let stats = state
         .kernel
-        .access_key_usage_stats(&AccessKeyId::from_string(key_id))
+        .access_key_usage_stats_for_context(&context, &AccessKeyId::from_string(key_id))
         .await
         .map_err(api_error_from_anyhow)?
         .ok_or_else(|| ApiError::not_found("access key not found"))?;
@@ -515,6 +532,7 @@ async fn create_memory(
     Json(payload): Json<CreateMemoryRequest>,
 ) -> Result<(StatusCode, Json<CreateMemoryResponse>), ApiError> {
     let context = resolve_http_context(&state, &headers).await?;
+    validate_text_field_len("body", &payload.body, MAX_MEMORY_BODY_CHARS)?;
     let scope_id = payload
         .scope_id
         .map(ScopeId::from_string)
@@ -569,6 +587,9 @@ async fn create_image(
     Json(payload): Json<CreateImageRequest>,
 ) -> Result<(StatusCode, Json<CreateImageResponse>), ApiError> {
     let context = resolve_http_context(&state, &headers).await?;
+    if let Some(body) = payload.body.as_deref() {
+        validate_text_field_len("body", body, MAX_MEMORY_BODY_CHARS)?;
+    }
     let scope_id = payload
         .scope_id
         .map(ScopeId::from_string)
@@ -583,6 +604,12 @@ async fn create_image(
     let bytes = STANDARD
         .decode(payload.image_base64.as_bytes())
         .map_err(|_| ApiError::bad_request("invalid image_base64 payload"))?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(ApiError::bad_request(format!(
+            "image payload exceeds {} bytes",
+            MAX_IMAGE_BYTES
+        )));
+    }
 
     let result = state
         .kernel
@@ -640,11 +667,14 @@ async fn create_image(
 
 async fn promote_memory(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Json(payload): Json<PromoteMemoryHttpRequest>,
 ) -> Result<(StatusCode, Json<PromoteMemoryHttpResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
     let result = state
         .kernel
-        .promote_memory_by_id(
+        .promote_memory_by_id_for_context(
+            &context,
             ScopeId::from_string(payload.source_scope_id),
             MemoryId::from_string(payload.memory_id),
             PromoteMemoryRequest {
@@ -686,6 +716,7 @@ async fn search_context(
     Json(payload): Json<SearchContextHttpRequest>,
 ) -> Result<Json<SearchContextHttpResponse>, ApiError> {
     let context = resolve_http_context(&state, &headers).await?;
+    validate_text_field_len("query", &payload.query, MAX_QUERY_CHARS)?;
     let scope_id = payload
         .scope_id
         .map(ScopeId::from_string)
@@ -755,11 +786,55 @@ async fn resolve_http_context(
     Ok(context)
 }
 
+async fn resolve_required_http_context(
+    state: &HttpAppState,
+    headers: &HeaderMap,
+) -> Result<RequestContext, ApiError> {
+    resolve_http_context(state, headers)
+        .await?
+        .ok_or_else(|| ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "meat memory key is required".to_string(),
+        })
+}
+
+fn ensure_context_scope_access(
+    context: &RequestContext,
+    scope_id: &ScopeId,
+) -> Result<(), ApiError> {
+    if context.owner_scope_id != *scope_id {
+        return Err(ApiError {
+            status: StatusCode::FORBIDDEN,
+            message: "scope access forbidden for current meat memory key".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_text_field_len(field: &str, value: &str, max_chars: usize) -> Result<(), ApiError> {
+    let len = value.chars().count();
+    if len > max_chars {
+        return Err(ApiError::bad_request(format!(
+            "{field} exceeds {max_chars} characters"
+        )));
+    }
+    Ok(())
+}
+
 async fn browse_memories(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Query(query): Query<BrowseMemoriesQuery>,
 ) -> Result<Json<ExplorerMemoriesResponse>, ApiError> {
-    let scope_id = query.scope_id.as_deref().map(ScopeId::from_string);
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let scope_id = match query.scope_id.as_deref() {
+        Some(raw_scope_id) => {
+            let scope_id = ScopeId::from_string(raw_scope_id);
+            ensure_context_scope_access(&context, &scope_id)?;
+            Some(scope_id)
+        }
+        None => Some(context.owner_scope_id.clone()),
+    };
     let limit = query.limit.unwrap_or(240).clamp(1, 500);
     let memories = state
         .kernel
@@ -789,9 +864,19 @@ async fn browse_memories(
 
 async fn chat_with_memory_assistant(
     State(state): State<HttpAppState>,
+    headers: HeaderMap,
     Json(payload): Json<AssistantChatRequest>,
 ) -> Result<Json<AssistantChatResponse>, ApiError> {
-    let requested_scope = payload.scope_id.as_deref().map(ScopeId::from_string);
+    let context = resolve_required_http_context(&state, &headers).await?;
+    validate_text_field_len("prompt", &payload.prompt, MAX_PROMPT_CHARS)?;
+    let requested_scope = match payload.scope_id.as_deref() {
+        Some(raw_scope_id) => {
+            let scope_id = ScopeId::from_string(raw_scope_id);
+            ensure_context_scope_access(&context, &scope_id)?;
+            Some(scope_id)
+        }
+        None => Some(context.owner_scope_id.clone()),
+    };
     let limit = payload.limit.unwrap_or(6).clamp(1, 12);
     let memories = state
         .kernel
@@ -1202,9 +1287,21 @@ fn parse_key_status(raw: &str) -> Result<AccessKeyStatus, ApiError> {
 
 fn api_error_from_anyhow(error: anyhow::Error) -> ApiError {
     let message = error.to_string();
+    if message.contains("forbidden") {
+        return ApiError {
+            status: StatusCode::FORBIDDEN,
+            message,
+        };
+    }
     if message.contains("denied by policy") {
         return ApiError {
             status: StatusCode::FORBIDDEN,
+            message,
+        };
+    }
+    if message.contains("required") || message.contains("invalid meat memory key") {
+        return ApiError {
+            status: StatusCode::UNAUTHORIZED,
             message,
         };
     }
@@ -1212,11 +1309,13 @@ fn api_error_from_anyhow(error: anyhow::Error) -> ApiError {
         || message.contains("unknown")
         || message.contains("empty")
         || message.contains("Invalid")
+        || message.contains("exceeds")
     {
         return ApiError::bad_request(message);
     }
 
-    ApiError::internal(message)
+    error!(error = %message, "internal http error");
+    ApiError::internal("internal server error")
 }
 
 fn memory_kind_label(kind: MemoryKind) -> &'static str {
@@ -2259,6 +2358,7 @@ mod tests {
         Provider, ProviderDescriptor,
     };
     use std::collections::BTreeSet;
+    use std::env;
     use std::sync::Arc;
     use tempfile::tempdir;
     use tower::ServiceExt;
@@ -2266,6 +2366,12 @@ mod tests {
     async fn response_json(response: axum::response::Response) -> serde_json::Value {
         let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn test_database_url() -> String {
+        env::var("MEAT_MEMORY_TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into()
+        })
     }
 
     fn test_state(tempdir: &std::path::Path) -> HttpAppState {
@@ -2297,6 +2403,58 @@ mod tests {
             },
             kernel,
         )
+    }
+
+    async fn test_state_with_pg(tempdir: &std::path::Path) -> HttpAppState {
+        let kernel = Arc::new(
+            Kernel::builder()
+                .with_postgres_url(&test_database_url())
+                .await
+                .unwrap()
+                .with_markdown_root(tempdir.join("markdown"))
+                .unwrap()
+                .with_asset_root(tempdir.join("assets"))
+                .unwrap()
+                .with_model_registry(test_model_registry(), "zh-CN")
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
+
+        HttpAppState::new(
+            ScopeId::from_string("scp_http_default"),
+            ApiMetadata {
+                service: "meat-memory".to_string(),
+                version: "0.1.0".to_string(),
+                default_scope: "scp_http_default".to_string(),
+                features: ApiFeatureFlags {
+                    pg: true,
+                    markdown: true,
+                    http: true,
+                    mcp: false,
+                    require_key: false,
+                },
+            },
+            kernel,
+        )
+    }
+
+    async fn create_http_key(app: axum::Router, owner_scope_id: &str) -> String {
+        let key_response = app
+            .oneshot(
+                Request::post("/api/v1/keys")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"name":"test key","source":"http","owner_principal_id":"test","owner_scope_id":"{owner_scope_id}","scope_kind":"personal","storage_mode":"all"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        response_json(key_response).await["raw_key"]
+            .as_str()
+            .unwrap()
+            .to_string()
     }
 
     fn failover_test_state(tempdir: &std::path::Path) -> HttpAppState {
@@ -2470,15 +2628,18 @@ mod tests {
     #[tokio::test]
     async fn explorer_endpoint_lists_memories_from_markdown_store() {
         let tempdir = tempdir().unwrap();
-        let app = build_router(test_state(tempdir.path()));
+        let app = build_router(test_state_with_pg(tempdir.path()).await);
+        let scope_id = ScopeId::new();
+        let raw_key = create_http_key(app.clone(), scope_id.as_str()).await;
 
         app.clone()
             .oneshot(
                 Request::post("/api/v1/memories")
                     .header("content-type", "application/json")
-                    .body(Body::from(
-                        r#"{"scope_id":"scp_browser_codex","title":"Codex 发布步骤","body":"Codex 团队记录了浏览工作台的发布流程。","memory_kind":"procedure","visibility":"team"}"#,
-                    ))
+                    .body(Body::from(format!(
+                        r#"{{"scope_id":"{}","title":"Codex 发布步骤","body":"Codex 团队记录了浏览工作台的发布流程。","memory_kind":"procedure","visibility":"team"}}"#,
+                        scope_id.as_str()
+                    )))
                     .unwrap(),
             )
             .await
@@ -2487,6 +2648,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get("/api/v1/explorer/memories?limit=20")
+                    .header("x-meat-memory-key", raw_key)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2504,7 +2666,8 @@ mod tests {
     #[tokio::test]
     async fn assistant_chat_endpoint_summarizes_matching_memories() {
         let tempdir = tempdir().unwrap();
-        let app = build_router(test_state(tempdir.path()));
+        let app = build_router(test_state_with_pg(tempdir.path()).await);
+        let raw_key = create_http_key(app.clone(), "scp_browser_claude").await;
 
         let created = app
             .clone()
@@ -2524,6 +2687,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::post("/api/v1/assistant/chat")
+                    .header("x-meat-memory-key", raw_key)
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
                         r#"{{"prompt":"评审准则","memory_id":"{memory_id}","ownership":"team","agent":"claude-code"}}"#
@@ -2545,7 +2709,8 @@ mod tests {
     #[tokio::test]
     async fn promote_memory_endpoint_creates_review_candidate_in_target_scope() {
         let tempdir = tempdir().unwrap();
-        let app = build_router(test_state(tempdir.path()));
+        let app = build_router(test_state_with_pg(tempdir.path()).await);
+        let raw_key = create_http_key(app.clone(), "scp_user_alice").await;
 
         let created = app
             .clone()
@@ -2565,6 +2730,7 @@ mod tests {
         let promoted = app
             .oneshot(
                 Request::post("/api/v1/memories/promote")
+                    .header("x-meat-memory-key", raw_key)
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
                         r#"{{"source_scope_id":"scp_user_alice","memory_id":"{memory_id}","source_scope_type":"user","target_scope_id":"scp_project_demo","target_scope_type":"project","target_visibility":"project"}}"#
@@ -2796,6 +2962,9 @@ mod tests {
         let unknown = api_error_from_anyhow(anyhow!("unknown provider"));
         let empty = api_error_from_anyhow(anyhow!("empty request body"));
         let invalid = api_error_from_anyhow(anyhow!("Invalid media type"));
+        let scope_forbidden = api_error_from_anyhow(anyhow!(
+            "scope access forbidden for current meat memory key"
+        ));
         let internal = api_error_from_anyhow(anyhow!("database offline"));
 
         assert_eq!(forbidden.status, axum::http::StatusCode::FORBIDDEN);
@@ -2804,10 +2973,16 @@ mod tests {
         assert_eq!(unknown.status, axum::http::StatusCode::BAD_REQUEST);
         assert_eq!(empty.status, axum::http::StatusCode::BAD_REQUEST);
         assert_eq!(invalid.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(scope_forbidden.status, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(
+            scope_forbidden.message,
+            "scope access forbidden for current meat memory key"
+        );
         assert_eq!(
             internal.status,
             axum::http::StatusCode::INTERNAL_SERVER_ERROR
         );
+        assert_eq!(internal.message, "internal server error");
     }
 
     #[test]

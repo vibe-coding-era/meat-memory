@@ -37,7 +37,10 @@ check:
     cargo check --workspace
 
 test:
-    cargo test --workspace
+    ./scripts/test-required.sh
+
+security-test:
+    ./scripts/security-report.sh
 
 acceptance:
     ./scripts/v1-acceptance.sh

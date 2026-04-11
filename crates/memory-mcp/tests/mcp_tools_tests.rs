@@ -1,9 +1,10 @@
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
+    response::IntoResponse,
 };
-use memory_domain::ScopeId;
-use memory_kernel::Kernel;
+use memory_domain::{KeyScopeKind, KeySourceKind, ScopeId, StorageMode};
+use memory_kernel::{CreateAccessKeyRequest, Kernel};
 use memory_mcp::{McpServer, ToolCallRequest, build_router};
 use std::{env, sync::Arc};
 use tempfile::tempdir;
@@ -14,7 +15,7 @@ fn test_database_url() -> String {
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into())
 }
 
-async fn build_test_server(root: &std::path::Path) -> McpServer {
+async fn build_test_server(root: &std::path::Path) -> (McpServer, Arc<Kernel>) {
     let kernel = Arc::new(
         Kernel::builder()
             .with_postgres_url(&test_database_url())
@@ -26,19 +27,40 @@ async fn build_test_server(root: &std::path::Path) -> McpServer {
             .unwrap(),
     );
 
-    McpServer::new(
-        ScopeId::from_string("scp_mcp_default"),
-        "meat-memory",
-        "0.1.0",
+    (
+        McpServer::new(
+            ScopeId::from_string("scp_mcp_default"),
+            "meat-memory",
+            "0.1.0",
+            kernel.clone(),
+        ),
         kernel,
     )
+}
+
+async fn create_test_key(kernel: &Kernel, owner_scope_id: &str) -> String {
+    kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: None,
+            display_name: format!("key-{owner_scope_id}"),
+            source_kind: KeySourceKind::Mcp,
+            owner_principal_id: owner_scope_id.to_string(),
+            owner_scope_id: ScopeId::from_string(owner_scope_id),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: false,
+        })
+        .await
+        .unwrap()
+        .raw_key
 }
 
 #[tokio::test]
 async fn mcp_dispatches_remember_search_fetch_context_and_publish() {
     let tempdir = tempdir().unwrap();
-    let server = build_test_server(tempdir.path()).await;
+    let (server, kernel) = build_test_server(tempdir.path()).await;
     let scope_id = ScopeId::new();
+    let raw_key = create_test_key(&kernel, scope_id.as_str()).await;
 
     let remember = server
         .dispatch(ToolCallRequest {
@@ -94,7 +116,8 @@ async fn mcp_dispatches_remember_search_fetch_context_and_publish() {
             arguments: serde_json::json!({
                 "scope_id": scope_id.as_str(),
                 "memory_id": memory_id,
-                "target_visibility": "team"
+                "target_visibility": "team",
+                "key": raw_key
             }),
         })
         .await
@@ -109,7 +132,7 @@ async fn mcp_dispatches_remember_search_fetch_context_and_publish() {
 #[tokio::test]
 async fn mcp_http_transport_accepts_tool_calls() {
     let tempdir = tempdir().unwrap();
-    let server = build_test_server(tempdir.path()).await;
+    let (server, _kernel) = build_test_server(tempdir.path()).await;
     let app = build_router(server);
     let scope_id = ScopeId::new();
 
@@ -146,8 +169,9 @@ async fn mcp_http_transport_accepts_tool_calls() {
 #[tokio::test]
 async fn mcp_supports_chinese_memory_search_and_publish_flow() {
     let tempdir = tempdir().unwrap();
-    let server = build_test_server(tempdir.path()).await;
+    let (server, kernel) = build_test_server(tempdir.path()).await;
     let scope_id = ScopeId::new();
+    let raw_key = create_test_key(&kernel, scope_id.as_str()).await;
 
     let remember = server
         .dispatch(ToolCallRequest {
@@ -185,7 +209,8 @@ async fn mcp_supports_chinese_memory_search_and_publish_flow() {
             arguments: serde_json::json!({
                 "scope_id": scope_id.as_str(),
                 "memory_id": memory_id,
-                "target_visibility": "project"
+                "target_visibility": "project",
+                "key": raw_key
             }),
         })
         .await
@@ -199,7 +224,7 @@ async fn mcp_supports_chinese_memory_search_and_publish_flow() {
 #[tokio::test]
 async fn mcp_stdio_transport_serializes_errors() {
     let tempdir = tempdir().unwrap();
-    let server = build_test_server(tempdir.path()).await;
+    let (server, _kernel) = build_test_server(tempdir.path()).await;
 
     let response = server
         .handle_stdio_message(r#"{"name":"memory.unknown","arguments":{}}"#)
@@ -212,7 +237,8 @@ async fn mcp_stdio_transport_serializes_errors() {
 #[tokio::test]
 async fn mcp_dispatches_promote_and_preserves_scope_lineage() {
     let tempdir = tempdir().unwrap();
-    let server = build_test_server(tempdir.path()).await;
+    let (server, kernel) = build_test_server(tempdir.path()).await;
+    let raw_key = create_test_key(&kernel, "scp_user_mcp_alice").await;
 
     let remembered = server
         .dispatch(ToolCallRequest {
@@ -238,7 +264,8 @@ async fn mcp_dispatches_promote_and_preserves_scope_lineage() {
                 "source_scope_type": "user",
                 "target_scope_id": "scp_project_mcp_demo",
                 "target_scope_type": "project",
-                "target_visibility": "project"
+                "target_visibility": "project",
+                "key": raw_key
             }),
         })
         .await
@@ -259,4 +286,38 @@ async fn mcp_dispatches_promote_and_preserves_scope_lineage() {
             .unwrap()
             .contains("[REDACTED]")
     );
+}
+
+#[tokio::test]
+async fn mcp_publish_requires_key_for_sensitive_tool() {
+    let tempdir = tempdir().unwrap();
+    let (server, _kernel) = build_test_server(tempdir.path()).await;
+    let scope_id = ScopeId::new();
+
+    let remembered = server
+        .dispatch(ToolCallRequest {
+            name: "memory.remember".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "title": "Publish target",
+                "body": "Need key to publish",
+                "memory_kind": "fact"
+            }),
+        })
+        .await
+        .unwrap();
+
+    let error = server
+        .dispatch(ToolCallRequest {
+            name: "memory.publish".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "memory_id": remembered.data["memory_id"],
+                "target_visibility": "project"
+            }),
+        })
+        .await
+        .expect_err("publish without key should fail");
+
+    assert_eq!(error.into_response().status(), StatusCode::UNAUTHORIZED);
 }

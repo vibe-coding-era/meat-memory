@@ -268,6 +268,7 @@ impl McpServer {
         arguments: Value,
     ) -> Result<ToolCallResponse, McpError> {
         let payload = parse_arguments::<PublishToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
         let scope_id = payload
             .scope_id
             .map(ScopeId::from_string)
@@ -276,7 +277,7 @@ impl McpServer {
         let target_visibility = parse_visibility(&payload.target_visibility)?;
         let result = self
             .kernel
-            .publish_memory_by_id(scope_id, memory_id, target_visibility)
+            .publish_memory_by_id_for_context(&context, scope_id, memory_id, target_visibility)
             .await
             .map_err(map_kernel_error)?;
 
@@ -304,9 +305,11 @@ impl McpServer {
         arguments: Value,
     ) -> Result<ToolCallResponse, McpError> {
         let payload = parse_arguments::<PromoteToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
         let result = self
             .kernel
-            .promote_memory_by_id(
+            .promote_memory_by_id_for_context(
+                &context,
                 ScopeId::from_string(payload.source_scope_id),
                 MemoryId::from_string(payload.memory_id),
                 PromoteMemoryRequest {
@@ -351,6 +354,15 @@ impl McpServer {
             .resolve_access_key_context(raw_key)
             .await
             .map_err(map_kernel_error)
+    }
+
+    async fn resolve_required_key(
+        &self,
+        raw_key: Option<&str>,
+    ) -> Result<memory_domain::RequestContext, McpError> {
+        self.resolve_optional_key(raw_key)
+            .await?
+            .ok_or_else(|| McpError::unauthorized("meat memory key is required"))
     }
 }
 
@@ -418,6 +430,14 @@ impl McpError {
         }
     }
 
+    fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthorized",
+            message: message.into(),
+        }
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -469,6 +489,7 @@ struct PublishToolArgs {
     scope_id: Option<String>,
     memory_id: String,
     target_visibility: String,
+    key: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -479,6 +500,7 @@ struct PromoteToolArgs {
     target_scope_id: String,
     target_scope_type: String,
     target_visibility: String,
+    key: Option<String>,
 }
 
 pub fn tool_supported(name: &str) -> bool {
@@ -623,6 +645,12 @@ fn parse_scope_type(raw: &str) -> Result<ScopeType, McpError> {
 
 fn map_kernel_error(error: anyhow::Error) -> McpError {
     let message = error.to_string();
+    if message.contains("required") || message.contains("invalid meat memory key") {
+        return McpError::unauthorized(message);
+    }
+    if message.contains("forbidden") {
+        return McpError::forbidden(message);
+    }
     if message.contains("denied by policy") {
         return McpError::forbidden(message);
     }
@@ -637,7 +665,8 @@ fn map_kernel_error(error: anyhow::Error) -> McpError {
         return McpError::invalid_arguments(message);
     }
 
-    McpError::internal(message)
+    tracing::error!(error = %message, "internal mcp error");
+    McpError::internal("internal server error")
 }
 
 fn context_bundle_payload(bundle: &ContextBundle) -> Value {
@@ -771,11 +800,13 @@ mod tests {
     };
     use axum::{body::Body, http::Request};
     use memory_domain::{
-        ArtifactKind, ContextBundle, Entity, EntityType, Memory, MemoryKind, Relation,
-        RelationState, RelationType, ScopeId, ScopeType, Sensitivity, Visibility,
+        ArtifactKind, ContextBundle, Entity, EntityType, KeyScopeKind, KeySourceKind, Memory,
+        MemoryKind, Relation, RelationState, RelationType, ScopeId, ScopeType, Sensitivity,
+        StorageMode, Visibility,
     };
-    use memory_kernel::Kernel;
+    use memory_kernel::{CreateAccessKeyRequest, Kernel};
     use serde::Deserialize;
+    use std::env;
     use std::sync::Arc;
     use tempfile::tempdir;
     use tower::ServiceExt;
@@ -795,6 +826,52 @@ mod tests {
             "0.1.0",
             kernel,
         )
+    }
+
+    fn test_database_url() -> String {
+        env::var("MEAT_MEMORY_TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into()
+        })
+    }
+
+    async fn test_server_with_pg(tempdir: &std::path::Path) -> (McpServer, Arc<Kernel>) {
+        let kernel = Arc::new(
+            Kernel::builder()
+                .with_postgres_url(&test_database_url())
+                .await
+                .unwrap()
+                .with_markdown_root(tempdir)
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
+
+        (
+            McpServer::new(
+                ScopeId::from_string("scp_mcp_default"),
+                "meat-memory",
+                "0.1.0",
+                kernel.clone(),
+            ),
+            kernel,
+        )
+    }
+
+    async fn create_test_key(kernel: &Kernel, owner_scope_id: &str) -> String {
+        kernel
+            .create_access_key(CreateAccessKeyRequest {
+                raw_key: None,
+                display_name: format!("key-{owner_scope_id}"),
+                source_kind: KeySourceKind::Mcp,
+                owner_principal_id: owner_scope_id.to_string(),
+                owner_scope_id: ScopeId::from_string(owner_scope_id),
+                scope_kind: KeyScopeKind::Personal,
+                storage_mode: StorageMode::All,
+                is_fully_isolated: false,
+            })
+            .await
+            .unwrap()
+            .raw_key
     }
 
     fn sample_bundle() -> ContextBundle {
@@ -956,14 +1033,15 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(error.status, axum::http::StatusCode::NOT_FOUND);
-        assert_eq!(error.code, "not_found");
+        assert_eq!(error.status, axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(error.code, "unauthorized");
     }
 
     #[tokio::test]
     async fn dispatch_promote_creates_target_scope_copy() {
         let tempdir = tempdir().unwrap();
-        let server = test_server(tempdir.path());
+        let (server, kernel) = test_server_with_pg(tempdir.path()).await;
+        let raw_key = create_test_key(&kernel, "scp_user_bob").await;
 
         let remembered = server
             .dispatch(ToolCallRequest {
@@ -989,7 +1067,8 @@ mod tests {
                     "source_scope_type": "user",
                     "target_scope_id": "scp_project_demo",
                     "target_scope_type": "project",
-                    "target_visibility": "project"
+                    "target_visibility": "project",
+                    "key": raw_key
                 }),
             })
             .await

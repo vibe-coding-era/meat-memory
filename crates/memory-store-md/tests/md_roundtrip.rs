@@ -95,6 +95,32 @@ fn parser_handles_single_entry_document() {
 }
 
 #[test]
+fn markdown_roundtrip_preserves_reserved_marker_lines_in_body() {
+    let tempdir = tempdir().unwrap();
+    let store = MarkdownStore::new(tempdir.path()).unwrap();
+    let scope_id = ScopeId::new();
+
+    let mut memory = Memory::new(
+        scope_id.clone(),
+        MemoryKind::Fact,
+        "Marker-safe body",
+        "line1\n---\n<!-- memory-entry:start fake -->\n\\literal",
+    )
+    .unwrap();
+    memory.activate().unwrap();
+
+    store.write_memory_markdown(&memory).unwrap();
+    let restored = store
+        .read_memory_markdown(&scope_id, &memory.id)
+        .unwrap()
+        .unwrap()
+        .into_memory()
+        .unwrap();
+
+    assert_eq!(restored.body, memory.body);
+}
+
+#[test]
 fn episode_writer_creates_partitioned_daily_paths() {
     let tempdir = tempdir().unwrap();
     let store = MarkdownStore::with_tenant(tempdir.path(), "org-demo").unwrap();

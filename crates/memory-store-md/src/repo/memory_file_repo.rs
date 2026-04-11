@@ -158,8 +158,9 @@ pub fn render_memory_markdown(memory: &Memory, tenant: &str) -> Result<String> {
     let mut rendered = String::new();
     rendered.push_str(&start_marker);
     rendered.push_str(&render_frontmatter(&frontmatter)?);
-    rendered.push_str(&memory.body);
-    if !memory.body.ends_with('\n') {
+    let escaped_body = escape_rollup_body(&memory.body);
+    rendered.push_str(&escaped_body);
+    if !escaped_body.ends_with('\n') {
         rendered.push('\n');
     }
     rendered.push_str(&end_marker);
@@ -253,11 +254,47 @@ fn extract_entries(raw: &str) -> Vec<String> {
     entries
 }
 
+fn escape_rollup_body(body: &str) -> String {
+    body.lines()
+        .map(|line| {
+            if line.starts_with(ENTRY_START_PREFIX)
+                || line.starts_with(ENTRY_END_PREFIX)
+                || line == "---"
+                || line.starts_with('\\')
+            {
+                format!("\\{line}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(crate) fn unescape_rollup_body(body: &str) -> String {
+    body.lines()
+        .map(|line| {
+            if let Some(unescaped) = line.strip_prefix('\\') {
+                if unescaped.starts_with(ENTRY_START_PREFIX)
+                    || unescaped.starts_with(ENTRY_END_PREFIX)
+                    || unescaped == "---"
+                    || unescaped.starts_with('\\')
+                {
+                    return unescaped.to_string();
+                }
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        MarkdownStore, ROLLUP_HEADER, extract_entries, extract_entry, parse_memory_entries,
-        render_memory_markdown, sanitize_segment, scope_directory, upsert_entry,
+        MarkdownStore, ROLLUP_HEADER, escape_rollup_body, extract_entries, extract_entry,
+        parse_memory_entries, render_memory_markdown, sanitize_segment, scope_directory,
+        unescape_rollup_body, upsert_entry,
     };
     use memory_domain::{Episode, EpisodeId, EpisodeKind, Memory, MemoryId, MemoryKind, ScopeId};
     use std::fs;
@@ -337,6 +374,18 @@ mod tests {
         assert!(rendered.contains("kind: memory"));
         assert!(rendered.contains("tenant: tenant-a"));
         assert!(rendered.ends_with("<!-- memory-entry:end mem_store -->\n"));
+    }
+
+    #[test]
+    fn rollup_body_escapes_reserved_markers_and_roundtrips() {
+        let raw = "\\already escaped\n---\n<!-- memory-entry:start fake -->\n<!-- memory-entry:end fake -->";
+        let escaped = escape_rollup_body(raw);
+        let unescaped = unescape_rollup_body(&escaped);
+
+        assert!(escaped.contains("\\\\already escaped"));
+        assert!(escaped.contains("\\---"));
+        assert!(escaped.contains("\\<!-- memory-entry:start fake -->"));
+        assert_eq!(unescaped, raw);
     }
 
     #[test]

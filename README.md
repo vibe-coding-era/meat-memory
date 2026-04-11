@@ -150,7 +150,7 @@ cp .env.example .env
 5. 跑测试。
 
 ```bash
-cargo test --workspace --lib --bins --quiet
+./scripts/test-required.sh
 ```
 
 6. 启动服务。
@@ -355,6 +355,8 @@ MEAT_MEMORY_CONFIG=config/app.local.toml cargo run -p memory-app
 |---|---|
 | `./scripts/bootstrap.sh` | 安装 Rust 组件并初始化本地开发环境 |
 | `./scripts/verify.sh` | 校验本机工具链、Docker、PG、pgvector 等环境 |
+| `./scripts/test-required.sh` | 仓库必跑测试入口，包含工作区测试与安全测试 |
+| `./scripts/security-report.sh` | 生成最新安全测试报告 |
 | `./scripts/dev-db-up.sh` | 只启动 `pgvector` |
 | `./scripts/dev-db-down.sh` | 只停止 `pgvector` |
 | `./scripts/dev-up.sh` | 启动 `pgvector + app + worker` |
@@ -383,7 +385,15 @@ just dev-down
 | `cargo test -p memory-mcp --test mcp_tools_tests --quiet` | Passed |
 | `cargo test -p memory-cli --test cli_e2e --quiet` | Passed |
 | `cargo test --workspace --lib --bins --quiet` | Passed |
+| `./scripts/security-report.sh` | Passed |
+| `./scripts/test-required.sh` | Required |
 | `./scripts/v1-acceptance.sh` | Passed |
+
+说明：
+
+- `test-required.sh` 是当前仓库的必跑测试入口。
+- 它会先执行 `cargo test --workspace --quiet`，再执行 `./scripts/security-report.sh`。
+- 从 V2.3 起，安全测试已经被提升为每次标准验证的一部分，而不是额外可选项。
 
 最新单测覆盖率快照：
 
@@ -433,6 +443,7 @@ tests/
 - `docs/meat-memory-scheme-v1.md`
 - `docs/meat-memory-scheme-v2.md`
 - `docs/meat-memory-scheme-v2_2.md`
+- `docs/meat-memory-scheme-v2_3.md`
 - `docs/api/http-api-v1.md`
 - `docs/api/cli-v1.md`
 - `docs/api/mcp-tools-v1.md`
@@ -445,7 +456,20 @@ tests/
 - `docs/tasks/task-log.md`
 - `docs/reports/test-coverage-report.md`
 
-## 当前 V1 边界
+## 当前版本状态
+
+当前已完成到 `V2.3`：安全与代码优化。
+
+`V2.3` 已完成：
+
+- 系统攻击面与安全检查矩阵
+- 高价值 HTTP / MCP 入口鉴权与 scope 授权收口
+- 劫持、越权、资源滥用与 Markdown marker/frontmatter 注入回归
+- HTTP / MCP 内部错误面收口
+- 安全报告脚本与 latest/archive 报告产物
+- 安全测试接入每次必跑测试入口
+
+## V1 边界
 
 `V1` 已完成并封板，当前交付重点是：
 

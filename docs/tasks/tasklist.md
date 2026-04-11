@@ -15,7 +15,7 @@
 - 已完成底座：Rust workspace、PGSQL + Markdown 双存储、kernel `remember/search/publish`、知识图谱抽取、HTTP/CLI/MCP 接入层、基础 observability、sync oplog/merge baseline、V1 多模型能力抽象与 provider/model/route registry、V1 图片资产存储与寻址基线、V1 `remember_image` 写入链路、V1 最小图片理解链路、Agent 接入文档、Docker/Helm 部署骨架、V1 验收脚本与文档包、中文系统化验收语料、Browser Console / failover 回归入口，以及 V1 release notes / 封板说明。
 - 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
-- 当前最重要的未完成范围：V2.2 的用户端使用体验增强；V2.1 已完成，V2 已完成并进入稳定化。
+- 当前最重要的未完成范围：V2.3 的安全与代码优化；V2.2 已完成，后续进入安全基线、专项扫描与架构收口阶段。
 
 ## 版本范围总览
 
@@ -25,6 +25,7 @@
 | V2 | 多团队/个人隔离与合并、多语言扩展到中/英 | 不做音频/视频 |
 | V2.1 | 强化 CLI / MCP 实用性、补齐多 Agent skill、提供安装后可快速配置系统的 TUI | 不做音频/视频，不做完整 GUI 桌面端 |
 | V2.2 | 增强用户端使用体验：key 申请、多 key 来源管理、权限隔离、存储模式、跨 key 图谱/索引、监控面板 | 不做完整桌面端，不在 MVP 中强求完整向量召回质量优化 |
+| V2.3 | 全面安全扫描、劫持/注入专项验证、统一安全边界与代码优化 | 不做技术路线重写，不做偏离当前分层的大规模重构 |
 | V3 | 补齐全多模态，完成音频/视频 | 无 |
 
 ## V1 交付清单
@@ -201,6 +202,55 @@
 20. `V2.2-OBS-002`
 21. `V2.2-QA-002`
 
+## V2.3 交付清单
+
+### V2.3 版本验收标准
+
+- 建立系统级安全扫描基线，并形成问题清单与严重级别报告。
+- 对劫持、注入、越权、枚举和资源滥用建立专项测试。
+- 高价值接口统一纳入鉴权、授权和输入边界控制。
+- `tests/security/` 与 `tests/reports/security/latest/` 不再是占位，而是可执行、可回归、可产出。
+- 代码优化与必要的架构收口不偏离现有 Rust workspace + Axum + Kernel + Store 方向。
+
+### V2.3 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.3-DOC-001` | V2.3 方案与实时架构图文档 | done | 已新增 `docs/meat-memory-scheme-v2_3.md`，落当前/目标架构图、风险清单、交付物与执行阶段 |
+| `V2.3-ARC-001` | 攻击面与信任边界清单 | done | 已在 `docs/meat-memory-scheme-v2_3.md` 补攻击面、关键资产、信任边界与风险表 |
+| `V2.3-SEC-001` | 安全检查矩阵 | done | 已在 `docs/meat-memory-scheme-v2_3.md` 补认证、授权、输入限制、审计与报告矩阵 |
+| `V2.3-SEC-002` | 全量静态安全扫描 | done | 已基于当前代码输出首版问题表、严重级别与修复优先级，并据此完成第一轮收口 |
+| `V2.3-SEC-003` | 劫持专项扫描 | done | 已补敏感 HTTP/MCP 入口鉴权与越权回归，覆盖 browse/promote/key 管理等高风险路径 |
+| `V2.3-SEC-004` | 注入专项扫描 | done | 已补 Markdown marker/frontmatter 注入防护与回归，并覆盖 base64/输入边界专项 |
+| `V2.3-SEC-005` | 资源滥用与边界值扫描 | done | 已补 body/query/prompt/image 的长度或大小限制与回归测试 |
+| `V2.3-REF-001` | 统一鉴权与授权收口方案 | done | 已明确 entry/kernel/policy/store 的安全职责分界，并完成第一轮实现 |
+| `V2.3-REF-002` | 高价值接口安全重构 | done | 已将 key 管理、browse、assistant、publish/promote 等高价值路径收口到统一安全边界 |
+| `V2.3-REF-003` | 统一输入验证与限制 | done | 已统一 body/query/prompt/image 的校验与大小限制 |
+| `V2.3-REF-004` | 错误面与审计日志收口 | done | 已将 HTTP/MCP 内部错误收口为通用响应并保留内部日志 |
+| `V2.3-TST-001` | 安全测试目录补齐 | done | 已补安全测试说明、HTTP/MCP 安全回归入口与报告脚本 |
+| `V2.3-TST-002` | 劫持回归测试 | done | 已覆盖无 key、越权 browse/promote、key 管理鉴权等场景 |
+| `V2.3-TST-003` | 注入回归测试 | done | 已覆盖异常 base64、超大 payload、Markdown marker/frontmatter 干扰等注入/边界场景 |
+| `V2.3-RPT-001` | 安全报告脚本与 latest 报告产物 | done | 已新增 `scripts/security-report.sh` 并接入 `write-test-reports.sh` |
+| `V2.3-QA-001` | V2.3 业务回归 | done | 已验证 HTTP/MCP/Kernel/Markdown 相关主链路不回退 |
+
+### V2.3 建议执行顺序
+
+1. `V2.3-ARC-001`
+2. `V2.3-SEC-001`
+3. `V2.3-SEC-002`
+4. `V2.3-SEC-003`
+5. `V2.3-SEC-004`
+6. `V2.3-SEC-005`
+7. `V2.3-REF-001`
+8. `V2.3-REF-002`
+9. `V2.3-REF-003`
+10. `V2.3-REF-004`
+11. `V2.3-TST-001`
+12. `V2.3-TST-002`
+13. `V2.3-TST-003`
+14. `V2.3-RPT-001`
+15. `V2.3-QA-001`
+
 ## V3 交付清单
 
 ### V3 版本验收标准
@@ -246,4 +296,4 @@
 
 ## 当前下一步
 
-- V2.2 已完成，下一优先级可转入 V3 多模态能力扩展，或继续强化 hybrid planner 的高级 rerank / late fusion
+- V2.3 已完成方案与任务登记，下一优先级进入攻击面梳理、安全检查矩阵与正式扫描

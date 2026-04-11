@@ -11,5 +11,5 @@ cargo fmt --all --check
 echo "[pre-commit] cargo clippy --workspace --all-targets -- -D warnings"
 cargo clippy --workspace --all-targets -- -D warnings
 
-echo "[pre-commit] cargo test --workspace --quiet"
-cargo test --workspace --quiet
+echo "[pre-commit] ./scripts/test-required.sh"
+./scripts/test-required.sh

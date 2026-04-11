@@ -2,6 +2,56 @@
 
 ## 结构化记录
 
+- timestamp: 2026-04-11 13:10:00 CST
+  task_id: V2.3-DOC-001
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `docs/meat-memory-scheme-v2_3.md`，并在 `docs/tasks/tasklist.md`、`docs/tasks/project-index.md` 中登记 V2.3 方案、架构图与任务清单
+  issues_decisions: V2.3 采用“方案文档 + 版本化 TaskList”双文档结构，避免后续执行时设计与任务状态分离
+  next_action: 从 `V2.3-ARC-001` 开始梳理攻击面与信任边界，再进入正式安全扫描
+
+- timestamp: 2026-04-11 14:10:00 CST
+  task_id: V2.3-ARC-001/V2.3-SEC-001/V2.3-RPT-001
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 补齐攻击面与安全检查矩阵，新增 `scripts/security-report.sh` 并让 `write-test-reports.sh` 产出真实安全报告
+  issues_decisions: 安全报告先聚焦 HTTP/MCP 敏感入口、越权与 payload 边界；后续再继续拆到更细粒度的专项用例集
+  next_action: 继续推进 `V2.3-SEC-002/003/004/005` 与 `V2.3-REF-002/003`
+
+- timestamp: 2026-04-11 23:30:00 CST
+  task_id: V2.3-SEC-002/V2.3-SEC-003/V2.3-SEC-005/V2.3-REF-002/V2.3-REF-003/V2.3-TST-001/V2.3-TST-002
+  executor: Codex
+  duration: 1.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 完成第一轮安全收口，给 key 管理、browse、assistant、publish/promote 增加必需 key 与 owner scope 限制；增加 body/query/prompt/image 限制；HTTP/MCP 安全回归通过并生成 latest security report
+  issues_decisions: 先优先收口高风险越权与资源滥用入口，注入专项的更细粒度路径测试继续放到下一轮 V2.3 执行
+  next_action: 继续推进 `V2.3-SEC-004` 与 `V2.3-REF-004`，补更细的注入与错误面治理
+
+- timestamp: 2026-04-11 23:45:00 CST
+  task_id: V2.3-SEC-004/V2.3-REF-001/V2.3-REF-004/V2.3-TST-003/V2.3-QA-001
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 Markdown rollup 增加 marker/frontmatter 转义与回读，补注入回归；将 HTTP/MCP 内部错误收口为通用响应并记录内部日志；在方案文档中明确安全职责分层，并完成最终业务回归
+  issues_decisions: 当前已完成 V2.3 所定义任务的首轮实现闭环，后续增强项可以继续深化，但不阻塞本版本收口
+  next_action: 生成最终安全报告并完成版本交付
+
+- timestamp: 2026-04-11 23:55:00 CST
+  task_id: V2.3-QA-OPS-001
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `scripts/test-required.sh`，并将 `just test` 与 `.githooks/pre-commit` 收口到该入口，确保安全测试成为每次标准验证的一部分
+  issues_decisions: 安全测试不再依赖人工额外执行；后续团队统一使用 `./scripts/test-required.sh` 作为必跑入口
+  next_action: 无，当前需求已完成
+
 - timestamp: 2026-04-02T08:34:30Z
   task_id: MM-IDX-001
   executor: Codex

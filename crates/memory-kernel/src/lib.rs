@@ -370,6 +370,18 @@ impl Kernel {
         pg_store.list_access_keys(limit as i64).await
     }
 
+    pub async fn list_access_keys_for_context(
+        &self,
+        context: &RequestContext,
+        limit: usize,
+    ) -> Result<Vec<AccessKey>> {
+        let keys = self.list_access_keys(limit).await?;
+        Ok(keys
+            .into_iter()
+            .filter(|key| key.owner_scope_id == context.owner_scope_id)
+            .collect())
+    }
+
     pub async fn update_access_key(&self, request: UpdateAccessKeyRequest) -> Result<AccessKey> {
         let pg_store = self
             .pg_store
@@ -393,6 +405,24 @@ impl Kernel {
         }
         pg_store.upsert_access_key(&access_key).await?;
         Ok(access_key)
+    }
+
+    pub async fn update_access_key_for_context(
+        &self,
+        context: &RequestContext,
+        request: UpdateAccessKeyRequest,
+    ) -> Result<AccessKey> {
+        let access_key = self
+            .get_access_key_owned_by_context(context, &request.key_id)
+            .await?;
+        self.update_access_key(UpdateAccessKeyRequest {
+            key_id: access_key.id,
+            display_name: request.display_name,
+            storage_mode: request.storage_mode,
+            status: request.status,
+            is_fully_isolated: request.is_fully_isolated,
+        })
+        .await
     }
 
     pub async fn rotate_access_key(
@@ -429,6 +459,17 @@ impl Kernel {
         })
     }
 
+    pub async fn rotate_access_key_for_context(
+        &self,
+        context: &RequestContext,
+        key_id: &AccessKeyId,
+        raw_key: Option<String>,
+    ) -> Result<CreateAccessKeyResult> {
+        self.get_access_key_owned_by_context(context, key_id)
+            .await?;
+        self.rotate_access_key(key_id, raw_key).await
+    }
+
     pub async fn access_key_usage_stats(
         &self,
         key_id: &AccessKeyId,
@@ -438,6 +479,16 @@ impl Kernel {
             .as_ref()
             .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
         pg_store.access_key_usage_stats(key_id).await
+    }
+
+    pub async fn access_key_usage_stats_for_context(
+        &self,
+        context: &RequestContext,
+        key_id: &AccessKeyId,
+    ) -> Result<Option<AccessKeyUsageStats>> {
+        self.get_access_key_owned_by_context(context, key_id)
+            .await?;
+        self.access_key_usage_stats(key_id).await
     }
 
     pub async fn resolve_access_key_context(
@@ -954,6 +1005,19 @@ impl Kernel {
         self.publish_memory(memory, target_visibility).await
     }
 
+    pub async fn publish_memory_by_id_for_context(
+        &self,
+        context: &RequestContext,
+        scope_id: ScopeId,
+        memory_id: MemoryId,
+        target_visibility: Visibility,
+    ) -> Result<PublishMemoryResult> {
+        self.ensure_key_can_access_scope(Some(context), &scope_id)?;
+        self.ensure_context_owns_scope(context, &scope_id)?;
+        self.publish_memory_by_id(scope_id, memory_id, target_visibility)
+            .await
+    }
+
     pub async fn promote_memory(
         &self,
         memory: Memory,
@@ -1043,6 +1107,19 @@ impl Kernel {
         };
 
         self.promote_memory(memory, request).await
+    }
+
+    pub async fn promote_memory_by_id_for_context(
+        &self,
+        context: &RequestContext,
+        scope_id: ScopeId,
+        memory_id: MemoryId,
+        request: PromoteMemoryRequest,
+    ) -> Result<PublishMemoryResult> {
+        self.ensure_key_can_access_scope(Some(context), &scope_id)?;
+        self.ensure_context_owns_scope(context, &scope_id)?;
+        self.promote_memory_by_id(scope_id, memory_id, request)
+            .await
     }
 
     fn build_artifact(&self, request: &RememberTextRequest) -> Result<Artifact> {
@@ -1261,6 +1338,36 @@ impl Kernel {
         }
 
         Ok(())
+    }
+
+    fn ensure_context_owns_scope(
+        &self,
+        context: &RequestContext,
+        scope_id: &ScopeId,
+    ) -> Result<()> {
+        if context.owner_scope_id != *scope_id {
+            bail!("scope access forbidden for current meat memory key");
+        }
+        Ok(())
+    }
+
+    async fn get_access_key_owned_by_context(
+        &self,
+        context: &RequestContext,
+        key_id: &AccessKeyId,
+    ) -> Result<AccessKey> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        let access_key = pg_store
+            .get_access_key_by_id(key_id)
+            .await?
+            .ok_or_else(|| anyhow!("access key not found"))?;
+        if access_key.owner_scope_id != context.owner_scope_id {
+            bail!("access key management forbidden for current meat memory key");
+        }
+        Ok(access_key)
     }
 
     async fn seed_scope_if_needed(&self, pg_store: &PgStore, scope_id: &ScopeId) -> Result<()> {

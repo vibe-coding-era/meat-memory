@@ -1,4 +1,4 @@
-use crate::render::frontmatter::MemoryFrontmatter;
+use crate::{render::frontmatter::MemoryFrontmatter, repo::memory_file_repo::unescape_rollup_body};
 use anyhow::{Context, Result, anyhow, bail};
 use memory_domain::{
     Memory, MemoryId, MemoryKind, MemoryScores, MemoryState, ScopeId, Sensitivity, Visibility,
@@ -77,7 +77,7 @@ pub fn parse_memory_markdown(input: &str) -> Result<ParsedMemoryMarkdown> {
 
     Ok(ParsedMemoryMarkdown {
         frontmatter,
-        body: body.trim_end_matches('\n').to_string(),
+        body: unescape_rollup_body(body.trim_end_matches('\n')),
     })
 }
 

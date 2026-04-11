@@ -117,16 +117,8 @@ cp "$REPORTS_DIR/perf/latest/kernel-perf.txt" \
 cp "$REPORTS_DIR/perf/latest/sync-perf.txt" \
   "$REPORTS_DIR/perf/archive/${TIMESTAMP}-sync-perf.txt"
 
-cat > "$REPORTS_DIR/security/latest/README.md" <<EOF
-# Security Report Placeholder
-
-No dedicated runnable security suite is wired into the report script yet.
-
-- generated_at: $(date '+%Y-%m-%d %H:%M:%S %Z')
-- next_step: add executable security checks before promoting this folder to archived reports
-EOF
-cp "$REPORTS_DIR/security/latest/README.md" \
-  "$REPORTS_DIR/security/archive/${TIMESTAMP}-README.md"
+run_command_report "security" "security-summary.txt" \
+  ./scripts/security-report.sh "$REPORTS_DIR/security/latest"
 
 write_index
 rm -rf "$ROOT_DIR/target/perf"

@@ -1,0 +1,22 @@
+# Security Summary
+
+- generated_at: 2026-04-11 23:40:53 CST
+- workdir: /Users/Rou/dev_projects/meat-memory
+- focus: authorization, hijack prevention, injection boundaries, payload limits
+
+## HTTP security-focused regression
+$ cargo test -p memory-http --test http_api_tests --quiet -- --test-threads=1
+
+running 18 tests
+..................
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+
+## MCP security-sensitive regression
+$ cargo test -p memory-mcp --test mcp_tools_tests --quiet -- --test-threads=1
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+

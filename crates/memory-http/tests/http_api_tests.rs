@@ -27,7 +27,9 @@ fn test_database_url() -> String {
 
 fn http_test_guard() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 async fn build_test_app() -> axum::Router {
@@ -271,6 +273,7 @@ async fn http_key_update_rotate_and_stats_routes_work() {
         .clone()
         .oneshot(
             Request::patch(format!("/api/v1/keys/{key_id}"))
+                .header("x-meat-memory-key", raw_key)
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"name":"http manage key updated","storage_mode":"vector","isolated":true}"#,
@@ -294,6 +297,7 @@ async fn http_key_update_rotate_and_stats_routes_work() {
         .clone()
         .oneshot(
             Request::get(format!("/api/v1/keys/{key_id}/stats"))
+                .header("x-meat-memory-key", raw_key)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -311,6 +315,7 @@ async fn http_key_update_rotate_and_stats_routes_work() {
     let rotate_response = app
         .oneshot(
             Request::post(format!("/api/v1/keys/{key_id}/rotate"))
+                .header("x-meat-memory-key", raw_key)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -523,6 +528,26 @@ async fn http_create_image_flow_returns_llm_failover_notice() {
 async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope() {
     let _guard = http_test_guard();
     let app = build_test_app().await;
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"name":"alice promote key","source":"http","owner_principal_id":"alice","owner_scope_id":"scp_user_http_alice","scope_kind":"personal","storage_mode":"all"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key_response.status(), StatusCode::CREATED);
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
 
     let created = app
         .clone()
@@ -545,6 +570,7 @@ async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope()
     let promoted = app
         .oneshot(
             Request::post("/api/v1/memories/promote")
+                .header("x-meat-memory-key", raw_key)
                 .header("content-type", "application/json")
                 .body(Body::from(format!(
                     r#"{{"source_scope_id":"scp_user_http_alice","memory_id":"{memory_id}","source_scope_type":"user","target_scope_id":"scp_project_http_demo","target_scope_type":"project","target_visibility":"project"}}"#
@@ -564,6 +590,226 @@ async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope()
     assert_eq!(payload["memory_state"], "candidate");
     assert_eq!(payload["visibility"], "project");
     assert!(payload["body"].as_str().unwrap().contains("[REDACTED]"));
+}
+
+#[tokio::test]
+async fn http_browse_memories_requires_key() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/explorer/memories?limit=20")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn http_key_listing_requires_key() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+
+    let response = app
+        .oneshot(Request::get("/api/v1/keys").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn http_browse_memories_defaults_to_owner_scope() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let owner_scope = ScopeId::new();
+    let other_scope = ScopeId::new();
+
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"name":"browse key","source":"http","owner_principal_id":"alice","owner_scope_id":"{}","scope_kind":"personal","storage_mode":"all"}}"#,
+                    owner_scope.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+
+    for (scope_id, title) in [
+        (owner_scope.as_str(), "Owner memory"),
+        (other_scope.as_str(), "Other memory"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/v1/memories")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"scope_id":"{scope_id}","title":"{title}","body":"{title} body","memory_kind":"fact"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/explorer/memories")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+    )
+    .unwrap();
+    assert_eq!(payload["filtered_scope"], owner_scope.as_str());
+    assert_eq!(payload["total_count"], 1);
+}
+
+#[tokio::test]
+async fn http_promote_memory_forbids_scope_mismatch() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"scope_id":"scp_user_http_alice","title":"Alice secret","body":"token: abc123","memory_kind":"procedure","visibility":"private","sensitivity":"restricted"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(created.into_body(), usize::MAX).await.unwrap(),
+    )
+    .unwrap();
+    let memory_id = created_payload["memory_id"].as_str().unwrap();
+
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"name":"mallory key","source":"http","owner_principal_id":"mallory","owner_scope_id":"scp_user_http_mallory","scope_kind":"personal","storage_mode":"all"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+
+    let promoted = app
+        .oneshot(
+            Request::post("/api/v1/memories/promote")
+                .header("x-meat-memory-key", raw_key)
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"source_scope_id":"scp_user_http_alice","memory_id":"{memory_id}","source_scope_type":"user","target_scope_id":"scp_project_http_demo","target_scope_type":"project","target_visibility":"project"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(promoted.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn http_search_rejects_too_long_query() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let long_query = "q".repeat(1_025);
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/context/search")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"scp_long_query","query":"{long_query}"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn http_create_memory_rejects_too_large_body() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let long_body = "a".repeat(16_001);
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"scp_large_body","body":"{long_body}"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn http_create_image_rejects_too_large_payload() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let oversized = vec![0_u8; 8 * 1024 * 1024 + 1];
+    let payload = format!(
+        r#"{{"scope_id":"scp_large_image","media_type":"image/png","image_base64":"{}"}}"#,
+        STANDARD.encode(oversized)
+    );
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/images")
+                .header("content-type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 fn test_model_registry() -> ModelRegistry {
