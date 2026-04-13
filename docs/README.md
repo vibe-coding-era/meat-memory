@@ -1,18 +1,40 @@
-# Docs Index
+# 文档总览
 
-- `product-feature-structure.md`: 产品功能结构说明书，覆盖模块能力、对象模型、关键链路与接口边界
-- `agent-skills/README.md`: V2.1 Agent skill 模板、导出命令、bundle 结构与 UI metadata 说明
-- `meat-memory-prompt.md`: original product requirements
-- `meat-memory-scheme-v1.md`: high-level architecture scheme
-- `meat-memory-scheme-v2.md`: detailed architecture scheme
-- `meat-memory-scheme-v2_2.md`: V2.2 key、权限隔离、存储模式、跨 key 索引与监控方案
-- `meat-memory-scheme-v3.md`: current implementation baseline, recent V2.1/config consolidation summary, and V3 multimodal plan
-- `release-notes-v1.md`: V1 release boundary, acceptance summary, and deferred scope
-- `agent-integration-v1.md`: V1 agent integration guide for Codex / Claude Code / TRAE / Qoder / OpenClaw / CoWork / QoderWork
-- `agent-skills/`: V2.1 Agent skill source templates and export usage for Codex / Claude Code / execution-oriented Agents
-- `architecture/`: implementation architecture supplements
-- `api/`: API and protocol references
-- `runbook/`: operational runbooks
-- `runbook/v2_1-quickstart.md`: V2.1 安装后快速配置、MCP 检查、skill 导出与验收入口
-- `tasks/`: 版本化 TaskList、执行日志与项目索引
-- `reports/test-coverage-report.md`: 单测覆盖率报告归档
+`docs/` 是仓库的主文档区，建议按下面顺序阅读：
+
+1. 先看 [`../README.md`](../README.md) 了解项目定位和快速入口。
+2. 再看 [`runbook/usage-guide.md`](runbook/usage-guide.md) 熟悉启动、配置和常见命令。
+3. 然后看 [`architecture/system-design.md`](architecture/system-design.md) 理解模块分层和数据流。
+
+## 目录导航
+
+- [`runbook/README.md`](runbook/README.md)：部署、启动、验收和排障入口
+- [`architecture/README.md`](architecture/README.md)：架构文档导航
+- [`api/README.md`](api/README.md)：CLI、HTTP、MCP 文档入口
+- [`agent-skills/README.md`](agent-skills/README.md)：Agent Skill 模板、导出和接入说明
+- [`default/README.md`](default/README.md)：默认 Markdown projection 与示例内容说明
+- [`tasks/README.md`](tasks/README.md)：项目任务与执行上下文入口
+- [`reports/README.md`](reports/README.md)：分析型报告入口
+- [`tasks/project-index.md`](tasks/project-index.md)：任务索引与执行上下文
+
+## 核心文档
+
+- `meat-memory-prompt.md`：原始需求与产品背景
+- `product-feature-structure.md`：功能结构、对象模型和能力拆解
+- `agent-integration-v1.md`：面向 Agent 平台的接入说明
+- `release-notes-v1.md`：V1 发布边界与延期范围
+
+## 架构演进文档
+
+- `meat-memory-scheme-v1.md`：V1 高层方案
+- `meat-memory-scheme-v2.md`：V2 详细架构方案
+- `meat-memory-scheme-v2_2.md`：key、权限隔离与索引设计
+- `meat-memory-scheme-v2_3.md`：安全边界与专项验证
+- `meat-memory-scheme-v2_4.md`：短期上下文、项目文档同步和 source 多 key
+- `meat-memory-scheme-v3.md`：当前实现基线和下一阶段规划
+
+## 建议维护方式
+
+- 对外使用方式变化时，优先更新 `README.md` 与 `runbook/usage-guide.md`
+- 模块边界变化时，优先更新 `architecture/system-design.md`
+- 新增命令或协议时，补充 `api/` 下对应文档

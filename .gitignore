@@ -29,5 +29,12 @@ config/app.generated.toml
 data/
 runtime/
 storage/
+!storage/
+storage/*
+!storage/README.md
+!storage/.gitkeep
+!storage/assets/
+storage/assets/*
+!storage/assets/.gitkeep
 
 node_modules/

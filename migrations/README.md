@@ -1,0 +1,18 @@
+# Migrations Index
+
+本目录保存 PostgreSQL schema 的版本化迁移脚本。
+
+## 当前迁移
+
+- `0001_init_scopes.sql`：初始化 scope 相关结构
+- `0002_init_content.sql`：初始化核心内容表
+- `0003_scope_governance.sql`：补充 scope 治理能力
+- `0004_memory_v2_metadata.sql`：加入 V2 metadata 结构
+- `0005_access_keys.sql`：加入 access key 与访问控制相关结构
+- `0006_memory_v2_4_layers_sources.sql`：加入 V2.4 layer / source 能力
+
+## 维护约定
+
+- 新迁移按递增编号追加，不回写历史文件
+- 迁移命名尽量体现版本与主题
+- 涉及对象模型变化时，同时更新相关架构或 runbook 文档

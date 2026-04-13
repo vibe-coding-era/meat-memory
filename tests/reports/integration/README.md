@@ -1,6 +1,6 @@
 # Integration Report Folder
 
-Use this folder for integration report artifacts.
+本目录保存集成测试报告。
 
-- `latest/v2-integration.txt`: newest V2 kernel/http/mcp/sync integration output
-- `archive/`: timestamped historical copies
+- `latest/v2-integration.txt`：最近一次 kernel / HTTP / MCP / sync 集成输出
+- `archive/`：历史归档

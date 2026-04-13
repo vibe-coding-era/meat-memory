@@ -1,5 +1,9 @@
 # Unit Tests
 
-Place fast, deterministic tests here when they are not crate-local.
+本目录用于放置不适合塞回单个 crate、但仍然要求快速且稳定的仓库级单元测试说明。
 
-Generated unit reports are written to `../reports/unit/`.
+约定：
+
+- 优先保持测试快速、确定性强
+- 更贴近某个 crate 的测试，仍建议放回对应 crate 自己的 `tests/`
+- 生成的单测报告写入 `../reports/unit/`

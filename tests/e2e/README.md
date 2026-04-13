@@ -1,9 +1,13 @@
 # End-to-End Tests
 
-Use this directory for MCP, HTTP, and CLI full-flow validations.
+本目录用于描述 CLI、HTTP、MCP 和初始化流程的整链路验证。
 
-The current V1 acceptance entrypoint is `./scripts/v1-acceptance.sh`.
+常用入口：
 
-The V1 Chinese acceptance corpus is documented in `../integration/v1-zh-acceptance.md`.
+- `./scripts/v1-acceptance.sh`
+- `./scripts/v2_1-acceptance.sh`
+- `./scripts/v2_4-acceptance.sh`
 
-Generated e2e reports are written to `../reports/e2e/`.
+补充语料可参考 `../integration/v1-zh-acceptance.md`。
+
+生成的 e2e 报告写入 `../reports/e2e/`。

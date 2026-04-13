@@ -1,179 +1,92 @@
 # Meat Memory
 
-`Meat Memory` 是一个纯自研、可自托管的长期 Memory 内核，面向 Agent、模型和本地 / 云部署场景。
+`Meat Memory` 是一个面向 Agent 和多端接入场景的长期记忆内核，采用 Rust Workspace 实现，支持 `PostgreSQL + Markdown + Assets` 的组合存储，并提供 `CLI`、`HTTP`、`MCP` 三套接入面。
 
-当前仓库已经完成 `V1` 交付范围，适合直接本地试跑：
+## 你可以先看什么
 
-| 能力 | 当前状态 |
-|---|---|
-| PostgreSQL + Markdown 双存储 | 已支持 |
-| 本地独立部署 | 已支持 |
-| 云端独立部署骨架 | 已支持 |
-| 混合部署预留接口 | 已支持 `sync/oplog/merge` baseline |
-| Agent 接入 | 已支持 HTTP / CLI / MCP |
-| 多模型抽象 | 已支持 Gemini / Claude / ChatGPT / 千问 / 豆包 / MiniMax / GLM 的 provider catalog 与 route registry |
-| LLM 自动切换 | 已支持按 capability 配置 `primary + fallbacks`，主 LLM 不可用时自动切到下一个，并返回提示 |
-| 多模态 | `V1` 已支持文本 + 图片 |
-| 知识图谱 | 已支持 entity / relation / graph context baseline |
-| 中文优先 | 已支持，已补齐系统化中文验收集与回归入口 |
+- 想立刻跑起来：看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)
+- 想理解整体实现：看 [`docs/architecture/system-design.md`](docs/architecture/system-design.md)
+- 想找所有文档入口：看 [`docs/README.md`](docs/README.md)
+- 想查命令和协议：看 [`docs/api/README.md`](docs/api/README.md)
 
-## V2.1 快速入口
+## 当前能力
 
-安装完成后，如果你想先确认配置、导出 skill，或者快速生成一份可用配置，推荐先走下面这一组命令：
+| 能力域 | 状态 |
+| --- | --- |
+| 存储 | PostgreSQL 主存 + Markdown 投影 + 本地资产目录 |
+| 接入层 | CLI / HTTP API / MCP / Browser Console |
+| 模型集成 | 多 provider 路由、能力分组、fallback 机制 |
+| 记忆类型 | 文本、图片、短期上下文、项目文档同步 |
+| 运维 | Docker Compose、本地开发脚本、健康检查、测试报告 |
+| 测试 | unit / integration / e2e / perf / security 分层 |
 
-```bash
-cargo run -p memory-cli -- config check
-cargo run -p memory-cli -- mcp info
-cargo run -p memory-cli -- tui init
-cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-skills --force
+## 仓库结构
+
+```text
+.
+├── config/          运行配置与配置说明
+├── crates/          Rust workspace 各业务 crate
+├── docs/            使用说明、架构设计、API 与运维文档
+├── infra/           Docker / Helm 等基础设施资产
+├── migrations/      PostgreSQL schema 迁移
+├── scripts/         本地开发、验收与报告脚本
+└── tests/           测试入口与测试报告目录说明
 ```
 
-这组命令分别用于：
+`crates/` 中的职责分层可概括为：
 
-- 检查当前配置和模型路由是否可用
-- 查看 MCP 是否启用，以及 `/mcp/tools` / `/mcp/tools/call` 的接入地址
-- 预览安装后初始化面板，并按需生成推荐配置
-- 导出可直接复制给不同 Agent 平台使用的 skill bundle
-
-如果需要数据库连通性检查，可额外执行：
-
-```bash
-cargo run -p memory-cli -- config check --database
-```
-
-更多命令说明见 [`docs/api/cli-v1.md`](docs/api/cli-v1.md)；skill 包结构与安装说明见 [`docs/agent-skills/README.md`](docs/agent-skills/README.md)。
+- `memory-app` / `memory-worker`：进程入口
+- `memory-cli`：命令行和初始化向导
+- `memory-http` / `memory-mcp`：协议适配层
+- `memory-kernel`：核心编排与业务流程
+- `memory-store-*`：Markdown / PostgreSQL 存储实现
+- `memory-domain` / `memory-core` / `memory-policy` / `memory-sync`：领域模型和基础能力
 
 ## 快速开始
 
-如果你只是想先把服务跑起来，推荐直接走 Docker Compose。
-
-### 方案 A：最快试跑
-
-1. 复制环境变量文件。
+### 方案 A：Docker Compose 试跑
 
 ```bash
 cp .env.example .env
-```
-
-2. 启动本地完整栈。
-
-```bash
 ./scripts/dev-up.sh
-```
-
-这会启动：
-
-- `pgvector`
-- `memory-app`
-- `memory-worker`
-
-3. 检查服务是否正常。
-
-```bash
 curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/readyz
 curl http://127.0.0.1:8080/api/v1/meta
-curl http://127.0.0.1:8080/mcp/tools
 ```
 
-4. 写入一条文本记忆。
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/memories \
-  -H 'content-type: application/json' \
-  -d '{
-    "scope_id": "scp_demo_readme",
-    "title": "发布规则",
-    "body": "生产变更必须先通过回归测试。",
-    "memory_kind": "procedure",
-    "visibility": "private",
-    "sensitivity": "internal"
-  }'
-```
-
-5. 搜索刚写入的内容。
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/context/search \
-  -H 'content-type: application/json' \
-  -d '{
-    "scope_id": "scp_demo_readme",
-    "query": "发布规则 回归测试",
-    "limit": 5
-  }'
-```
-
-6. 停止服务。
+停止环境：
 
 ```bash
 ./scripts/dev-down.sh
 ```
 
-说明：
-
-- `dev-down.sh` 只会 `stop` 容器，不会清空 volume。
-- 本地数据会保存在 compose volume 中，不会因为容器重建直接丢失。
-
-### 方案 B：开发模式运行
-
-如果你想本地用 `cargo run` 调试，推荐先只起数据库，再直接跑 Rust 服务。
-
-1. 复制环境变量文件。
+### 方案 B：本地开发运行
 
 ```bash
 cp .env.example .env
-```
-
-2. 先启动本地 PG 开发库。
-
-```bash
 ./scripts/dev-db-up.sh
-```
-
-3. 安装 Rust 组件并初始化本地开发环境。
-
-```bash
 ./scripts/bootstrap.sh
-```
-
-4. 运行环境校验。
-
-```bash
 ./scripts/verify.sh
-```
-
-注意：
-
-- `verify.sh` 会检查 `pgvector` 是否可连通。
-- 所以第一次试跑时，应该先执行 `./scripts/dev-db-up.sh`，再执行 `./scripts/verify.sh`。
-
-5. 跑测试。
-
-```bash
 ./scripts/test-required.sh
-```
-
-6. 启动服务。
-
-```bash
 cargo run -p memory-app
 ```
 
-或者：
+也可以通过 CLI 启动：
 
 ```bash
 cargo run -p memory-cli -- serve --bind 127.0.0.1:8080
 ```
 
-7. 调试完成后停止数据库。
+## 常用命令
 
 ```bash
-./scripts/dev-db-down.sh
+cargo run -p memory-cli -- config check
+cargo run -p memory-cli -- config check --database
+cargo run -p memory-cli -- mcp info
+cargo run -p memory-cli -- tui init
+cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-skills --force
 ```
 
-## 一次完整试用
-
-### 用 CLI 写入文本记忆
+写入与检索示例：
 
 ```bash
 cargo run -p memory-cli -- remember \
@@ -182,312 +95,41 @@ cargo run -p memory-cli -- remember \
   --body "代码评审先列风险，再列摘要。" \
   --memory-kind preference \
   --json
-```
 
-### 用 CLI 搜索
-
-```bash
 cargo run -p memory-cli -- search "评审 风险" \
   --scope-id scp_cli_demo \
   --limit 5 \
   --json
 ```
 
-### 用 CLI 写入图片记忆
+## 服务入口
 
-```bash
-cargo run -p memory-cli -- remember-image \
-  --scope-id scp_cli_demo \
-  --title "登录页截图" \
-  --body "Codex 登录页截图" \
-  --file /path/to/your-image.png \
-  --json
-```
+默认地址为 `http://127.0.0.1:8080`。
 
-图片返回里会包含：
-
-- `asset_uri`
-- `vision_caption`
-- `vision_model_alias`
-
-说明：
-
-- 请把 `/path/to/your-image.png` 换成你机器上的真实图片路径。
-
-## HTTP 与 MCP 入口
-
-默认服务地址：
-
-```text
-http://127.0.0.1:8080
-```
-
-浏览器打开 `http://127.0.0.1:8080/` 可直接访问内置 Browser Console。
-
-### HTTP 路由
+常用路由：
 
 | 路由 | 方法 | 用途 |
-|---|---|---|
-| `/` | `GET` | Browser Console 首页 |
-| `/healthz` | `GET` | 进程健康检查 |
+| --- | --- | --- |
+| `/` | `GET` | Browser Console |
+| `/healthz` | `GET` | 健康检查 |
 | `/readyz` | `GET` | 依赖准备度 |
-| `/livez` | `GET` | 存活检查 |
-| `/metrics` | `GET` | 指标快照 |
+| `/metrics` | `GET` | 指标 |
 | `/api/v1/meta` | `GET` | 服务元信息 |
 | `/api/v1/memories` | `POST` | 写入文本记忆 |
 | `/api/v1/images` | `POST` | 写入图片记忆 |
-| `/api/v1/context/search` | `POST` | 搜索上下文 |
-
-### MCP 路由
-
-当配置中启用 `features.enable_mcp = true` 时，服务会暴露：
-
-- `GET /mcp/tools`
-- `POST /mcp/tools/call`
-
-当前可用工具：
-
-- `memory.remember`
-- `memory.fetch_context`
-- `memory.search`
-- `memory.publish`
-
-快速查看工具清单：
-
-```bash
-curl http://127.0.0.1:8080/mcp/tools
-```
-
-## LLM Failover
-
-当前 `models.routing.*` 已支持为每种能力配置：
-
-- `primary`
-- `fallbacks`
-
-例如：
-
-```toml
-[models.routing.vision]
-primary = "gemini_vision"
-fallbacks = ["chatgpt_vision", "claude_vision"]
-```
-
-当主 LLM 在运行时不可用时，系统会自动切换到下一个可用模型。
-
-当前运行时“不可用”的判断重点包括：
-
-- provider / model 被禁用
-- Cloud 模型缺少对应的 `api_key_env`
-
-如果发生切换：
-
-- HTTP 图片写入响应会带 `llm_notice`
-- CLI 图片写入 JSON 输出会带 `llm_notice`
-- CLI 文本输出会追加 `LLM Notice: ...`
-
-提示文案格式为：
-
-```text
-{某}LLM 不可用，已经切换到{新}LLM
-```
-
-## 配置说明
-
-默认配置文件：
-
-```text
-config/app.toml
-```
-
-Docker Compose 使用：
-
-```text
-config/app.toml
-```
-
-可通过环境变量覆盖：
-
-```bash
-MEAT_MEMORY_CONFIG=config/app.local.toml cargo run -p memory-app
-```
-
-默认关键路径：
-
-| 配置项 | 默认值 |
-|---|---|
-| HTTP bind | `127.0.0.1:8080` |
-| PostgreSQL URL | `postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev` |
-| Markdown root | `./docs` |
-| Assets root | `./storage/assets` |
-
-### 推荐的本地覆盖方式
-
-如果你不希望试跑数据直接写进仓库内的 `docs/`，建议创建 `config/app.local.toml`，例如：
-
-```toml
-[logging]
-level = "debug"
-
-[postgres]
-database_url = "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev"
-
-[markdown]
-root = "./storage/dev-docs"
-
-[assets]
-root = "./storage/dev-assets"
-
-[features]
-enable_http = true
-enable_mcp = true
-```
-
-然后用：
-
-```bash
-MEAT_MEMORY_CONFIG=config/app.local.toml cargo run -p memory-app
-```
-
-## 常用脚本
-
-| 命令 | 用途 |
-|---|---|
-| `./scripts/bootstrap.sh` | 安装 Rust 组件并初始化本地开发环境 |
-| `./scripts/verify.sh` | 校验本机工具链、Docker、PG、pgvector 等环境 |
-| `./scripts/test-required.sh` | 仓库必跑测试入口，包含工作区测试与安全测试 |
-| `./scripts/security-report.sh` | 生成最新安全测试报告 |
-| `./scripts/dev-db-up.sh` | 只启动 `pgvector` |
-| `./scripts/dev-db-down.sh` | 只停止 `pgvector` |
-| `./scripts/dev-up.sh` | 启动 `pgvector + app + worker` |
-| `./scripts/dev-down.sh` | 停止 `pgvector + app + worker` |
-| `./scripts/v1-acceptance.sh` | 执行 V1 验收脚本 |
-
-如果你使用 `just`：
-
-```bash
-just bootstrap
-just verify
-just test
-just dev-up
-just dev-down
-```
-
-## 当前测试状态
-
-当前已复核通过：
-
-| 检查项 | 状态 |
-|---|---|
-| `cargo test -p memory-extract --lib --quiet` | Passed |
-| `cargo test -p memory-kernel --test kernel_flow_tests --quiet` | Passed |
-| `cargo test -p memory-http --test http_api_tests --quiet` | Passed |
-| `cargo test -p memory-mcp --test mcp_tools_tests --quiet` | Passed |
-| `cargo test -p memory-cli --test cli_e2e --quiet` | Passed |
-| `cargo test --workspace --lib --bins --quiet` | Passed |
-| `./scripts/security-report.sh` | Passed |
-| `./scripts/test-required.sh` | Required |
-| `./scripts/v1-acceptance.sh` | Passed |
-
-说明：
-
-- `test-required.sh` 是当前仓库的必跑测试入口。
-- 它会先串行执行 `cargo test --workspace --quiet -- --test-threads=1`，再以不写报告产物的方式执行 `./scripts/security-report.sh`。
-- 从 V2.3 起，安全测试已经被提升为每次标准验证的一部分，而不是额外可选项。
-
-最新单测覆盖率快照：
-
-| 指标 | 当前值 |
-|---|---:|
-| Line Coverage | 95.46% |
-| Function Coverage | 91.79% |
-| Region Coverage | 87.91% |
-
-详细报告见：
-
-- `docs/reports/test-coverage-report.md`
-- `target/coverage/unit-pass5/summary.json`
-- `target/coverage/unit-pass5/report.txt`
-
-## 仓库结构
-
-```text
-crates/
-  memory-domain/
-  memory-core/
-  memory-kernel/
-  memory-store/
-  memory-store-pg/
-  memory-store-md/
-  memory-assets/
-  memory-index/
-  memory-sync/
-  memory-policy/
-  memory-extract/
-  memory-models/
-  memory-mcp/
-  memory-http/
-  memory-worker/
-  memory-config/
-  memory-observability/
-  memory-cli/
-  memory-app/
-config/
-scripts/
-docs/
-tests/
-```
-
-## 相关文档
-
-- `docs/meat-memory-scheme-v1.md`
-- `docs/meat-memory-scheme-v2.md`
-- `docs/meat-memory-scheme-v2_2.md`
-- `docs/meat-memory-scheme-v2_3.md`
-- `docs/api/http-api-v1.md`
-- `docs/api/cli-v1.md`
-- `docs/api/mcp-tools-v1.md`
-- `docs/agent-integration-v1.md`
-- `docs/release-notes-v1.md`
-- `docs/runbook/local-deploy-v1.md`
-- `docs/runbook/cloud-deploy-v1.md`
-- `docs/runbook/v1-acceptance.md`
-- `docs/tasks/tasklist.md`
-- `docs/tasks/task-log.md`
-- `docs/reports/test-coverage-report.md`
-
-## 当前版本状态
-
-当前已完成到 `V2.3`：安全与代码优化。
-
-`V2.3` 已完成：
-
-- 系统攻击面与安全检查矩阵
-- 高价值 HTTP / MCP 入口鉴权与 scope 授权收口
-- 劫持、越权、资源滥用与 Markdown marker/frontmatter 注入回归
-- HTTP / MCP 内部错误面收口
-- 安全报告脚本与 latest/archive 报告产物
-- 安全测试接入每次必跑测试入口
-
-## V1 边界
-
-`V1` 已完成并封板，当前交付重点是：
-
-- PGSQL + Markdown 双存储
-- 本地 / 云独立部署
-- HTTP / CLI / MCP 接入
-- 多模型抽象
-- 文本 + 图片记忆
-- 中文优先与系统化中文验收回归
-- 知识图谱 baseline
-
-`V1` 明确递延到后续版本或仅做预留的部分：
-
-- 多团队 / 个人隔离与合并
-- 中英双语
-- 音频 / 视频
-- 完整混合部署复制执行
-
-`V1` 封板说明与验收摘要见：
-
-- `docs/release-notes-v1.md`
+| `/api/v1/context/search` | `POST` | 检索上下文 |
+| `/mcp/tools` | `GET` | MCP 工具发现 |
+
+## 文档导航
+
+- [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)：完整使用说明
+- [`docs/architecture/system-design.md`](docs/architecture/system-design.md)：系统架构设计
+- [`docs/runbook/README.md`](docs/runbook/README.md)：部署与验收入口
+- [`docs/agent-skills/README.md`](docs/agent-skills/README.md)：Agent Skill 模板和导出方式
+- [`crates/README.md`](crates/README.md)：workspace 模块职责导航
+- [`scripts/README.md`](scripts/README.md)：脚本入口导航
+- [`migrations/README.md`](migrations/README.md)：数据库迁移说明
+- [`infra/README.md`](infra/README.md)：基础设施目录说明
+- [`config/README.md`](config/README.md)：配置组织方式
+- [`storage/README.md`](storage/README.md)：本地运行时目录约定
+- [`tests/README.md`](tests/README.md)：测试布局和报告位置

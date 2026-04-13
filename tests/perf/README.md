@@ -1,15 +1,25 @@
 # Performance Tests
 
-Use `./scripts/v2-perf.sh` to run the current V2 smoke benchmarks.
+本目录说明当前性能烟测的入口和报告位置。
 
-The script executes ignored Rust tests that print JSON summaries for:
+运行方式：
 
-- `memory-kernel` markdown-only `remember/browse/promote` latency and throughput
-- `memory-sync` file-backed `append/pull/apply` latency and throughput
+```bash
+./scripts/v2-perf.sh
+```
 
-Default reports are written to:
+该脚本会执行被标记为 ignored 的 Rust 性能测试，当前重点覆盖：
+
+- `memory-kernel` 的 `remember / browse / promote`
+- `memory-sync` 的 `append / pull / apply`
+
+默认报告写入：
 
 - `tests/reports/perf/latest/kernel-perf.txt`
 - `tests/reports/perf/latest/sync-perf.txt`
 
-Run `./scripts/write-test-reports.sh` to refresh unit/integration/e2e/perf reports together.
+如果想连同其他测试报告一起刷新，可执行：
+
+```bash
+./scripts/write-test-reports.sh
+```

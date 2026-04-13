@@ -1,20 +1,30 @@
-# Test Reports
+# 测试报告目录
 
-This directory stores runnable test outputs grouped by category.
+本目录统一存放测试输出，方便在本地回看、归档和对比。
 
-- `unit/`: workspace unit-style runs such as `cargo test --workspace --lib --bins`
-- `integration/`: cross-crate and service integration runs for V2 scope/promotion/sync flows
-- `e2e/`: CLI、安装后初始化、skill 导出等完整使用链路的验收输出
-- `perf/`: persisted benchmark smoke outputs such as kernel and sync latency snapshots
-- `security/`: reserved for executable security checks once they are wired in
+## 分类
 
-Each category keeps:
+- `unit/`：`cargo test --workspace --lib --bins` 这类工作区单测输出
+- `integration/`：跨 crate、数据库和服务集成输出
+- `e2e/`：CLI、初始化、skill 导出、V2.4 文档与上下文链路验收输出
+- `perf/`：性能烟测与延迟快照
+- `security/`：安全专项报告
 
-- `latest/`: the newest generated report files
-- `archive/`: timestamped copies from previous runs
+## 目录约定
 
-Generate or refresh all reports with:
+每个分类目录都尽量保持两层结构：
+
+- `latest/`：最近一次生成结果
+- `archive/`：带时间戳的历史归档
+
+## 生成方式
 
 ```bash
 ./scripts/write-test-reports.sh
+```
+
+安全专项可以单独执行：
+
+```bash
+./scripts/security-report.sh
 ```

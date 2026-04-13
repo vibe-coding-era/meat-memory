@@ -1,6 +1,12 @@
 # Security Report
 
-- generated_at: 2026-04-11 23:41:44 CST
-- summary: `tests/reports/security/latest/security-summary.txt`
-- archive_copy: `tests/reports/security/archive/20260411-234142-security-summary.txt`
-- coverage: HTTP sensitive routes, MCP publish/promote auth, payload boundary regression
+本目录保存最近一次安全报告的摘要入口。
+
+- `security-summary.txt`：当前最新的安全报告正文
+- `../archive/`：历史报告归档
+
+如果需要重新生成，请执行：
+
+```bash
+./scripts/security-report.sh
+```

@@ -3,16 +3,30 @@ use axum::{
     http::{Request, StatusCode},
     response::IntoResponse,
 };
-use memory_domain::{KeyScopeKind, KeySourceKind, ScopeId, StorageMode};
+use memory_domain::{
+    KeyScopeKind, KeySourceKind, MemorySource, ScopeId, SourceSyncMode, StorageMode,
+};
 use memory_kernel::{CreateAccessKeyRequest, Kernel};
 use memory_mcp::{McpServer, ToolCallRequest, build_router};
-use std::{env, sync::Arc};
+use std::{
+    env,
+    sync::{Arc, OnceLock},
+};
 use tempfile::tempdir;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tower::ServiceExt;
 
 fn test_database_url() -> String {
     env::var("MEAT_MEMORY_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into())
+}
+
+async fn mcp_test_guard() -> OwnedMutexGuard<()> {
+    static LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
+    LOCK.get_or_init(|| Arc::new(Mutex::new(())))
+        .clone()
+        .lock_owned()
+        .await
 }
 
 async fn build_test_server(root: &std::path::Path) -> (McpServer, Arc<Kernel>) {
@@ -43,6 +57,7 @@ async fn create_test_key(kernel: &Kernel, owner_scope_id: &str) -> String {
         .create_access_key(CreateAccessKeyRequest {
             raw_key: None,
             display_name: format!("key-{owner_scope_id}"),
+            source_id: None,
             source_kind: KeySourceKind::Mcp,
             owner_principal_id: owner_scope_id.to_string(),
             owner_scope_id: ScopeId::from_string(owner_scope_id),
@@ -57,6 +72,7 @@ async fn create_test_key(kernel: &Kernel, owner_scope_id: &str) -> String {
 
 #[tokio::test]
 async fn mcp_dispatches_remember_search_fetch_context_and_publish() {
+    let _guard = mcp_test_guard().await;
     let tempdir = tempdir().unwrap();
     let (server, kernel) = build_test_server(tempdir.path()).await;
     let scope_id = ScopeId::new();
@@ -131,6 +147,7 @@ async fn mcp_dispatches_remember_search_fetch_context_and_publish() {
 
 #[tokio::test]
 async fn mcp_http_transport_accepts_tool_calls() {
+    let _guard = mcp_test_guard().await;
     let tempdir = tempdir().unwrap();
     let (server, _kernel) = build_test_server(tempdir.path()).await;
     let app = build_router(server);
@@ -167,7 +184,167 @@ async fn mcp_http_transport_accepts_tool_calls() {
 }
 
 #[tokio::test]
+async fn mcp_agent_context_tools_upsert_list_promote_and_delete() {
+    let _guard = mcp_test_guard().await;
+    let tempdir = tempdir().unwrap();
+    let (server, kernel) = build_test_server(tempdir.path()).await;
+    let scope_id = ScopeId::new();
+    let raw_key = create_test_key(&kernel, scope_id.as_str()).await;
+    let session_id = format!("mcp-session-{}", scope_id.as_str());
+
+    let upsert = server
+        .dispatch(ToolCallRequest {
+            name: "memory.context.upsert".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "scope_id": scope_id.as_str(),
+                "session_id": session_id,
+                "task_id": "mcp-context-task",
+                "title": "MCP agent scratchpad",
+                "body": "MCP agent context captures a short-term tool result.",
+                "labels": ["mcp", "short-term"]
+            }),
+        })
+        .await
+        .unwrap();
+    let context_id = upsert.data["context_id"].as_str().unwrap().to_string();
+    assert_eq!(upsert.tool, "memory.context.upsert");
+    assert_eq!(upsert.data["scope_id"], scope_id.as_str());
+    assert_eq!(upsert.data["layer"], "short_term");
+
+    let list = server
+        .dispatch(ToolCallRequest {
+            name: "memory.context.list".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "scope_id": scope_id.as_str(),
+                "session_id": session_id,
+                "task_id": "mcp-context-task",
+                "limit": 5
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(list.data["context_count"], 1);
+    assert_eq!(list.data["contexts"][0]["context_id"], context_id);
+
+    let promoted = server
+        .dispatch(ToolCallRequest {
+            name: "memory.context.promote".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "context_id": context_id,
+                "memory_kind": "summary",
+                "visibility": "private",
+                "sensitivity": "internal"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(promoted.tool, "memory.context.promote");
+    assert_eq!(promoted.data["scope_id"], scope_id.as_str());
+    assert_eq!(promoted.data["memory_kind"], "summary");
+    assert!(
+        promoted.data["body"]
+            .as_str()
+            .unwrap()
+            .contains("short-term tool result")
+    );
+
+    let deleted = server
+        .dispatch(ToolCallRequest {
+            name: "memory.context.delete".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "context_id": context_id
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(deleted.data["deleted"], true);
+}
+
+#[tokio::test]
+async fn mcp_project_document_tools_sync_search_and_list_conflicts() {
+    let _guard = mcp_test_guard().await;
+    let memory_root = tempdir().unwrap();
+    let docs_root = tempdir().unwrap();
+    std::fs::write(
+        docs_root.path().join("README.md"),
+        "# MCP Project README\nMCP docs sync imports project documentation.",
+    )
+    .unwrap();
+    std::fs::write(
+        docs_root.path().join("notes.txt"),
+        "MCP docs sync keeps conflict reporting explicit.",
+    )
+    .unwrap();
+
+    let (server, kernel) = build_test_server(memory_root.path()).await;
+    let scope_id = ScopeId::new();
+    let raw_key = create_test_key(&kernel, scope_id.as_str()).await;
+    let source = MemorySource::new(
+        "local_docs",
+        "MCP project docs",
+        scope_id.as_str(),
+        scope_id.clone(),
+    )
+    .unwrap()
+    .with_local_root(docs_root.path().to_string_lossy())
+    .unwrap()
+    .with_sync_mode(SourceSyncMode::IndexOnly);
+    let source_id = source.id.as_str().to_string();
+    kernel.upsert_memory_source(source, None).await.unwrap();
+
+    let sync = server
+        .dispatch(ToolCallRequest {
+            name: "memory.docs.sync".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "source_id": source_id,
+                "scope_id": scope_id.as_str(),
+                "dry_run": false
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(sync.tool, "memory.docs.sync");
+    assert_eq!(sync.data["dry_run"], false);
+    assert_eq!(sync.data["planned_documents"].as_array().unwrap().len(), 2);
+    assert_eq!(sync.data["imported"].as_array().unwrap().len(), 2);
+
+    let search = server
+        .dispatch(ToolCallRequest {
+            name: "memory.docs.search".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "source_id": source_id,
+                "query": "README",
+                "limit": 10
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(search.data["document_count"], 1);
+    assert_eq!(search.data["documents"][0]["title"], "MCP Project README");
+
+    let conflicts = server
+        .dispatch(ToolCallRequest {
+            name: "memory.docs.conflicts".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "source_id": source_id,
+                "limit": 10
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(conflicts.data["conflict_count"], 0);
+}
+
+#[tokio::test]
 async fn mcp_supports_chinese_memory_search_and_publish_flow() {
+    let _guard = mcp_test_guard().await;
     let tempdir = tempdir().unwrap();
     let (server, kernel) = build_test_server(tempdir.path()).await;
     let scope_id = ScopeId::new();
@@ -223,6 +400,7 @@ async fn mcp_supports_chinese_memory_search_and_publish_flow() {
 
 #[tokio::test]
 async fn mcp_stdio_transport_serializes_errors() {
+    let _guard = mcp_test_guard().await;
     let tempdir = tempdir().unwrap();
     let (server, _kernel) = build_test_server(tempdir.path()).await;
 
@@ -236,6 +414,7 @@ async fn mcp_stdio_transport_serializes_errors() {
 
 #[tokio::test]
 async fn mcp_dispatches_promote_and_preserves_scope_lineage() {
+    let _guard = mcp_test_guard().await;
     let tempdir = tempdir().unwrap();
     let (server, kernel) = build_test_server(tempdir.path()).await;
     let raw_key = create_test_key(&kernel, "scp_user_mcp_alice").await;
@@ -290,6 +469,7 @@ async fn mcp_dispatches_promote_and_preserves_scope_lineage() {
 
 #[tokio::test]
 async fn mcp_publish_requires_key_for_sensitive_tool() {
+    let _guard = mcp_test_guard().await;
     let tempdir = tempdir().unwrap();
     let (server, _kernel) = build_test_server(tempdir.path()).await;
     let scope_id = ScopeId::new();

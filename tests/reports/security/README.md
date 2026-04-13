@@ -1,8 +1,8 @@
 # Security Report Folder
 
-This folder stores runnable security artifacts for V2.3.
+本目录保存安全专项测试输出。
 
-- `latest/`: newest generated security summary and README
-- `archive/`: timestamped historical copies
-- report entrypoint: `./scripts/security-report.sh`
-- current focus: authz, hijack prevention, injection boundaries, payload limits
+- `latest/`：最近一次安全报告
+- `archive/`：历史归档
+- 生成入口：`./scripts/security-report.sh`
+- 当前重点：authz、hijack prevention、injection boundaries、payload limits

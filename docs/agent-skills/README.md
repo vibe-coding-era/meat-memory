@@ -1,53 +1,69 @@
-# V2.1 Agent Skill 模板
+# Agent Skill 模板
 
-本目录保存 Meat Memory 的 Agent skill 源模板，用于后续复制到不同 Agent 平台的 skill / instruction / tool 配置目录。
+本目录保存 Meat Memory 的 Agent Skill 源模板，作用是把仓库里的记忆能力打包给不同 Agent 平台复用。
 
-当前模板：
+## 当前模板
 
-- `codex-meat-memory/`: 面向 Codex 的项目记忆 skill
-- `claude-code-meat-memory/`: 面向 Claude Code / TRAE / Qoder 的代码协作 skill
-- `execution-agent-meat-memory/`: 面向 OpenClaw / CoWork / QoderWork 的执行协作 skill
+- `codex-meat-memory/`：面向 Codex
+- `claude-code-meat-memory/`：面向 Claude Code / TRAE / Qoder
+- `execution-agent-meat-memory/`：面向 OpenClaw / CoWork / QoderWork
 
-建议使用方式：
+## 推荐使用顺序
 
-1. 先运行 `memory-cli config check` 确认本地配置可用。
-2. 再运行 `memory-cli mcp info` 获取 MCP 地址和工具清单。
-3. 可直接导出：
+1. 先检查本地配置。
 
 ```bash
-./scripts/export-agent-skills.sh all ./dist/agent-skills
-./scripts/export-agent-skills.sh codex /tmp/codex-skills
-./scripts/export-agent-skills.sh claude-code /tmp/claude-skills
-./scripts/export-agent-skills.sh execution-agent /tmp/execution-skills
+cargo run -p memory-cli -- config check
 ```
 
-也可以直接使用 CLI：
+2. 再确认 MCP 地址和工具面。
+
+```bash
+cargo run -p memory-cli -- mcp info
+```
+
+3. 导出 skill 包。
 
 ```bash
 cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-skills --force
 ```
 
-4. 将导出的目录复制到目标 Agent 的 skill / instruction 目录。
-5. 根据 Agent 平台的 MCP 配置方式，接入 `/mcp/tools` 与 `/mcp/tools/call`。
+也可以使用脚本：
 
-当前导出的完整 skill 包包含：
+```bash
+./scripts/export-agent-skills.sh all ./dist/agent-skills
+```
+
+4. 将导出结果复制到目标 Agent 的 skill 或 instruction 目录。
+5. 按目标平台配置 MCP 的 `/mcp/tools` 与 `/mcp/tools/call`。
+
+## V2.4 相关能力
+
+- 短期上下文：`memory-cli context ...`
+- 项目文档同步：`memory-cli docs ...`
+- 来源多 key：`memory-cli source ...`
+
+最小示例：
+
+```bash
+memory-cli source create --name "Project docs" --source-kind local_docs --sync-mode index_only --local-root ./docs --json
+memory-cli docs sync --source-id src_... --dry-run --json
+memory-cli context upsert --session-id current --title "Current task" --body "Agent is preparing context." --json
+```
+
+如果同步结果包含 `missing` 或 `conflicts`，应该先提示用户确认，不要静默覆盖。
+
+## 导出产物
+
+完整 skill 包通常包含：
 
 - `SKILL.md`
 - `agents/openai.yaml`
 - `assets/icon.svg`
 
-当前 metadata 已补齐：
+导出目标：
 
-- `icon_small`
-- `icon_large`
-- `display_name`
-- `short_description`
-- `brand_color`
-- `default_prompt`
-
-导出目标说明：
-
-- `codex`: 导出 Codex skill
-- `claude-code`: 导出 Claude Code / TRAE / Qoder skill
-- `execution-agent`: 导出 OpenClaw / CoWork / QoderWork 风格 skill
-- `all`: 一次性导出全部模板
+- `codex`
+- `claude-code`
+- `execution-agent`
+- `all`
