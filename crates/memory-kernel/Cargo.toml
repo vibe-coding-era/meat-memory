@@ -14,6 +14,7 @@ memory-index = { path = "../memory-index" }
 memory-models = { path = "../memory-models" }
 memory-observability = { path = "../memory-observability" }
 memory-policy = { path = "../memory-policy" }
+memory-sync = { path = "../memory-sync" }
 memory-store-md = { path = "../memory-store-md" }
 memory-store-pg = { path = "../memory-store-pg" }
 time.workspace = true

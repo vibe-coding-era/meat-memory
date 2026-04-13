@@ -152,14 +152,14 @@ config/
 
 ### 7.1 本地开发
 
-- `./scripts/dev-db-up.sh` 只起数据库
+- `./docs/scripts/dev-db-up.sh` 只起数据库
 - `cargo run -p memory-app` 启主服务
 - 适合本地调试和单步排查
 
 ### 7.2 本地完整试跑
 
-- `./scripts/dev-up.sh` 起 `pgvector + app + worker`
-- `./scripts/dev-down.sh` 停止整套环境
+- `./docs/scripts/dev-up.sh` 起 `pgvector + app + worker`
+- `./docs/scripts/dev-down.sh` 停止整套环境
 - 适合集成验证和对外演示
 
 ### 7.3 云端准备

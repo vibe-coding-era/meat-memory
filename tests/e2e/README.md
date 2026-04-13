@@ -4,9 +4,9 @@
 
 常用入口：
 
-- `./scripts/v1-acceptance.sh`
-- `./scripts/v2_1-acceptance.sh`
-- `./scripts/v2_4-acceptance.sh`
+- `./docs/scripts/v1-acceptance.sh`
+- `./docs/scripts/v2_1-acceptance.sh`
+- `./docs/scripts/v2_4-acceptance.sh`
 
 补充语料可参考 `../integration/v1-zh-acceptance.md`。
 

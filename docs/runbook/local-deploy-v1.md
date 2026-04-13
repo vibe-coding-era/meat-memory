@@ -24,22 +24,33 @@
 可先执行：
 
 ```bash
-./scripts/verify.sh
-./scripts/bootstrap.sh
+./docs/scripts/verify.sh
+./docs/scripts/bootstrap.sh
 ```
 
 ## 3. 启动
 
 ```bash
 cp .env.example .env
-./scripts/dev-up.sh
+./docs/scripts/dev-up.sh
 ```
 
 说明：
 
-- `scripts/dev-up.sh` 会执行 `docker compose up -d --build pgvector app worker`
-- `compose.yaml` 现在会为 Markdown 和 assets 挂载命名卷
+- `docs/scripts/dev-up.sh` 会执行 `docker compose up -d --build pgvector app worker`
+- `compose.yaml` 现在会构建并标记两个本地镜像：
+  - `meat-memory-app:${MEAT_MEMORY_IMAGE_TAG:-local}`
+  - `meat-memory-worker:${MEAT_MEMORY_IMAGE_TAG:-local}`
+- `compose.yaml` 会为 Markdown 和 assets 挂载命名卷
 - `compose.yaml` 通过 `MEAT_MEMORY_ENABLE_MCP=true` 覆盖统一配置，因此容器内会开启 MCP
+
+如果你想自定义本地镜像名或 tag，可以在 `.env` 中覆盖：
+
+```bash
+MEAT_MEMORY_APP_IMAGE=meat-memory-app
+MEAT_MEMORY_WORKER_IMAGE=meat-memory-worker
+MEAT_MEMORY_IMAGE_TAG=local
+```
 
 ## 4. 检查
 
@@ -63,7 +74,7 @@ curl http://127.0.0.1:8080/mcp/tools
 ## 6. 停止
 
 ```bash
-./scripts/dev-down.sh
+./docs/scripts/dev-down.sh
 ```
 
 当前 `dev-down.sh` 只做 stop，不会清空 volume。

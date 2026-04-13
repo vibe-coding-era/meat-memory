@@ -27,6 +27,24 @@ memory-cli
 | `remember-image` | 写入图片记忆 |
 | `search` | 搜索上下文 |
 
+## 0. 安装与最小验证
+
+如果你希望先安装再使用，而不是每次通过 `cargo run` 调用，可以执行：
+
+```bash
+cargo install --path crates/memory-cli --locked
+memory-cli --help
+memory-cli config check
+memory-cli mcp info
+memory-cli skills export --target all --output-dir ./dist/agent-skills --force
+```
+
+说明：
+
+- `--path crates/memory-cli` 适合当前仓库本地安装验证
+- 正式发布后可继续收口为远端 `cargo install` 文档入口
+- 导出 skill 后，建议检查 `./dist/agent-skills` 是否生成目标目录
+
 ## 2. 配置查看与检查
 
 安装或复制配置后，建议先检查当前配置：

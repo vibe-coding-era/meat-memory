@@ -6,6 +6,8 @@
 - 常见场景应该用哪条命令
 - 出问题时应该去哪里排查
 
+如果你的目标是选择安装方式、打包方式或部署形态，建议先看 [`install.md`](install.md)。
+
 ## 1. 运行前准备
 
 基础依赖：
@@ -19,14 +21,14 @@
 
 ```bash
 cp .env.example .env
-./scripts/bootstrap.sh
-./scripts/verify.sh
+./docs/scripts/bootstrap.sh
+./docs/scripts/verify.sh
 ```
 
 如果只是本地开发，不想先完整起容器，可以只拉起数据库：
 
 ```bash
-./scripts/dev-db-up.sh
+./docs/scripts/dev-db-up.sh
 ```
 
 ## 2. 两种启动方式
@@ -37,7 +39,7 @@ cp .env.example .env
 
 ```bash
 cp .env.example .env
-./scripts/dev-up.sh
+./docs/scripts/dev-up.sh
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/api/v1/meta
 curl http://127.0.0.1:8080/mcp/tools
@@ -46,7 +48,7 @@ curl http://127.0.0.1:8080/mcp/tools
 停止：
 
 ```bash
-./scripts/dev-down.sh
+./docs/scripts/dev-down.sh
 ```
 
 ### 2.2 本地开发模式
@@ -55,10 +57,10 @@ curl http://127.0.0.1:8080/mcp/tools
 
 ```bash
 cp .env.example .env
-./scripts/dev-db-up.sh
-./scripts/bootstrap.sh
-./scripts/verify.sh
-./scripts/test-required.sh
+./docs/scripts/dev-db-up.sh
+./docs/scripts/bootstrap.sh
+./docs/scripts/verify.sh
+./docs/scripts/test-required.sh
 cargo run -p memory-app
 ```
 
@@ -86,6 +88,22 @@ cargo run -p memory-cli -- tui init --interactive --write-config config/app.loca
 ```bash
 MEAT_MEMORY_CONFIG=config/app.local.toml cargo run -p memory-cli -- config check
 ```
+
+如果你希望先把 CLI 安装到本机，再执行这些检查，也可以直接使用：
+
+```bash
+cargo install --path crates/memory-cli --locked
+memory-cli --help
+memory-cli config check
+memory-cli mcp info
+memory-cli skills export --target all --output-dir ./dist/agent-skills --force
+```
+
+适用场景：
+
+- 想验证 `cargo install` 路径是否可用
+- 想把 `memory-cli` 暴露给本地 shell 或其他脚本
+- 不想每次都写 `cargo run -p memory-cli -- ...`
 
 ## 4. 常见使用场景
 
@@ -171,12 +189,12 @@ MCP 常用入口：
 常用脚本：
 
 ```bash
-./scripts/test-required.sh
-./scripts/v1-acceptance.sh
-./scripts/v2_1-acceptance.sh
-./scripts/v2_4-acceptance.sh
-./scripts/write-test-reports.sh
-./scripts/security-report.sh
+./docs/scripts/test-required.sh
+./docs/scripts/v1-acceptance.sh
+./docs/scripts/v2_1-acceptance.sh
+./docs/scripts/v2_4-acceptance.sh
+./docs/scripts/write-test-reports.sh
+./docs/scripts/security-report.sh
 ```
 
 测试说明和报告目录见：
@@ -206,6 +224,7 @@ MCP 常用入口：
 ## 8. 相关文档
 
 - [`README.md`](../../README.md)
+- [`docs/runbook/install.md`](install.md)
 - [`docs/api/README.md`](../api/README.md)
 - [`docs/architecture/system-design.md`](../architecture/system-design.md)
 - [`docs/agent-skills/README.md`](../agent-skills/README.md)

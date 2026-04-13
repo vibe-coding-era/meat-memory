@@ -1,12 +1,13 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use memory_assets::{FileSystemAssetStore, PutAssetRequest, StorageClass, StoredAsset};
 use memory_core::MemoryService;
 use memory_domain::{
-    AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, Artifact, ArtifactKind,
-    ContextBundle, Entity, KeyScopeKind, KeySourceKind, Memory, MemoryId, MemoryKind, Relation,
-    RequestContext, Scope, ScopeId, ScopeType, Sensitivity, StorageMode, Visibility,
-    hash_access_key,
+    AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, AgentContext, AgentContextId,
+    Artifact, ArtifactKind, ContextBundle, DocumentConflictState, DocumentSyncState, Entity,
+    KeyScopeKind, KeySourceKind, Memory, MemoryId, MemoryKind, MemorySource, ProjectDocument,
+    Relation, RequestContext, Scope, ScopeId, ScopeType, Sensitivity, SourceId, StorageMode,
+    Visibility, hash_access_key,
 };
 use memory_extract::{
     ExtractionEnvelope, detect_language_code, distill_candidate_memory, extract_entities,
@@ -18,8 +19,9 @@ use memory_models::{
     VisionResponse, inspect_image,
 };
 use memory_observability::{
-    operation_span, record_key_operation, record_search_failure, record_search_success,
-    record_write_failure, record_write_success,
+    operation_span, record_context_operation, record_docs_operation, record_key_operation,
+    record_search_failure, record_search_success, record_source_operation, record_write_failure,
+    record_write_success,
 };
 use memory_policy::{
     PolicyDecision, PublishPolicyInput, WritePolicyInput, evaluate_publish_policy,
@@ -27,8 +29,11 @@ use memory_policy::{
 };
 use memory_store_md::MarkdownStore;
 use memory_store_pg::PgStore;
-use std::path::PathBuf;
+use memory_sync::{
+    LocalProjectDocumentSyncPlan, MissingProjectDocument, ProjectDocumentConflictReport,
+};
 use std::time::Instant;
+use std::{fs, path::PathBuf};
 use tracing::{Instrument, info, warn};
 
 #[derive(Debug, Clone)]
@@ -149,6 +154,7 @@ pub struct SearchContextRequest {
 pub struct CreateAccessKeyRequest {
     pub raw_key: Option<String>,
     pub display_name: String,
+    pub source_id: Option<SourceId>,
     pub source_kind: KeySourceKind,
     pub owner_principal_id: String,
     pub owner_scope_id: ScopeId,
@@ -170,6 +176,156 @@ pub struct UpdateAccessKeyRequest {
     pub storage_mode: Option<StorageMode>,
     pub status: Option<AccessKeyStatus>,
     pub is_fully_isolated: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpsertAgentContextRequest {
+    pub scope_id: ScopeId,
+    pub session_id: String,
+    pub task_id: Option<String>,
+    pub title: String,
+    pub body: String,
+    pub labels: Vec<String>,
+    pub expires_at: Option<time::OffsetDateTime>,
+    pub context: Option<RequestContext>,
+}
+
+impl UpsertAgentContextRequest {
+    pub fn new(
+        scope_id: ScopeId,
+        session_id: impl Into<String>,
+        title: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        Self {
+            scope_id,
+            session_id: session_id.into(),
+            task_id: None,
+            title: title.into(),
+            body: body.into(),
+            labels: Vec::new(),
+            expires_at: None,
+            context: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ListAgentContextsRequest {
+    pub scope_id: ScopeId,
+    pub session_id: String,
+    pub task_id: Option<String>,
+    pub limit: usize,
+    pub context: Option<RequestContext>,
+}
+
+impl ListAgentContextsRequest {
+    pub fn new(scope_id: ScopeId, session_id: impl Into<String>) -> Self {
+        Self {
+            scope_id,
+            session_id: session_id.into(),
+            task_id: None,
+            limit: 10,
+            context: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PromoteAgentContextRequest {
+    pub context_id: AgentContextId,
+    pub memory_kind: Option<MemoryKind>,
+    pub visibility: Visibility,
+    pub sensitivity: Sensitivity,
+    pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportProjectDocumentRequest {
+    pub source_id: SourceId,
+    pub scope_id: ScopeId,
+    pub canonical_uri: String,
+    pub title: String,
+    pub content_text: String,
+    pub local_path: Option<String>,
+    pub sync_state: DocumentSyncState,
+    pub conflict_state: DocumentConflictState,
+    pub context: Option<RequestContext>,
+}
+
+impl ImportProjectDocumentRequest {
+    pub fn new(
+        source_id: SourceId,
+        scope_id: ScopeId,
+        canonical_uri: impl Into<String>,
+        title: impl Into<String>,
+        content_text: impl Into<String>,
+    ) -> Self {
+        Self {
+            source_id,
+            scope_id,
+            canonical_uri: canonical_uri.into(),
+            title: title.into(),
+            content_text: content_text.into(),
+            local_path: None,
+            sync_state: DocumentSyncState::Clean,
+            conflict_state: DocumentConflictState::None,
+            context: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ListProjectDocumentsRequest {
+    pub source_id: SourceId,
+    pub limit: usize,
+    pub query: Option<String>,
+    pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplyProjectDocumentSyncPlanRequest {
+    pub source_id: SourceId,
+    pub scope_id: ScopeId,
+    pub plan: LocalProjectDocumentSyncPlan,
+    pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplyProjectDocumentSyncPlanResult {
+    pub imported: Vec<ProjectDocument>,
+    pub missing: Vec<MissingProjectDocument>,
+    pub conflicts: Vec<ProjectDocumentConflictReport>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectDocumentProjection {
+    pub document: ProjectDocument,
+    pub projection_path: PathBuf,
+    pub markdown: String,
+}
+
+impl ListProjectDocumentsRequest {
+    pub fn new(source_id: SourceId) -> Self {
+        Self {
+            source_id,
+            limit: 50,
+            query: None,
+            context: None,
+        }
+    }
+}
+
+impl PromoteAgentContextRequest {
+    pub fn new(context_id: AgentContextId) -> Self {
+        Self {
+            context_id,
+            memory_kind: Some(MemoryKind::Summary),
+            visibility: Visibility::Private,
+            sensitivity: Sensitivity::Internal,
+            context: None,
+        }
+    }
 }
 
 impl SearchContextRequest {
@@ -341,7 +497,7 @@ impl Kernel {
         let raw_key = request
             .raw_key
             .unwrap_or_else(|| format!("mmk_{}", ulid::Ulid::new()));
-        let access_key = AccessKey::new(
+        let mut access_key = AccessKey::new(
             &raw_key,
             request.display_name,
             request.source_kind,
@@ -351,6 +507,9 @@ impl Kernel {
             request.storage_mode,
             request.is_fully_isolated,
         )?;
+        if let Some(source_id) = request.source_id {
+            access_key = access_key.with_source_id(source_id);
+        }
         let pg_store = self
             .pg_store
             .as_ref()
@@ -442,7 +601,7 @@ impl Kernel {
             .update_access_key_status(key_id, AccessKeyStatus::Revoked)
             .await?;
         let raw_key = raw_key.unwrap_or_else(|| format!("mmk_{}", ulid::Ulid::new()));
-        let access_key = AccessKey::new(
+        let mut access_key = AccessKey::new(
             &raw_key,
             existing.display_name,
             existing.source_kind,
@@ -452,6 +611,9 @@ impl Kernel {
             existing.storage_mode,
             existing.is_fully_isolated,
         )?;
+        if let Some(source_id) = existing.source_id {
+            access_key = access_key.with_source_id(source_id);
+        }
         pg_store.upsert_access_key(&access_key).await?;
         Ok(CreateAccessKeyResult {
             access_key,
@@ -507,6 +669,371 @@ impl Kernel {
         }
         pg_store.touch_access_key(&access_key.id).await?;
         Ok(Some(access_key.to_context()))
+    }
+
+    pub async fn upsert_agent_context(
+        &self,
+        request: UpsertAgentContextRequest,
+    ) -> Result<AgentContext> {
+        let result = async {
+            self.ensure_key_can_access_scope(request.context.as_ref(), &request.scope_id)?;
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required for agent context"))?;
+            self.seed_scope_if_needed(pg_store, &request.scope_id)
+                .await?;
+
+            let mut agent_context = AgentContext::new(
+                request.scope_id,
+                request.session_id,
+                request.title,
+                request.body,
+            )?;
+            agent_context.task_id = request.task_id;
+            agent_context.labels = request.labels;
+            agent_context.expires_at = request.expires_at;
+            if let Some(context) = request.context.as_ref() {
+                agent_context.source_id = context.source_id.clone();
+                agent_context.key_id = Some(context.key_id.clone());
+            }
+            agent_context.updated_at = time::OffsetDateTime::now_utc();
+
+            pg_store.upsert_agent_context(&agent_context).await?;
+            Ok(agent_context)
+        }
+        .await;
+        record_context_operation(result.is_ok());
+        result
+    }
+
+    pub async fn list_agent_contexts(
+        &self,
+        request: ListAgentContextsRequest,
+    ) -> Result<Vec<AgentContext>> {
+        self.ensure_key_can_access_scope(request.context.as_ref(), &request.scope_id)?;
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for agent context"))?;
+        let result = pg_store
+            .list_agent_contexts(
+                &request.scope_id,
+                &request.session_id,
+                request.task_id.as_deref(),
+                request.limit as i64,
+            )
+            .await;
+        record_context_operation(result.is_ok());
+        result
+    }
+
+    pub async fn delete_agent_context(
+        &self,
+        context_id: AgentContextId,
+        context: Option<&RequestContext>,
+    ) -> Result<()> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for agent context"))?;
+        let agent_context = pg_store
+            .get_agent_context(&context_id)
+            .await?
+            .ok_or_else(|| anyhow!("agent context not found"))?;
+        self.ensure_key_can_access_scope(context, &agent_context.scope_id)?;
+        let result = pg_store.delete_agent_context(&context_id).await;
+        record_context_operation(result.is_ok());
+        result
+    }
+
+    pub async fn promote_agent_context(
+        &self,
+        request: PromoteAgentContextRequest,
+    ) -> Result<RememberTextResult> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for agent context"))?;
+        let agent_context = pg_store
+            .get_agent_context(&request.context_id)
+            .await?
+            .ok_or_else(|| anyhow!("agent context not found"))?;
+        self.ensure_key_can_access_scope(request.context.as_ref(), &agent_context.scope_id)?;
+
+        let mut remember =
+            RememberTextRequest::new(agent_context.scope_id.clone(), agent_context.body);
+        remember.title = Some(agent_context.title);
+        remember.artifact_kind = ArtifactKind::ToolResult;
+        remember.memory_kind = request.memory_kind;
+        remember.source_refs = vec![format!("agent-context://{}", agent_context.id.as_str())];
+        remember.visibility = request.visibility;
+        remember.sensitivity = request.sensitivity;
+        remember.context = request.context;
+        let result = self.remember_text(remember).await;
+        record_context_operation(result.is_ok());
+        result
+    }
+
+    pub async fn upsert_memory_source(
+        &self,
+        source: MemorySource,
+        context: Option<&RequestContext>,
+    ) -> Result<MemorySource> {
+        let result = async {
+            self.ensure_key_can_access_scope(context, &source.owner_scope_id)?;
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required for memory source"))?;
+            pg_store.upsert_memory_source(&source).await?;
+            Ok(source)
+        }
+        .await;
+        record_source_operation(result.is_ok());
+        result
+    }
+
+    pub async fn get_memory_source(&self, source_id: SourceId) -> Result<Option<MemorySource>> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for memory source"))?;
+        let result = pg_store.get_memory_source(&source_id).await;
+        record_source_operation(result.is_ok());
+        result
+    }
+
+    pub async fn list_memory_sources(
+        &self,
+        owner_scope_id: ScopeId,
+        limit: usize,
+        context: Option<&RequestContext>,
+    ) -> Result<Vec<MemorySource>> {
+        let result = async {
+            self.ensure_key_can_access_scope(context, &owner_scope_id)?;
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required for memory source"))?;
+            pg_store
+                .list_memory_sources(&owner_scope_id, limit as i64)
+                .await
+        }
+        .await;
+        record_source_operation(result.is_ok());
+        result
+    }
+
+    pub async fn list_access_keys_for_source(
+        &self,
+        source_id: SourceId,
+        limit: usize,
+    ) -> Result<Vec<AccessKey>> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for key management"))?;
+        let result = pg_store
+            .list_access_keys_for_source(&source_id, limit as i64)
+            .await;
+        record_source_operation(result.is_ok());
+        result
+    }
+
+    pub async fn import_project_document(
+        &self,
+        request: ImportProjectDocumentRequest,
+    ) -> Result<ProjectDocument> {
+        let result = async {
+            self.ensure_key_can_access_scope(request.context.as_ref(), &request.scope_id)?;
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required for project document"))?;
+            self.seed_scope_if_needed(pg_store, &request.scope_id)
+                .await?;
+            let source = pg_store
+                .get_memory_source(&request.source_id)
+                .await?
+                .ok_or_else(|| anyhow!("memory source not found"))?;
+            self.ensure_key_can_access_scope(request.context.as_ref(), &source.owner_scope_id)?;
+            let write_markdown = self.should_write_markdown(request.context.as_ref());
+            let body_text = request.content_text.clone();
+
+            let mut artifact = Artifact::new(
+                request.scope_id.clone(),
+                ArtifactKind::Document,
+                request.content_text,
+                vec![request.canonical_uri.clone()],
+            )?;
+            artifact.labels.push(format!("title:{}", request.title));
+            let content_hash = artifact.content_hash.clone();
+            let artifact_id = pg_store.insert_artifact(&artifact).await?;
+
+            let mut document = ProjectDocument::new(
+                request.source_id,
+                request.scope_id,
+                request.canonical_uri,
+                request.title,
+                content_hash,
+            )?;
+            document.local_path = request.local_path;
+            document.sync_state = request.sync_state;
+            document.conflict_state = request.conflict_state;
+            document.artifact_id = Some(artifact_id);
+            document.updated_at = time::OffsetDateTime::now_utc();
+            pg_store.upsert_project_document(&document).await?;
+            if write_markdown {
+                let markdown_store = self
+                    .markdown_store
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("markdown store is required by storage mode"))?;
+                markdown_store
+                    .write_project_document_markdown(&source.id, &document, &body_text)?;
+            }
+            Ok(document)
+        }
+        .await;
+        let conflicts = result
+            .as_ref()
+            .map(|document| usize::from(document.conflict_state != DocumentConflictState::None))
+            .unwrap_or_default();
+        record_docs_operation(result.is_ok(), usize::from(result.is_ok()), 0, conflicts);
+        result
+    }
+
+    pub async fn list_project_documents(
+        &self,
+        request: ListProjectDocumentsRequest,
+    ) -> Result<Vec<ProjectDocument>> {
+        let result = async {
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required for project document"))?;
+            let source = pg_store
+                .get_memory_source(&request.source_id)
+                .await?
+                .ok_or_else(|| anyhow!("memory source not found"))?;
+            self.ensure_key_can_access_scope(request.context.as_ref(), &source.owner_scope_id)?;
+            let mut documents = pg_store
+                .list_project_documents_for_source(&request.source_id, request.limit as i64)
+                .await?;
+            if let Some(query) = request.query.as_ref().map(|query| query.to_lowercase()) {
+                documents.retain(|document| {
+                    document.title.to_lowercase().contains(&query)
+                        || document.canonical_uri.to_lowercase().contains(&query)
+                        || document
+                            .local_path
+                            .as_deref()
+                            .map(|path| path.to_lowercase().contains(&query))
+                            .unwrap_or(false)
+                });
+            }
+            Ok(documents)
+        }
+        .await;
+        record_docs_operation(result.is_ok(), 0, 0, 0);
+        result
+    }
+
+    pub async fn list_project_document_conflicts(
+        &self,
+        source_id: SourceId,
+        limit: usize,
+        context: Option<&RequestContext>,
+    ) -> Result<Vec<ProjectDocument>> {
+        let result = async {
+            let pg_store = self
+                .pg_store
+                .as_ref()
+                .ok_or_else(|| anyhow!("postgres store is required for project document"))?;
+            let source = pg_store
+                .get_memory_source(&source_id)
+                .await?
+                .ok_or_else(|| anyhow!("memory source not found"))?;
+            self.ensure_key_can_access_scope(context, &source.owner_scope_id)?;
+            pg_store
+                .list_project_document_conflicts(&source_id, limit as i64)
+                .await
+        }
+        .await;
+        let conflicts = result.as_ref().map(Vec::len).unwrap_or_default();
+        record_docs_operation(result.is_ok(), 0, 0, conflicts);
+        result
+    }
+
+    pub async fn apply_project_document_sync_plan(
+        &self,
+        request: ApplyProjectDocumentSyncPlanRequest,
+    ) -> Result<ApplyProjectDocumentSyncPlanResult> {
+        let result = async {
+            self.ensure_key_can_access_scope(request.context.as_ref(), &request.scope_id)?;
+            let mut imported = Vec::with_capacity(request.plan.documents.len());
+            for draft in request.plan.documents {
+                let mut import = ImportProjectDocumentRequest::new(
+                    request.source_id.clone(),
+                    request.scope_id.clone(),
+                    draft.canonical_uri,
+                    draft.title,
+                    draft.content_text,
+                );
+                import.local_path = Some(draft.local_path.to_string_lossy().to_string());
+                import.sync_state = draft.sync_state;
+                import.context = request.context.clone();
+                imported.push(self.import_project_document(import).await?);
+            }
+            Ok(ApplyProjectDocumentSyncPlanResult {
+                imported,
+                missing: request.plan.missing,
+                conflicts: request.plan.conflicts,
+            })
+        }
+        .await;
+        let (missing, conflicts) = result
+            .as_ref()
+            .map(|payload| (payload.missing.len(), payload.conflicts.len()))
+            .unwrap_or_default();
+        record_docs_operation(result.is_ok(), 0, missing, conflicts);
+        result
+    }
+
+    pub async fn get_project_document_projection(
+        &self,
+        source_id: SourceId,
+        document_id: memory_domain::ProjectDocumentId,
+        context: Option<&RequestContext>,
+    ) -> Result<ProjectDocumentProjection> {
+        let pg_store = self
+            .pg_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("postgres store is required for project document"))?;
+        let markdown_store = self
+            .markdown_store
+            .as_ref()
+            .ok_or_else(|| anyhow!("markdown store is required for project document projection"))?;
+        let source = pg_store
+            .get_memory_source(&source_id)
+            .await?
+            .ok_or_else(|| anyhow!("memory source not found"))?;
+        self.ensure_key_can_access_scope(context, &source.owner_scope_id)?;
+        let document = pg_store
+            .list_project_documents_for_source(&source_id, 500)
+            .await?
+            .into_iter()
+            .find(|document| document.id == document_id)
+            .ok_or_else(|| anyhow!("project document not found"))?;
+        let projection_path =
+            markdown_store.project_document_projection_path(&source.id, &document);
+        let markdown = fs::read_to_string(&projection_path)
+            .with_context(|| format!("failed to read {}", projection_path.display()))?;
+        record_docs_operation(true, 0, 0, 0);
+        Ok(ProjectDocumentProjection {
+            document,
+            projection_path,
+            markdown,
+        })
     }
 
     pub async fn remember_text(&self, request: RememberTextRequest) -> Result<RememberTextResult> {
@@ -1781,6 +2308,7 @@ mod tests {
         let scope_id = ScopeId::from_string("scp_user_file_mode");
         let context = RequestContext {
             key_id: AccessKeyId::from_string("key_file"),
+            source_id: None,
             source_kind: KeySourceKind::Cli,
             principal_id: "alice".to_string(),
             owner_scope_id: scope_id.clone(),
@@ -1820,6 +2348,7 @@ mod tests {
         );
         request.context = Some(RequestContext {
             key_id: AccessKeyId::from_string("key_team"),
+            source_id: None,
             source_kind: KeySourceKind::Mcp,
             principal_id: "team-bot".to_string(),
             owner_scope_id: ScopeId::from_string("scp_team_platform"),

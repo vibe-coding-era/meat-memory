@@ -50,7 +50,7 @@ impl PerfSummary {
 }
 
 #[tokio::test]
-#[ignore = "run with ./scripts/v2-perf.sh"]
+#[ignore = "run with ./docs/scripts/v2-perf.sh"]
 async fn file_replication_engine_smoke_benchmark_reports_latency_percentiles() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("sync-state.json");

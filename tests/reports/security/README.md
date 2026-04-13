@@ -4,5 +4,5 @@
 
 - `latest/`：最近一次安全报告
 - `archive/`：历史归档
-- 生成入口：`./scripts/security-report.sh`
+- 生成入口：`./docs/scripts/security-report.sh`
 - 当前重点：authz、hijack prevention、injection boundaries、payload limits

@@ -4,25 +4,25 @@ default:
     @just --list
 
 bootstrap:
-    ./scripts/bootstrap.sh
+    ./docs/scripts/bootstrap.sh
 
 verify:
-    ./scripts/verify.sh
+    ./docs/scripts/verify.sh
 
 hooks:
-    ./scripts/install-hooks.sh
+    ./docs/scripts/install-hooks.sh
 
 db-up:
-    ./scripts/dev-db-up.sh
+    ./docs/scripts/dev-db-up.sh
 
 db-down:
-    ./scripts/dev-db-down.sh
+    ./docs/scripts/dev-db-down.sh
 
 dev-up:
-    ./scripts/dev-up.sh
+    ./docs/scripts/dev-up.sh
 
 dev-down:
-    ./scripts/dev-down.sh
+    ./docs/scripts/dev-down.sh
 
 fmt:
     cargo fmt --all
@@ -37,13 +37,13 @@ check:
     cargo check --workspace
 
 test:
-    ./scripts/test-required.sh
+    ./docs/scripts/test-required.sh
 
 security-test:
-    ./scripts/security-report.sh
+    ./docs/scripts/security-report.sh
 
 acceptance:
-    ./scripts/v1-acceptance.sh
+    ./docs/scripts/v1-acceptance.sh
 
 app:
     cargo run -p memory-app

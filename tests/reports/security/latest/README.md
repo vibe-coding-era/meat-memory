@@ -8,5 +8,5 @@
 如果需要重新生成，请执行：
 
 ```bash
-./scripts/security-report.sh
+./docs/scripts/security-report.sh
 ```

@@ -20,11 +20,11 @@
 ## 生成方式
 
 ```bash
-./scripts/write-test-reports.sh
+./docs/scripts/write-test-reports.sh
 ```
 
 安全专项可以单独执行：
 
 ```bash
-./scripts/security-report.sh
+./docs/scripts/security-report.sh
 ```

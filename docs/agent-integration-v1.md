@@ -36,9 +36,9 @@
 
 ```bash
 cp .env.example .env
-./scripts/verify.sh
-./scripts/bootstrap.sh
-./scripts/dev-up.sh
+./docs/scripts/verify.sh
+./docs/scripts/bootstrap.sh
+./docs/scripts/dev-up.sh
 ```
 
 默认 `compose` 会启动：

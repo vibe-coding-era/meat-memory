@@ -3,17 +3,21 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use memory_config::AppConfig;
 use memory_core::{ServiceInfo, log_startup, startup_banner};
 use memory_domain::{
-    AccessKeyId, ArtifactKind, ContextBundle, KeyScopeKind, KeySourceKind, MemoryKind,
-    RequestContext, ScopeId, Sensitivity, StorageMode, Visibility,
+    AccessKeyId, AgentContextId, ArtifactKind, ContextBundle, DocumentConflictState,
+    DocumentSyncState, KeyScopeKind, KeySourceKind, MemoryKind, MemorySource, RequestContext,
+    ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode, Visibility,
 };
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{
-    CreateAccessKeyRequest, Kernel, RememberImageRequest, RememberImageResult, RememberTextRequest,
-    RememberTextResult, SearchContextRequest,
+    ApplyProjectDocumentSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
+    Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
+    RememberImageRequest, RememberImageResult, RememberTextRequest, RememberTextResult,
+    SearchContextRequest, UpsertAgentContextRequest,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
 use memory_store_pg::PgStore;
+use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
 use serde_json::json;
 use std::{
     env, fs,
@@ -50,6 +54,9 @@ enum Command {
     Mcp(McpArgs),
     Skills(SkillsArgs),
     Key(KeyArgs),
+    Source(SourceArgs),
+    Context(ContextArgs),
+    Docs(DocsArgs),
     Tui(TuiArgs),
     Serve(ServeArgs),
     Remember(RememberArgs),
@@ -87,6 +94,24 @@ struct KeyArgs {
     command: KeyCommand,
 }
 
+#[derive(Debug, Clone, Args)]
+struct SourceArgs {
+    #[command(subcommand)]
+    command: SourceCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ContextArgs {
+    #[command(subcommand)]
+    command: ContextCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsArgs {
+    #[command(subcommand)]
+    command: DocsCommand,
+}
+
 #[derive(Debug, Clone, Subcommand)]
 enum KeyCommand {
     Create(KeyCreateArgs),
@@ -94,6 +119,32 @@ enum KeyCommand {
     Rotate(KeyRotateArgs),
     Use(KeyUseArgs),
     Stats(KeyStatsArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum SourceCommand {
+    Create(SourceCreateArgs),
+    List(SourceListArgs),
+    Keys(SourceKeysArgs),
+    KeyCreate(SourceKeyCreateArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum ContextCommand {
+    Upsert(ContextUpsertArgs),
+    List(ContextListArgs),
+    Promote(ContextPromoteArgs),
+    Delete(ContextDeleteArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum DocsCommand {
+    Import(DocsImportArgs),
+    List(DocsListArgs),
+    Projection(DocsProjectionArgs),
+    Conflicts(DocsConflictsArgs),
+    Sync(DocsSyncArgs),
+    Status(DocsStatusArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -167,6 +218,224 @@ struct KeyRotateArgs {
 struct KeyStatsArgs {
     #[arg(long)]
     key_id: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SourceCreateArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    name: String,
+    #[arg(long, default_value = "custom")]
+    source_kind: String,
+    #[arg(long)]
+    source_uri: Option<String>,
+    #[arg(long, default_value = "read_only")]
+    sync_mode: String,
+    #[arg(long)]
+    local_root: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SourceListArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long, default_value_t = 100)]
+    limit: usize,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SourceKeysArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long, default_value_t = 100)]
+    limit: usize,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct SourceKeyCreateArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long)]
+    name: String,
+    #[arg(long, default_value = "custom")]
+    source: String,
+    #[arg(long, default_value = "personal")]
+    scope_kind: String,
+    #[arg(long, default_value = "all")]
+    storage: String,
+    #[arg(long)]
+    isolated: bool,
+    #[arg(long)]
+    raw_key: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ContextUpsertArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    scope_id: Option<String>,
+    #[arg(long)]
+    session_id: String,
+    #[arg(long)]
+    task_id: Option<String>,
+    #[arg(long)]
+    title: String,
+    #[arg(long, conflicts_with = "file")]
+    body: Option<String>,
+    #[arg(long)]
+    file: Option<PathBuf>,
+    #[arg(long, value_delimiter = ',')]
+    labels: Vec<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ContextListArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    scope_id: Option<String>,
+    #[arg(long)]
+    session_id: String,
+    #[arg(long)]
+    task_id: Option<String>,
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ContextPromoteArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    context_id: String,
+    #[arg(long)]
+    memory_kind: Option<String>,
+    #[arg(long, default_value = "private")]
+    visibility: String,
+    #[arg(long, default_value = "internal")]
+    sensitivity: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ContextDeleteArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    context_id: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsImportArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long)]
+    scope_id: Option<String>,
+    #[arg(long)]
+    canonical_uri: String,
+    #[arg(long)]
+    title: String,
+    #[arg(long, conflicts_with = "file")]
+    body: Option<String>,
+    #[arg(long)]
+    file: Option<PathBuf>,
+    #[arg(long)]
+    local_path: Option<String>,
+    #[arg(long, default_value = "clean")]
+    sync_state: String,
+    #[arg(long, default_value = "none")]
+    conflict_state: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsListArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long)]
+    query: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    limit: usize,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsProjectionArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long)]
+    document_id: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsConflictsArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long, default_value_t = 50)]
+    limit: usize,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsSyncArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long)]
+    scope_id: Option<String>,
+    #[arg(long)]
+    local_root: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DocsStatusArgs {
+    #[arg(long)]
+    key: Option<String>,
+    #[arg(long)]
+    source_id: String,
+    #[arg(long)]
+    local_root: Option<String>,
     #[arg(long)]
     json: bool,
 }
@@ -332,6 +601,9 @@ async fn main() -> Result<()> {
         Command::Mcp(args) => mcp_command(args),
         Command::Skills(args) => skills_command(args),
         Command::Key(args) => key_command(args).await,
+        Command::Source(args) => source_command(args).await,
+        Command::Context(args) => context_command(args).await,
+        Command::Docs(args) => docs_command(args).await,
         Command::Tui(args) => tui_command(args).await,
         Command::Serve(args) => serve_command(args).await,
         Command::Remember(args) => remember_command(args).await,
@@ -348,6 +620,7 @@ async fn key_command(args: KeyArgs) -> Result<()> {
                 .create_access_key(CreateAccessKeyRequest {
                     raw_key: create.raw_key,
                     display_name: create.name,
+                    source_id: None,
                     source_kind: parse_key_source(&create.source)?,
                     owner_principal_id: create.owner_principal_id,
                     owner_scope_id: create
@@ -464,6 +737,376 @@ async fn key_command(args: KeyArgs) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn source_command(args: SourceArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    match args.command {
+        SourceCommand::Create(create) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, create.key.as_deref()).await?;
+            let mut source = MemorySource::new(
+                create.source_kind,
+                create.name,
+                context.principal_id.clone(),
+                context.owner_scope_id.clone(),
+            )?;
+            if let Some(source_uri) = create.source_uri {
+                source = source.with_source_uri(source_uri)?;
+            }
+            if let Some(local_root) = create.local_root {
+                source = source.with_local_root(local_root)?;
+            }
+            source = source.with_sync_mode(parse_source_sync_mode(&create.sync_mode)?);
+            let source = kernel.upsert_memory_source(source, Some(&context)).await?;
+            if create.json {
+                print_json(memory_source_json(&source))?;
+            } else {
+                println!("Created source {}", source.id.as_str());
+                println!("Name: {}", source.display_name);
+                println!("Kind: {}", source.source_kind);
+            }
+        }
+        SourceCommand::List(list) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, list.key.as_deref()).await?;
+            let sources = kernel
+                .list_memory_sources(context.owner_scope_id.clone(), list.limit, Some(&context))
+                .await?;
+            if list.json {
+                print_json(json!({
+                    "sources": sources.iter().map(memory_source_json).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Meat Memory sources");
+                for source in sources {
+                    println!(
+                        "- {} [{}] {}",
+                        source.display_name,
+                        source.id.as_str(),
+                        source.source_kind
+                    );
+                }
+            }
+        }
+        SourceCommand::Keys(keys) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, keys.key.as_deref()).await?;
+            let source = get_source_for_context(&kernel, &context, &keys.source_id).await?;
+            let access_keys = kernel
+                .list_access_keys_for_source(source.id.clone(), keys.limit)
+                .await?;
+            if keys.json {
+                print_json(json!({
+                    "source": memory_source_json(&source),
+                    "keys": access_keys.iter().map(|key| access_key_json(key, None)).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Keys for source {}:", source.id.as_str());
+                for key in access_keys {
+                    println!("- {} [{}]", key.display_name, key.id.as_str());
+                }
+            }
+        }
+        SourceCommand::KeyCreate(create) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, create.key.as_deref()).await?;
+            let source = get_source_for_context(&kernel, &context, &create.source_id).await?;
+            let result = kernel
+                .create_access_key(CreateAccessKeyRequest {
+                    raw_key: create.raw_key,
+                    display_name: create.name,
+                    source_id: Some(source.id),
+                    source_kind: parse_key_source(&create.source)?,
+                    owner_principal_id: source.owner_principal_id,
+                    owner_scope_id: source.owner_scope_id,
+                    scope_kind: parse_key_scope(&create.scope_kind)?,
+                    storage_mode: parse_storage_mode(&create.storage)?,
+                    is_fully_isolated: create.isolated,
+                })
+                .await?;
+            if create.json {
+                print_json(access_key_json(&result.access_key, Some(&result.raw_key)))?;
+            } else {
+                println!("Created source key {}", result.access_key.id.as_str());
+                println!("Raw key: {}", result.raw_key);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn context_command(args: ContextArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    match args.command {
+        ContextCommand::Upsert(upsert) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, upsert.key.as_deref()).await?;
+            let body = load_body(upsert.body.clone(), upsert.file.clone())?;
+            let scope_id = upsert
+                .scope_id
+                .map(ScopeId::from_string)
+                .unwrap_or_else(|| context.owner_scope_id.clone());
+            let mut request =
+                UpsertAgentContextRequest::new(scope_id, upsert.session_id, upsert.title, body);
+            request.task_id = upsert.task_id;
+            request.labels = upsert.labels;
+            request.context = Some(context);
+            let agent_context = kernel.upsert_agent_context(request).await?;
+            if upsert.json {
+                print_json(agent_context_json(&agent_context))?;
+            } else {
+                println!("Upserted context {}", agent_context.id.as_str());
+                println!("Title: {}", agent_context.title);
+            }
+        }
+        ContextCommand::List(list) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, list.key.as_deref()).await?;
+            let scope_id = list
+                .scope_id
+                .map(ScopeId::from_string)
+                .unwrap_or_else(|| context.owner_scope_id.clone());
+            let mut request = ListAgentContextsRequest::new(scope_id, list.session_id);
+            request.task_id = list.task_id;
+            request.limit = list.limit;
+            request.context = Some(context);
+            let contexts = kernel.list_agent_contexts(request).await?;
+            if list.json {
+                print_json(json!({
+                    "contexts": contexts.iter().map(agent_context_json).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Agent contexts");
+                for item in contexts {
+                    println!("- {} [{}]", item.title, item.id.as_str());
+                }
+            }
+        }
+        ContextCommand::Promote(promote) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, promote.key.as_deref()).await?;
+            let mut request =
+                PromoteAgentContextRequest::new(AgentContextId::from_string(promote.context_id));
+            request.memory_kind = promote
+                .memory_kind
+                .as_deref()
+                .map(parse_memory_kind)
+                .transpose()?;
+            request.visibility = parse_visibility(&promote.visibility)?;
+            request.sensitivity = parse_sensitivity(&promote.sensitivity)?;
+            request.context = Some(context);
+            let result = kernel.promote_agent_context(request).await?;
+            if promote.json {
+                print_json(remember_result_json(&result))?;
+            } else {
+                for line in remember_result_lines(&result) {
+                    println!("{line}");
+                }
+            }
+        }
+        ContextCommand::Delete(delete) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, delete.key.as_deref()).await?;
+            kernel
+                .delete_agent_context(
+                    AgentContextId::from_string(delete.context_id.clone()),
+                    Some(&context),
+                )
+                .await?;
+            if delete.json {
+                print_json(json!({"context_id": delete.context_id, "deleted": true}))?;
+            } else {
+                println!("Deleted context {}", delete.context_id);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn docs_command(args: DocsArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    match args.command {
+        DocsCommand::Import(import) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, import.key.as_deref()).await?;
+            let body = load_body(import.body.clone(), import.file.clone())?;
+            let source = get_source_for_context(&kernel, &context, &import.source_id).await?;
+            let scope_id = import
+                .scope_id
+                .map(ScopeId::from_string)
+                .unwrap_or_else(|| source.owner_scope_id.clone());
+            let mut request = ImportProjectDocumentRequest::new(
+                source.id,
+                scope_id,
+                import.canonical_uri,
+                import.title,
+                body,
+            );
+            request.local_path = import.local_path;
+            request.sync_state = parse_document_sync_state(&import.sync_state)?;
+            request.conflict_state = parse_document_conflict_state(&import.conflict_state)?;
+            request.context = Some(context);
+            let document = kernel.import_project_document(request).await?;
+            if import.json {
+                print_json(project_document_json(&document))?;
+            } else {
+                println!("Imported document {}", document.id.as_str());
+                println!("Title: {}", document.title);
+            }
+        }
+        DocsCommand::List(list) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, list.key.as_deref()).await?;
+            let source = get_source_for_context(&kernel, &context, &list.source_id).await?;
+            let mut request = ListProjectDocumentsRequest::new(source.id);
+            request.limit = list.limit;
+            request.query = list.query;
+            request.context = Some(context);
+            let documents = kernel.list_project_documents(request).await?;
+            if list.json {
+                print_json(json!({
+                    "documents": documents.iter().map(project_document_json).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Project documents");
+                for document in documents {
+                    println!("- {} [{}]", document.title, document.id.as_str());
+                }
+            }
+        }
+        DocsCommand::Projection(projection) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, projection.key.as_deref()).await?;
+            let payload = kernel
+                .get_project_document_projection(
+                    SourceId::from_string(projection.source_id),
+                    memory_domain::ProjectDocumentId::from_string(projection.document_id),
+                    Some(&context),
+                )
+                .await?;
+            if projection.json {
+                print_json(json!({
+                    "document": project_document_json(&payload.document),
+                    "projection_path": payload.projection_path.display().to_string(),
+                    "markdown": payload.markdown,
+                }))?;
+            } else {
+                println!("Projection path: {}", payload.projection_path.display());
+                println!(
+                    "Document: {} [{}]",
+                    payload.document.title,
+                    payload.document.id.as_str()
+                );
+                println!();
+                print!("{}", payload.markdown);
+                if !payload.markdown.ends_with('\n') {
+                    println!();
+                }
+            }
+        }
+        DocsCommand::Conflicts(conflicts) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, conflicts.key.as_deref()).await?;
+            let source = get_source_for_context(&kernel, &context, &conflicts.source_id).await?;
+            let documents = kernel
+                .list_project_document_conflicts(source.id, conflicts.limit, Some(&context))
+                .await?;
+            if conflicts.json {
+                print_json(json!({
+                    "documents": documents.iter().map(project_document_json).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Project document conflicts");
+                for document in documents {
+                    println!(
+                        "- {} [{}] {}",
+                        document.title,
+                        document.id.as_str(),
+                        document.conflict_state.as_str()
+                    );
+                }
+            }
+        }
+        DocsCommand::Sync(sync) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, sync.key.as_deref()).await?;
+            let source = get_source_for_context(&kernel, &context, &sync.source_id).await?;
+            let scope_id = sync
+                .scope_id
+                .map(ScopeId::from_string)
+                .unwrap_or_else(|| source.owner_scope_id.clone());
+            let plan = build_local_docs_sync_plan(
+                &kernel,
+                &context,
+                &source,
+                sync.local_root.as_deref(),
+                500,
+            )
+            .await?;
+            let planned_count = plan.documents.len();
+            let missing_count = plan.missing.len();
+            let conflict_count = plan.conflicts.len();
+            if sync.dry_run {
+                if sync.json {
+                    print_json(local_docs_plan_json(true, &plan, &[]))?;
+                } else {
+                    print_docs_sync_summary(true, planned_count, 0, missing_count, conflict_count);
+                }
+                return Ok(());
+            }
+            let result = kernel
+                .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+                    source_id: source.id,
+                    scope_id,
+                    plan,
+                    context: Some(context),
+                })
+                .await?;
+            if sync.json {
+                print_json(json!({
+                    "dry_run": false,
+                    "planned_count": planned_count,
+                    "imported": result.imported.iter().map(project_document_json).collect::<Vec<_>>(),
+                    "missing": result.missing,
+                    "conflicts": result.conflicts,
+                }))?;
+            } else {
+                print_docs_sync_summary(
+                    false,
+                    planned_count,
+                    result.imported.len(),
+                    result.missing.len(),
+                    result.conflicts.len(),
+                );
+            }
+        }
+        DocsCommand::Status(status) => {
+            let context =
+                resolve_required_cli_request_context(&kernel, status.key.as_deref()).await?;
+            let source = get_source_for_context(&kernel, &context, &status.source_id).await?;
+            let plan = build_local_docs_sync_plan(
+                &kernel,
+                &context,
+                &source,
+                status.local_root.as_deref(),
+                500,
+            )
+            .await?;
+            if status.json {
+                print_json(local_docs_plan_json(true, &plan, &[]))?;
+            } else {
+                print_docs_sync_summary(
+                    true,
+                    plan.documents.len(),
+                    0,
+                    plan.missing.len(),
+                    plan.conflicts.len(),
+                );
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1366,6 +2009,7 @@ async fn ensure_default_key_material(config: &AppConfig) -> Result<Option<Defaul
         .create_access_key(CreateAccessKeyRequest {
             raw_key: None,
             display_name: config.access.default_key_name.clone(),
+            source_id: None,
             source_kind: parse_key_source(&config.access.default_key_source)?,
             owner_principal_id: "local-user".to_string(),
             owner_scope_id: service_info.default_scope,
@@ -2183,9 +2827,64 @@ async fn resolve_cli_request_context(
         .map(Some)
 }
 
+async fn resolve_required_cli_request_context(
+    kernel: &Kernel,
+    raw_key: Option<&str>,
+) -> Result<RequestContext> {
+    resolve_cli_request_context(kernel, raw_key)
+        .await?
+        .context("MEAT_MEMORY_KEY or --key is required")
+}
+
+async fn get_source_for_context(
+    kernel: &Kernel,
+    context: &RequestContext,
+    source_id: &str,
+) -> Result<MemorySource> {
+    let source = kernel
+        .get_memory_source(SourceId::from_string(source_id))
+        .await?
+        .with_context(|| format!("memory source not found: {source_id}"))?;
+    if source.owner_scope_id != context.owner_scope_id {
+        bail!("source access forbidden for current meat memory key");
+    }
+    Ok(source)
+}
+
+async fn build_local_docs_sync_plan(
+    kernel: &Kernel,
+    context: &RequestContext,
+    source: &MemorySource,
+    local_root: Option<&str>,
+    limit: usize,
+) -> Result<memory_sync::LocalProjectDocumentSyncPlan> {
+    let local_root = local_root
+        .map(ToOwned::to_owned)
+        .or_else(|| source.local_root.clone())
+        .context("local_root is required; pass --local-root or set it on the source")?;
+    let documents = kernel
+        .list_project_documents(ListProjectDocumentsRequest {
+            source_id: source.id.clone(),
+            limit,
+            query: None,
+            context: Some(context.clone()),
+        })
+        .await?;
+    let snapshots = documents
+        .iter()
+        .map(|document| ProjectDocumentSnapshot {
+            canonical_uri: document.canonical_uri.clone(),
+            content_hash: document.content_hash.clone(),
+        })
+        .collect::<Vec<_>>();
+    LocalProjectDocumentSyncEngine::new(PathBuf::from(local_root))
+        .scan(&snapshots)
+        .context("failed to scan local project documents")
+}
+
 fn static_command_message(command: &Command) -> Option<&'static str> {
     match command {
-        Command::Doctor => Some("Run ./scripts/verify.sh for the full machine check."),
+        Command::Doctor => Some("Run ./docs/scripts/verify.sh for the full machine check."),
         Command::PrintPlan => Some("Execution plan lives in docs/tasks/tasklist.md"),
         _ => None,
     }
@@ -2505,6 +3204,18 @@ fn parse_storage_mode(raw: &str) -> Result<StorageMode> {
     StorageMode::parse(raw).map_err(Into::into)
 }
 
+fn parse_source_sync_mode(raw: &str) -> Result<SourceSyncMode> {
+    SourceSyncMode::parse(raw).map_err(Into::into)
+}
+
+fn parse_document_sync_state(raw: &str) -> Result<DocumentSyncState> {
+    DocumentSyncState::parse(raw).map_err(Into::into)
+}
+
+fn parse_document_conflict_state(raw: &str) -> Result<DocumentConflictState> {
+    DocumentConflictState::parse(raw).map_err(Into::into)
+}
+
 fn access_key_json(
     access_key: &memory_domain::AccessKey,
     raw_key: Option<&str>,
@@ -2513,6 +3224,7 @@ fn access_key_json(
         "key_id": access_key.id.as_str(),
         "raw_key": raw_key,
         "name": access_key.display_name,
+        "source_id": access_key.source_id.as_ref().map(|source_id| source_id.as_str()),
         "source": access_key.source_kind.as_str(),
         "owner_principal_id": access_key.owner_principal_id,
         "owner_scope_id": access_key.owner_scope_id.as_str(),
@@ -2522,6 +3234,89 @@ fn access_key_json(
         "isolation_group_id": access_key.isolation_group_id,
         "status": access_key.status.as_str(),
     })
+}
+
+fn memory_source_json(source: &MemorySource) -> serde_json::Value {
+    json!({
+        "source_id": source.id.as_str(),
+        "source_kind": source.source_kind,
+        "name": source.display_name,
+        "owner_principal_id": source.owner_principal_id,
+        "owner_scope_id": source.owner_scope_id.as_str(),
+        "source_uri": source.source_uri,
+        "sync_mode": source.sync_mode.as_str(),
+        "local_root": source.local_root,
+        "status": source.status.as_str(),
+    })
+}
+
+fn agent_context_json(agent_context: &memory_domain::AgentContext) -> serde_json::Value {
+    json!({
+        "context_id": agent_context.id.as_str(),
+        "source_id": agent_context.source_id.as_ref().map(|source_id| source_id.as_str()),
+        "key_id": agent_context.key_id.as_ref().map(|key_id| key_id.as_str()),
+        "scope_id": agent_context.scope_id.as_str(),
+        "session_id": agent_context.session_id,
+        "task_id": agent_context.task_id,
+        "layer": agent_context.layer.as_str(),
+        "title": agent_context.title,
+        "body": agent_context.body,
+        "labels": agent_context.labels,
+    })
+}
+
+fn project_document_json(document: &memory_domain::ProjectDocument) -> serde_json::Value {
+    json!({
+        "document_id": document.id.as_str(),
+        "source_id": document.source_id.as_str(),
+        "scope_id": document.scope_id.as_str(),
+        "local_path": document.local_path,
+        "canonical_uri": document.canonical_uri,
+        "title": document.title,
+        "content_hash": document.content_hash,
+        "sync_state": document.sync_state.as_str(),
+        "conflict_state": document.conflict_state.as_str(),
+        "artifact_id": document.artifact_id.as_ref().map(|artifact_id| artifact_id.as_str()),
+        "memory_id": document.memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+    })
+}
+
+fn local_docs_plan_json(
+    dry_run: bool,
+    plan: &memory_sync::LocalProjectDocumentSyncPlan,
+    imported: &[memory_domain::ProjectDocument],
+) -> serde_json::Value {
+    json!({
+        "dry_run": dry_run,
+        "root": plan.root.display().to_string(),
+        "planned_documents": plan.documents.iter().map(|document| json!({
+            "canonical_uri": document.canonical_uri,
+            "local_path": document.local_path.display().to_string(),
+            "title": document.title,
+            "content_hash": document.content_hash,
+            "sync_state": document.sync_state.as_str(),
+        })).collect::<Vec<_>>(),
+        "imported": imported.iter().map(project_document_json).collect::<Vec<_>>(),
+        "missing": plan.missing,
+        "conflicts": plan.conflicts,
+    })
+}
+
+fn print_docs_sync_summary(
+    dry_run: bool,
+    planned_count: usize,
+    imported_count: usize,
+    missing_count: usize,
+    conflict_count: usize,
+) {
+    println!(
+        "Project document sync {}",
+        if dry_run { "plan" } else { "completed" }
+    );
+    println!("Planned documents: {planned_count}");
+    println!("Imported documents: {imported_count}");
+    println!("Missing documents: {missing_count}");
+    println!("Conflicts: {conflict_count}");
 }
 
 async fn shutdown_signal() {
@@ -2949,7 +3744,7 @@ fallbacks = []
     fn exposes_static_messages_for_non_runtime_commands() {
         assert_eq!(
             static_command_message(&super::Command::Doctor),
-            Some("Run ./scripts/verify.sh for the full machine check.")
+            Some("Run ./docs/scripts/verify.sh for the full machine check.")
         );
         assert_eq!(
             static_command_message(&super::Command::PrintPlan),

@@ -22,7 +22,7 @@
 | HTTP | `crates/memory-http/tests/http_api_tests.rs` |
 | MCP | `crates/memory-mcp/tests/mcp_tools_tests.rs` |
 | CLI | `crates/memory-cli/tests/cli_e2e.rs` |
-| 统一验收脚本 | `./scripts/v1-acceptance.sh` |
+| 统一验收脚本 | `./docs/scripts/v1-acceptance.sh` |
 
 ## 维护规则
 

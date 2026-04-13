@@ -31,11 +31,17 @@ cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-
 也可以使用脚本：
 
 ```bash
-./scripts/export-agent-skills.sh all ./dist/agent-skills
+./docs/scripts/export-agent-skills.sh all ./dist/agent-skills
+./docs/scripts/build-agent-skills-bundle.sh all ./dist/release
 ```
 
 4. 将导出结果复制到目标 Agent 的 skill 或 instruction 目录。
 5. 按目标平台配置 MCP 的 `/mcp/tools` 与 `/mcp/tools/call`。
+
+如果你是通过 release 包交付给用户，推荐同时附带：
+
+- `agent-skills-bundle.zip`
+- 导出的目录版 `./dist/agent-skills/`
 
 ## V2.4 相关能力
 
@@ -67,3 +73,8 @@ memory-cli context upsert --session-id current --title "Current task" --body "Ag
 - `claude-code`
 - `execution-agent`
 - `all`
+
+标准交付物：
+
+- 本地导出目录：`./dist/agent-skills/`
+- release 附带压缩包：`./dist/release/agent-skills-bundle.zip`

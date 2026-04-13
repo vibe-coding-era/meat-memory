@@ -36,11 +36,15 @@ id_type!(RelationId, "rel");
 id_type!(EvidenceId, "evd");
 id_type!(ScopeId, "scp");
 id_type!(AccessKeyId, "key");
+id_type!(SourceId, "src");
+id_type!(AgentContextId, "ctx");
+id_type!(ProjectDocumentId, "doc");
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessKeyId, ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId, RelationId, ScopeId,
+        AccessKeyId, AgentContextId, ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId,
+        ProjectDocumentId, RelationId, ScopeId, SourceId,
     };
 
     #[test]
@@ -54,6 +58,9 @@ mod tests {
             EvidenceId::new().as_str().to_string(),
             ScopeId::new().as_str().to_string(),
             AccessKeyId::new().as_str().to_string(),
+            SourceId::new().as_str().to_string(),
+            AgentContextId::new().as_str().to_string(),
+            ProjectDocumentId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -64,6 +71,9 @@ mod tests {
         assert!(cases[5].starts_with("evd_"));
         assert!(cases[6].starts_with("scp_"));
         assert!(cases[7].starts_with("key_"));
+        assert!(cases[8].starts_with("src_"));
+        assert!(cases[9].starts_with("ctx_"));
+        assert!(cases[10].starts_with("doc_"));
     }
 
     #[test]
@@ -76,6 +86,9 @@ mod tests {
         let evidence = EvidenceId::from_string("evd_custom");
         let scope = ScopeId::from_string("scp_custom");
         let access_key = AccessKeyId::from_string("key_custom");
+        let source = SourceId::from_string("src_custom");
+        let agent_context = AgentContextId::from_string("ctx_custom");
+        let project_document = ProjectDocumentId::from_string("doc_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -85,6 +98,9 @@ mod tests {
         assert_eq!(evidence.as_str(), "evd_custom");
         assert_eq!(scope.as_str(), "scp_custom");
         assert_eq!(access_key.as_str(), "key_custom");
+        assert_eq!(source.as_str(), "src_custom");
+        assert_eq!(agent_context.as_str(), "ctx_custom");
+        assert_eq!(project_document.as_str(), "doc_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -94,5 +110,8 @@ mod tests {
         assert!(EvidenceId::default().as_str().starts_with("evd_"));
         assert!(ScopeId::default().as_str().starts_with("scp_"));
         assert!(AccessKeyId::default().as_str().starts_with("key_"));
+        assert!(SourceId::default().as_str().starts_with("src_"));
+        assert!(AgentContextId::default().as_str().starts_with("ctx_"));
+        assert!(ProjectDocumentId::default().as_str().starts_with("doc_"));
     }
 }

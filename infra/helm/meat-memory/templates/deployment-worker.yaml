@@ -20,8 +20,8 @@ spec:
     spec:
       containers:
         - name: worker
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.workerImage.repository }}:{{ .Values.workerImage.tag }}"
+          imagePullPolicy: {{ .Values.workerImage.pullPolicy }}
           command: ["memory-worker"]
           env:
             - name: MEAT_MEMORY_CONFIG
@@ -29,37 +29,37 @@ spec:
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: OPENAI_API_KEY
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: ANTHROPIC_API_KEY
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: GEMINI_API_KEY
             - name: QWEN_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: QWEN_API_KEY
             - name: DOUBAO_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: DOUBAO_API_KEY
             - name: MINIMAX_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: MINIMAX_API_KEY
             - name: GLM_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "meat-memory.fullname" . }}-secrets
+                  name: {{ default (printf "%s-secrets" (include "meat-memory.fullname" .)) .Values.secrets.existingSecretName }}
                   key: GLM_API_KEY
           volumeMounts:
             - name: config
@@ -76,7 +76,7 @@ spec:
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{ include "meat-memory.fullname" . }}-data
+            claimName: {{ default (printf "%s-data" (include "meat-memory.fullname" .)) .Values.persistence.existingClaim }}
           {{- else }}
           emptyDir: {}
           {{- end }}

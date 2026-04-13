@@ -9,6 +9,7 @@ axum.workspace = true
 memory-domain = { path = "../memory-domain" }
 memory-kernel = { path = "../memory-kernel" }
 memory-observability = { path = "../memory-observability" }
+memory-sync = { path = "../memory-sync" }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

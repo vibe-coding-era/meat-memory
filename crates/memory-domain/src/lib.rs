@@ -6,6 +6,7 @@ pub mod entity;
 pub mod episode;
 pub mod error;
 pub mod ids;
+pub mod lifecycle;
 pub mod memory;
 pub mod relation;
 pub mod scope;
@@ -21,7 +22,12 @@ pub use entity::{Entity, EntityType};
 pub use episode::{Episode, EpisodeKind, EpisodeState};
 pub use error::DomainError;
 pub use ids::{
-    AccessKeyId, ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId, RelationId, ScopeId,
+    AccessKeyId, AgentContextId, ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId,
+    ProjectDocumentId, RelationId, ScopeId, SourceId,
+};
+pub use lifecycle::{
+    AgentContext, DocumentConflictState, DocumentSyncState, MemoryLayer, MemorySource,
+    ProjectDocument, SourceStatus, SourceSyncMode,
 };
 pub use memory::{Memory, MemoryKind, MemoryScores, MemoryState};
 pub use relation::{Relation, RelationState, RelationType};

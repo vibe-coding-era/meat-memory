@@ -17,7 +17,7 @@ V1 需要确认以下闭环：
 ## 2. 自动化入口
 
 ```bash
-./scripts/v1-acceptance.sh
+./docs/scripts/v1-acceptance.sh
 ```
 
 或：

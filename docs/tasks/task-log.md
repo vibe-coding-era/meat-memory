@@ -2,6 +2,296 @@
 
 ## 结构化记录
 
+- timestamp: 2026-04-13 10:15:00 CST
+  task_id: DIST-PKG-001
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 完善 `.github/workflows/release.yml`，改为 tag 驱动的多平台 release 构建与 GitHub Release 上传；新增 `docs/scripts/build-release-artifacts.sh`，可将 `memory-cli`、`memory-app`、`memory-worker` 与示例配置打成 `dist/release/<asset>.tar.gz` 并生成 `sha256`；同步更新脚本说明与 tasklist 状态
+  issues_decisions: 预编译二进制包当前聚焦 tarball + checksum 的统一产物约定，不在本任务内同时落 npm、Homebrew、skill bundle 发布；这些后续分别由 `DIST-PKG-002`、`DIST-PKG-003A`、`DIST-PKG-004` 继续完成
+  next_action: 进入 `DIST-PKG-002`，补 npm 安装入口与平台二进制分发包装层
+
+- timestamp: 2026-04-13 10:32:00 CST
+  task_id: DIST-PKG-003
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `crates/memory-cli/Cargo.toml` 补齐 description、license、repository、rust-version 与 readme 元数据；在 `docs/runbook/usage-guide.md` 与 `docs/api/cli-v1.md` 新增 `cargo install --path crates/memory-cli --locked` 的安装后验证说明；本地已通过 `/tmp/meat-memory-cargo-install-check` 成功安装并产出可执行 `memory-cli`
+  issues_decisions: 现阶段先验证仓库内 `cargo install --path` 闭环，远端 registry / git 安装说明等到正式发布元数据与下载入口收口后再统一更新
+  next_action: 回到 `DIST-PKG-002` 与 `DIST-PKG-003A`，继续补 npm 包装层和安装后 Agent skill 交付闭环
+
+- timestamp: 2026-04-13 10:45:00 CST
+  task_id: DIST-PKG-003A
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `docs/scripts/build-agent-skills-bundle.sh`，可把现有 skill 导出目录打成 `agent-skills-bundle.zip`；release workflow 已在发布阶段附带该 zip；`docs/scripts/README.md` 与 `docs/agent-skills/README.md` 也同步补齐“目录导出 + release bundle”双路径说明
+  issues_decisions: 安装后交付闭环统一为两种标准形态：本地可执行导出目录、release 可直接下载 zip 包；不把平台导入动作写死到安装脚本里，避免覆盖用户现有 Agent 配置
+  next_action: 回到 `DIST-PKG-002`，实现 npm 安装入口，或继续推进 `DIST-PKG-005` Docker 镜像规范化
+
+- timestamp: 2026-04-13 11:05:00 CST
+  task_id: DIST-PKG-005/DIST-DEP-001
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将 `Dockerfile` 收口为 `app-runtime` 与 `worker-runtime` 两个 target；`compose.yaml` 开始显式构建并标记 `meat-memory-app:${MEAT_MEMORY_IMAGE_TAG:-local}` 和 `meat-memory-worker:${MEAT_MEMORY_IMAGE_TAG:-local}`；`.env.example`、本地/云端部署 runbook、Docker infra README 与安装打包部署方案文档同步补齐镜像名、tag 和 compose 变量约定
+  issues_decisions: 本地 compose 默认统一使用 `:local` tag，release/云端镜像则与 Git tag 保持一致；worker 镜像与 app 镜像分离命名，但继续共用一套 Dockerfile 以降低维护成本
+  next_action: 可继续推进 `DIST-CI-001`，把 Docker 镜像构建与发布顺序接入统一发布流水线；或回到 `DIST-PKG-002` 收口 npm 安装入口
+
+- timestamp: 2026-04-13 11:20:00 CST
+  task_id: DIST-DEP-002
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `infra/systemd/README.md`、`meat-memory-app.service`、`meat-memory-worker.service` 与 `meat-memory.env.example`；新增 `docs/runbook/systemd-deploy.md`，补齐 release 解压、配置目录、运行用户、systemctl 启停与日志排查说明；同时更新 infra/runbook/architecture/tasklist 入口
+  issues_decisions: 单机部署继续沿用 `config/app.toml + MEAT_MEMORY_*` 的统一配置模型，运行目录约定为 `/opt/meat-memory`、`/etc/meat-memory`、`/var/lib/meat-memory`；service 模板默认启用最小硬化设置，但不强加更激进的 sandbox 限制，避免影响不同发行版兼容性
+  next_action: 进入 `DIST-DEP-003` 完善 Helm/Kubernetes 部署，或推进 `DIST-CI-001` 统一发布流水线
+
+- timestamp: 2026-04-13 11:35:00 CST
+  task_id: DIST-CI-001
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 将 `.github/workflows/release.yml` 收口为 tag 驱动的统一发布骨架：先构建多平台二进制并发布 GitHub Release，再生成 `agent-skills-bundle.zip`，最后发布 `ghcr.io/<owner>/meat-memory-app` 与 `ghcr.io/<owner>/meat-memory-worker` 镜像；同时把 Helm 默认镜像仓库与云端 runbook 统一到 app 镜像命名
+  issues_decisions: 当前 release 流水线先正式覆盖 release assets、skills 和 Docker；npm publish 与 Homebrew bump 暂只保留为后续接入点，避免在缺少正式发布仓库地址时写入不可靠实现
+  next_action: 可继续推进 `DIST-DEP-003`，完善 Helm/Kubernetes 部署；之后再回补 `DIST-PKG-002` 与 `DIST-PKG-004`
+
+- timestamp: 2026-04-13 11:50:00 CST
+  task_id: DIST-DEP-003
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 完善 Helm/Kubernetes 部署骨架：`values.yaml` 新增 `workerImage`、`persistence.existingClaim`、`secrets.existingSecretName`；deployment 模板支持 app/worker 分镜像和现有 Secret/PVC 复用；云端 runbook 与安装打包部署方案同步补齐对应参数说明
+  issues_decisions: Helm 继续保持单 Chart、app/worker 分 deployment 的简单结构；默认仍以内置 Secret/PVC 生成为主，但允许生产环境显式复用集群已有资源，减少重复声明和迁移成本
+  next_action: 可继续推进 `DIST-DOC-002`，把安装/打包/部署入口统一对外收口；或回到 `DIST-PKG-002` / `DIST-PKG-004`
+
+- timestamp: 2026-04-13 12:05:00 CST
+  task_id: DIST-DOC-002
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `docs/runbook/install.md` 作为面向用户的安装、打包与部署总入口，覆盖 cargo install、release 二进制、agent skill bundle、Docker Compose、systemd、Helm 和 release pipeline；根 README、docs 总览、runbook README、架构设计入口和 usage guide 均已挂载该入口
+  issues_decisions: npm 与 Homebrew 仍在用户入口中标注为后续接入点，不作为已发布渠道展示；正式仓库地址和分发域名确定后再回补 `DIST-PKG-002` 与 `DIST-PKG-004`
+  next_action: 分发主链路文档已收口；后续可在正式发布信息确定后推进 npm / Homebrew，或进行提交前整理与验证
+
+- timestamp: 2026-04-13 12:20:00 CST
+  task_id: DIST-PKG-004
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `packaging/homebrew/README.md` 与 `meat-memory.rb.template`，明确 Homebrew tap、macOS release tarball、sha256 替换、brew audit/install/test 验证和后续 release workflow 自动化接入点；install runbook 与安装打包部署方案已挂载该入口
+  issues_decisions: 因正式 GitHub 仓库、tap 地址和 release 下载域名未最终确定，Formula 保留占位符，不把 Homebrew 宣称为已发布渠道；后续确认发布地址后再渲染到 tap 仓库
+  next_action: 剩余分发任务主要是 `DIST-PKG-002` npm 安装入口；可先做 npm 包装层骨架，或等待正式 release 地址确定后再收口
+
+- timestamp: 2026-04-13 12:35:00 CST
+  task_id: DIST-PKG-002
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `packaging/npm/` 包装层骨架，包含 `package.json`、`bin/meat-memory.js`、`scripts/install.js` 和 README；包装层支持 `meat-memory` / `memory-cli` 命令代理、OS/Arch 到 release tarball 的映射，以及通过 `releaseBaseUrl` 或 `MEAT_MEMORY_NPM_RELEASE_BASE_URL` 配置下载源
+  issues_decisions: 因正式 GitHub release 下载域名和 npm scope 尚未最终确认，npm 入口实现为可配置骨架；未在用户文档中宣称 npm 已发布，避免误导安装用户
+  next_action: 安装、打包、部署实施清单已全部收口；下一步建议做提交前验证、状态整理和按变更类型拆分暂存
+
+- timestamp: 2026-04-12 17:37:37 CST
+  task_id: V2.4-STO-002
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-store-md` 新增 project document projection：`ProjectDocumentFrontmatter`、单文件 markdown render/parse、按 source 分类的 documents 目录、本地 `local_path` 到 projection 路径的映射，以及按 `document_id` 扫描读取；`memory-kernel import_project_document` 在启用 Markdown store 且 storage mode 允许时会同步写出 project document projection；补齐 md store 单测和 kernel 集成测试覆盖
+  issues_decisions: project document 不继续塞进 `MEMORY.md` rollup，而是改为 source 维度的独立 markdown 文件，避免 README/runbook/API 文档等工作集互相覆盖；frontmatter 中的 `layer` 固定写 `mid_term`，因为 `ProjectDocument` 领域对象本身不单独存该字段
+  next_action: V2.4 范围已完成；如继续，可进入 V3 音频/视频多模态规划与实现
+
+- timestamp: 2026-04-12 17:25:00 CST
+  task_id: V2.4-QA-002
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `docs/scripts/v2_4-acceptance.sh`，覆盖 domain、observability、sync、PG store、kernel、HTTP、MCP、CLI 与 workspace check；接入 `docs/scripts/write-test-reports.sh` 与 `tests/reports/e2e/README.md`；实跑生成 `tests/reports/e2e/latest/v2_4-acceptance.txt` 和 archive 副本，并更新 `tests/reports/latest-run.md`
+  issues_decisions: 首次手工写 report 时发现 zsh 不支持 bash 的 `PIPESTATUS` 数组，验收主体已通过但尾注写入失败；随后改用 `bash -lc` 重新执行并成功写入 `exit_code: 0`，正式脚本本身使用 bash shebang，不受该问题影响
+  next_action: V2.4 主链路已完成；后续可进入 V3 音频/视频多模态，或回补 `V2.4-STO-002` 的 Markdown project document projection
+
+- timestamp: 2026-04-12 17:23:30 CST
+  task_id: V2.4-QA-001
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 完成 V2.4 核心回归确认：domain、sync、PG store、kernel、HTTP、MCP、CLI 与 observability 定向测试均通过；覆盖 source 多 key、Agent Context、Project Documents、本地同步计划、冲突列表与 V2.4 metrics snapshot
+  issues_decisions: 本轮将 `cargo check --workspace --all-targets` 作为跨 crate 接口一致性门禁；完整可重复验收脚本与报告产物留给 `V2.4-QA-002`
+  next_action: 进入 `V2.4-QA-002`，新增 V2.4 验收脚本与报告
+
+- timestamp: 2026-04-12 17:21:00 CST
+  task_id: V2.4-OBS-001
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 扩展 `memory-observability` 的 `v2_4` metrics snapshot，新增 source/context/docs 操作、失败、导入文档、missing 文档与冲突数量统计；Kernel 的 source、Agent Context、Project Document 导入/查询/冲突/同步计划路径均已接入埋点；HTTP Browser Console 监控概览新增 V2.4 Memory 能力指标展示
+  issues_decisions: 文档同步 apply 会复用单文档导入路径，因此导入文档数由 import 路径统计，apply 路径只补充 missing/conflicts 汇总，避免同步导入数量重复计算
+  next_action: 进入 `V2.4-QA-001`，补充 V2.4 端到端验收覆盖
+
+- timestamp: 2026-04-12 17:16:16 CST
+  task_id: V2.4-SKL-001
+  executor: Codex
+  duration: 0.1h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 更新 Codex、Claude Code/TRAE/Qoder、执行型 Agent 三套 skill 模板与 Agent skill README，补充 V2.4 的 short-term Agent Context、mid-term Project Documents、source 多 key、docs status/sync 和冲突处理说明
+  issues_decisions: 文案明确要求遇到 `missing` / `conflicts` 时先展示给用户确认，不静默覆盖本地项目文档；CLI 与 MCP 两套入口都给出最小用法
+  next_action: 进入 `V2.4-OBS-001`，增加 source/key/context/docs 维度统计
+
+- timestamp: 2026-04-12 17:14:57 CST
+  task_id: V2.4-CLI-002
+  executor: Codex
+  duration: 0.2h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-cli docs` 新增 `status` 与 `sync`，复用 `LocalProjectDocumentSyncEngine` 生成本地文档扫描计划，并通过 Kernel apply 同步计划导入 ProjectDocument；CLI e2e 已覆盖 status 预览与 sync 导入
+  issues_decisions: `docs status` 等价于 dry-run 计划输出；`docs sync --dry-run` 不写入，默认执行导入但仍只返回 missing/conflicts，不自动覆盖冲突文档
+  next_action: 进入 `V2.4-SKL-001`，更新 Agent Skill 文案说明短期上下文、项目文档同步与 source 多 key
+
+- timestamp: 2026-04-12 17:12:27 CST
+  task_id: V2.4-CLI-001
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-cli` 新增 `source create/list/keys/key-create`、`context upsert/list/promote/delete`、`docs import/list/conflicts`；补充 CLI e2e 覆盖 source 多 key、短期上下文生命周期与中期文档导入/查询/冲突列表
+  issues_decisions: CLI 管理命令统一复用 `--key` / `MEAT_MEMORY_KEY` 的认证解析；`docs sync` 暂不并入本任务，保留给 `V2.4-CLI-002` 专门实现本地文档同步 CLI
+  next_action: 进入 `V2.4-CLI-002`，实现本地文档同步 CLI
+
+- timestamp: 2026-04-12 16:55:46 CST
+  task_id: V2.4-MCP-002
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 MCP dispatcher 新增 `memory.docs.sync`、`memory.docs.search`、`memory.docs.conflicts`；项目文档同步支持 source.local_root / local_root 覆盖、dry_run 计划和执行导入；补充临时目录扫描导入与查询/冲突集成测试
+  issues_decisions: 项目文档 MCP 工具统一要求 key，按 source.owner_scope_id 做访问控制；docs.search 对应 Kernel 的文档列表 + query 过滤，作为 Agent 侧中期项目文档搜索入口
+  next_action: 进入 `V2.4-CLI-001`，实现 CLI source/context/doc 管理命令
+
+- timestamp: 2026-04-12 16:53:03 CST
+  task_id: V2.4-MCP-001
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 MCP dispatcher 新增 `memory.context.upsert`、`memory.context.list`、`memory.context.promote`、`memory.context.delete`；工具清单同步扩展到 9 个；补充 PG+Markdown 集成测试覆盖短期上下文 upsert/list/promote/delete
+  issues_decisions: MCP Agent Context 工具统一要求 key，默认使用 key 的 owner scope；额外加入 delete 工具以闭合短期上下文生命周期，并与 HTTP API 能力保持一致
+  next_action: 进入 `V2.4-MCP-002`，实现 MCP 工具扩展：项目文档
+
+- timestamp: 2026-04-12 16:50:13 CST
+  task_id: V2.4-API-003
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 HTTP API 新增 `/api/v1/sources/{source_id}/documents` 列表、`/documents/import` 导入、`/documents/conflicts` 冲突列表、`/documents/sync` 本地扫描同步；同步响应包含 planned/imported/missing/conflicts；补充临时目录扫描导入集成测试
+  issues_decisions: 文档同步入口挂在 Source 下并要求 meat memory key；同步默认使用 source.local_root，也允许请求覆盖 local_root；`dry_run=true` 只返回计划不写入，执行路径继续沿用 Kernel 的冲突报告而不静默覆盖本地文档
+  next_action: 进入 `V2.4-MCP-001`，实现 MCP 工具扩展：实时上下文
+
+- timestamp: 2026-04-12 16:46:40 CST
+  task_id: V2.4-API-002
+  executor: Codex
+  duration: 0.3h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 HTTP API 新增 `/api/v1/agent-contexts` upsert/list、`/api/v1/agent-contexts/{context_id}` delete、`/api/v1/agent-contexts/{context_id}/promote`；响应包含 source/key/scope/session/task/layer/labels/时间戳；补充 upsert/list/promote/delete 集成测试
+  issues_decisions: Agent Context HTTP 入口统一要求 meat memory key，默认使用当前 key 的 owner scope；promote 复用现有 `CreateMemoryResponse` 结构，便于 Agent 直接消费 promoted memory
+  next_action: 进入 `V2.4-API-003`，实现 HTTP API：Project Documents Sync
+
+- timestamp: 2026-04-12 16:43:35 CST
+  task_id: V2.4-API-001
+  executor: Codex
+  duration: 0.5h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 HTTP API 新增 `/api/v1/sources` 创建/列表、`/api/v1/sources/{source_id}` 详情、`/api/v1/sources/{source_id}/keys` 创建/列表；`AccessKeyResponse` 返回 `source_id`，Kernel 创建/轮换 key 保留 source 归属；补充 source 多 key 集成测试
+  issues_decisions: source 管理要求使用现有 meat memory key 认证；嵌套 source key 创建默认继承 source 的 owner scope，source kind 未显式指定时使用 `custom`，避免任意 MemorySource kind 与 key enum 强绑定
+  next_action: 进入 `V2.4-API-002`，实现 HTTP API：Agent Context
+
+- timestamp: 2026-04-12 01:15:00 CST
+  task_id: V2.4-SYN-002
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为项目文档同步新增 `ProjectDocumentConflictInput`、`ProjectDocumentConflictReport` 与 `classify_project_document_conflict`，覆盖 clean/changed/deleted/conflicted；同步计划增加 conflicts 输出，Kernel apply 结果同步返回 conflicts
+  issues_decisions: 对本地删除但远端/索引也变化的场景采用保守冲突报告，不自动删除、不自动覆盖；missing/deleted/conflicted 都只作为计划结果交给上层显式处理
+  next_action: 进入 `V2.4-API-001`，实现 HTTP API：source 多 key 管理
+
+- timestamp: 2026-04-12 01:00:00 CST
+  task_id: V2.4-SYN-001
+  executor: Codex
+  duration: 0.7h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 在 `memory-sync` 增加 `LocalProjectDocumentSyncEngine`，支持扫描本地 md/markdown/txt 文档、计算 content hash、对比历史 snapshot 并输出 clean/changed/missing 同步计划；在 `memory-kernel` 增加 `apply_project_document_sync_plan`，可将同步计划导入中期 ProjectDocument
+  issues_decisions: 本轮默认只读本地文档并导入中期索引，不自动删除或覆盖文档；missing 仅作为计划结果返回，冲突细化和双向策略进入 `V2.4-SYN-002`
+  next_action: 进入 `V2.4-SYN-002`，完善文档同步冲突策略
+
+- timestamp: 2026-04-12 00:45:00 CST
+  task_id: V2.4-KER-002
+  executor: Codex
+  duration: 0.6h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 在 `memory-kernel` 增加 MemorySource 与 ProjectDocument 服务方法，支持 source upsert/list、source key 查询、项目文档导入、artifact 关联、文档列表/关键词过滤和冲突查询；新增 Kernel 集成测试覆盖中期文档导入与冲突列表
+  issues_decisions: 文档导入时生成 `ArtifactKind::Document` artifact，并用 artifact content hash 作为 project document 的 `content_hash`；完整本地扫描和双向同步策略留到 `V2.4-SYN-*`
+  next_action: 进入 `V2.4-SYN-001`，实现本地项目文档同步引擎
+
+- timestamp: 2026-04-12 00:30:00 CST
+  task_id: V2.4-KER-001
+  executor: Codex
+  duration: 0.7h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 在 `memory-kernel` 增加 `UpsertAgentContextRequest`、`ListAgentContextsRequest`、`PromoteAgentContextRequest` 与 upsert/list/delete/promote 服务方法；补 `PgStore::get_agent_context`；新增 Kernel PG+Markdown 集成测试覆盖短期上下文提升为长期 memory
+  issues_decisions: promote 采用最小可用路径，将短期 AgentContext 转成 `RememberTextRequest` 并写入普通 Memory；layer-aware context fetch 留到后续检索编排中继续深化
+  next_action: 进入 `V2.4-KER-002`，实现中期 Project Document Kernel 服务
+
+- timestamp: 2026-04-11 23:59:00 CST
+  task_id: V2.4-STO-001
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 为 `memory-store-pg` 增加 source/context/document CRUD，支持按 source 查询多个 access key；新增 PG 集成测试覆盖 source 多 key、短期 context 往返/删除、项目文档冲突查询
+  issues_decisions: Store 层先提供稳定 CRUD 与 source-key 查询；layer-aware 检索组合放到后续 Kernel 服务接入，避免把 store 查询策略和业务编排揉在一起
+  next_action: 进入 `V2.4-KER-001`，实现短期 Agent Context Kernel 服务
+
+- timestamp: 2026-04-11 23:59:00 CST
+  task_id: V2.4-DOM-001/V2.4-DOM-002/V2.4-DB-001
+  executor: Codex
+  duration: 0.9h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `MemoryLayer`、`MemorySource`、`AgentContext`、`ProjectDocument` 及相关 ID/状态枚举；`AccessKey` 与 `RequestContext` 增加可选 `source_id`；新增 `migrations/0006_memory_v2_4_layers_sources.sql`
+  issues_decisions: source 采用兼容式接入，保留 `source_kind` 并用可选 `source_id` 支持每个来源多个 key；短期上下文和项目文档先独立建模，避免污染长期 `Memory` 主表；顺手为 PG migrate 增加 advisory lock，避免并发集成测试重复创建 extension 的竞态
+  next_action: 进入 `V2.4-STO-001`，实现 source/context/document 的 PostgreSQL CRUD 与 source-key 查询
+
+- timestamp: 2026-04-11 23:59:00 CST
+  task_id: V2.4-DOC-001
+  executor: Codex
+  duration: 0.4h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 `docs/meat-memory-scheme-v2_4.md`，并在 `docs/tasks/tasklist.md`、`docs/tasks/project-index.md`、`docs/README.md` 中登记 V2.4 短期/中期 Memory、项目文档同步与 source 多 key 方案
+  issues_decisions: V2.4 采用 `short_term / mid_term / long_term` 生命周期分层；source 升级为一等对象，每个 source 可挂多个 access key；项目文档同步默认不静默覆盖本地文件
+  next_action: 从 `V2.4-DOM-001`、`V2.4-DOM-002` 和 `V2.4-DB-001` 开始进入领域模型与数据迁移设计
+
 - timestamp: 2026-04-11 13:10:00 CST
   task_id: V2.3-DOC-001
   executor: Codex
@@ -18,7 +308,7 @@
   duration: 0.8h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 补齐攻击面与安全检查矩阵，新增 `scripts/security-report.sh` 并让 `write-test-reports.sh` 产出真实安全报告
+  key_output: 补齐攻击面与安全检查矩阵，新增 `docs/scripts/security-report.sh` 并让 `write-test-reports.sh` 产出真实安全报告
   issues_decisions: 安全报告先聚焦 HTTP/MCP 敏感入口、越权与 payload 边界；后续再继续拆到更细粒度的专项用例集
   next_action: 继续推进 `V2.3-SEC-002/003/004/005` 与 `V2.3-REF-002/003`
 
@@ -48,8 +338,8 @@
   duration: 0.2h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 新增 `scripts/test-required.sh`，并将 `just test` 与 `.githooks/pre-commit` 收口到该入口，确保安全测试成为每次标准验证的一部分
-  issues_decisions: 安全测试不再依赖人工额外执行；后续团队统一使用 `./scripts/test-required.sh` 作为必跑入口
+  key_output: 新增 `docs/scripts/test-required.sh`，并将 `just test` 与 `.githooks/pre-commit` 收口到该入口，确保安全测试成为每次标准验证的一部分
+  issues_decisions: 安全测试不再依赖人工额外执行；后续团队统一使用 `./docs/scripts/test-required.sh` 作为必跑入口
   next_action: 无，当前需求已完成
 
 - timestamp: 2026-04-02T08:34:30Z
@@ -158,7 +448,7 @@
   duration: 0.8h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 创建并验证 `scripts/verify.sh`、`scripts/bootstrap.sh`、`scripts/dev-db-up.sh`、`scripts/dev-db-down.sh`，本地已可跑 `cargo fmt --check`、`cargo clippy`、`cargo check`、`cargo test`
+  key_output: 创建并验证 `docs/scripts/verify.sh`、`docs/scripts/bootstrap.sh`、`docs/scripts/dev-db-up.sh`、`docs/scripts/dev-db-down.sh`，本地已可跑 `cargo fmt --check`、`cargo clippy`、`cargo check`、`cargo test`
   issues_decisions: `verify.sh` 中 `clippy` 版本检查最初命令写法不兼容，已改为 `cargo clippy -V`；同时把 `pgvector-target` 检查纳入脚本
   next_action: 继续补充依赖安全门禁和本地开发便捷脚本
 
@@ -168,7 +458,7 @@
   duration: 1.5h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 初始化 Git 仓库和 `.gitignore`，生成 `crates/`、`config/`、`scripts/`、`tests/`、`.github/`、`docs/` 子目录，补齐 README、CHANGELOG、LICENSE、Issue/PR 模板、CI skeleton、Dockerfile、`.editorconfig`
+  key_output: 初始化 Git 仓库和 `.gitignore`，生成 `crates/`、`config/`、`docs/scripts/`、`tests/`、`.github/`、`docs/` 子目录，补齐 README、CHANGELOG、LICENSE、Issue/PR 模板、CI skeleton、Dockerfile、`.editorconfig`
   issues_decisions: 许可证在未给定偏好时默认选用 MIT；当前 Docker 侧先提供最小可运行骨架与 pgvector 本地栈，`app+worker` 的完整 compose 拓扑留到后续 `MM-DEVX-007`
   next_action: 开始替换各 crate 默认模板，实现领域模型、配置层、核心服务和运行入口
 
@@ -238,7 +528,7 @@
   duration: 0.7h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 新增 `.env.example`、`justfile`、`.githooks/pre-commit`、`.githooks/commit-msg`、`scripts/install-hooks.sh`，并验证 `docker compose` 的 `app+pgvector+worker` 运行正常，`/healthz` 与 `/api/v1/meta` 返回成功
+  key_output: 新增 `.env.example`、`justfile`、`.githooks/pre-commit`、`.githooks/commit-msg`、`docs/scripts/install-hooks.sh`，并验证 `docker compose` 的 `app+pgvector+worker` 运行正常，`/healthz` 与 `/api/v1/meta` 返回成功
   issues_decisions: 本地 hooks 通过 `git config core.hooksPath .githooks` 安装，避免污染全局 Git；`bootstrap.sh` 也改为在仓库场景下自动安装 hooks，减少重复手工操作
   next_action: 进入 `memory-kernel`、policy、extract 与 HTTP 写入链路
 
@@ -348,7 +638,7 @@
   duration: 2.0h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 补齐 `docs/agent-integration-v1.md`、HTTP/MCP/CLI 使用文档、本地与云部署 runbook、`config/cloud.example.toml`、`infra/helm/meat-memory`、`scripts/v1-acceptance.sh`、CLI E2E 测试，并将 MCP HTTP 路由真实接入 `memory-app` 与 `memory-cli serve`
+  key_output: 补齐 `docs/agent-integration-v1.md`、HTTP/MCP/CLI 使用文档、本地与云部署 runbook、`config/cloud.example.toml`、`infra/helm/meat-memory`、`docs/scripts/v1-acceptance.sh`、CLI E2E 测试，并将 MCP HTTP 路由真实接入 `memory-app` 与 `memory-cli serve`
   issues_decisions: 本轮在部署 smoke 中发现 `.cargo/config.toml` 全局固定 `/usr/bin/clang` 会导致 Linux Docker 构建失败，因此改为只对 Apple target 固定 clang；同时统一 `memory-worker` 二进制命名，修正 Dockerfile/compose/justfile 的入口不一致问题；云部署包在 V1 采用“单实例 app + worker 默认关闭 + Helm 最小闭环”的保守策略，避免误导为已完成共享卷集群形态
   next_action: 继续推进 `V1-ZH-001` 中文系统化验收集，随后整理 V1 提交与 release 收口
 
@@ -368,7 +658,7 @@
   duration: 1.4h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 补齐 `tests/integration/v1-zh-acceptance.md` 中文系统化验收语料，并在 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 增加中文回归；同时把 Browser Console 首页 `/` 与图片 failover `llm_notice` 纳入回归，确认 `cargo test -p memory-extract --lib --quiet`、`cargo test -p memory-kernel --test kernel_flow_tests --quiet`、`cargo test -p memory-http --test http_api_tests --quiet`、`cargo test -p memory-mcp --test mcp_tools_tests --quiet`、`cargo test -p memory-cli --test cli_e2e --quiet`、`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh` 全部通过，并清理根目录 `*.profraw` 残留、更新 `.gitignore`
+  key_output: 补齐 `tests/integration/v1-zh-acceptance.md` 中文系统化验收语料，并在 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 增加中文回归；同时把 Browser Console 首页 `/` 与图片 failover `llm_notice` 纳入回归，确认 `cargo test -p memory-extract --lib --quiet`、`cargo test -p memory-kernel --test kernel_flow_tests --quiet`、`cargo test -p memory-http --test http_api_tests --quiet`、`cargo test -p memory-mcp --test mcp_tools_tests --quiet`、`cargo test -p memory-cli --test cli_e2e --quiet`、`cargo test --workspace --lib --bins --quiet`、`./docs/scripts/v1-acceptance.sh` 全部通过，并清理根目录 `*.profraw` 残留、更新 `.gitignore`
   issues_decisions: 中文关系抽取验收样例采用“重复显式主语”的稳定写法，以规避当前抽取器对省略主语跨分句推断的不确定性；CLI failover 回归沿用“从首个 `{` 开始解析 JSON”的兼容策略，避免日志前缀影响断言；覆盖率原始产物继续视为临时噪音，不纳入长期项目记忆
   next_action: 收口 V1 版本提交边界、整理 release 说明，并开始准备 V2 的 scope/多语言规划
 
@@ -408,7 +698,7 @@
   duration: 1.5h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 新增 `scripts/v2-perf.sh` 与 `memory-kernel` / `memory-sync` ignored perf smoke tests，输出 `target/perf/*.txt` 基准报告；同时补强 `kernel/http/mcp/sync` 外部测试，覆盖 markdown-only `get_memory + promote`、HTTP `/api/v1/memories/promote`、MCP `memory.promote`、file-backed sync reopen/status/conflict 回归
+  key_output: 新增 `docs/scripts/v2-perf.sh` 与 `memory-kernel` / `memory-sync` ignored perf smoke tests，输出 `target/perf/*.txt` 基准报告；同时补强 `kernel/http/mcp/sync` 外部测试，覆盖 markdown-only `get_memory + promote`、HTTP `/api/v1/memories/promote`、MCP `memory.promote`、file-backed sync reopen/status/conflict 回归
   issues_decisions: 性能测试先采用 deterministic smoke benchmark 而非引入额外 benchmark 框架，优先确保 CI/本地都能低门槛复现并生成可比对文本报告；integration 强化重点放在 V2 新增的跨 scope promotion 与 file-backed sync 持久化链路，而不是重复已有 remember/search happy path
   next_action: 若进入 V3，可在此基础上接入更大规模数据集、并发压测与长期 trend snapshot
 
@@ -418,9 +708,9 @@
   duration: 1.2h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 新增 `tests/reports/` 目录体系与分类 `README.md`，提供 `scripts/write-test-reports.sh` 一键生成 unit/integration/e2e/perf 报告并归档到 `latest/archive`；同时调整 `scripts/v2-perf.sh` 默认输出到 `tests/reports/perf/latest/`，清理旧的 `target/perf` 临时产物路径
+  key_output: 新增 `tests/reports/` 目录体系与分类 `README.md`，提供 `docs/scripts/write-test-reports.sh` 一键生成 unit/integration/e2e/perf 报告并归档到 `latest/archive`；同时调整 `docs/scripts/v2-perf.sh` 默认输出到 `tests/reports/perf/latest/`，清理旧的 `target/perf` 临时产物路径
   issues_decisions: 报告体系先采用“可读文本日志 + perf 原始 JSON 行输出 + latest/archive 双层目录”的轻量方案，不引入额外测试报告框架；`security` 目录先保留 placeholder，待后续补上可执行安全检查后再写实跑脚本
-  next_action: 后续如需接入 CI，可直接把 `./scripts/write-test-reports.sh` 作为统一测试报告入口
+  next_action: 后续如需接入 CI，可直接把 `./docs/scripts/write-test-reports.sh` 作为统一测试报告入口
 
 - timestamp: 2026-04-11 (Asia/Shanghai)
   task_id: V2.1-CLI-001/V2.1-CLI-002/V2.1-SKL-001/V2.1-SKL-002/V2.1-SKL-003/V2.1-TUI-001
@@ -458,7 +748,7 @@
   duration: 0.4h
   status: ⏳
   change_hash: N/A-uncommitted
-  key_output: 新增 `scripts/export-agent-skills.sh`，支持按 `codex`、`claude-code`、`execution-agent` 或 `all` 导出 skill 模板到指定目录，并自动生成 bundle `README.md`；同步更新 `docs/agent-skills/README.md` 的导出用法
+  key_output: 新增 `docs/scripts/export-agent-skills.sh`，支持按 `codex`、`claude-code`、`execution-agent` 或 `all` 导出 skill 模板到指定目录，并自动生成 bundle `README.md`；同步更新 `docs/agent-skills/README.md` 的导出用法
   issues_decisions: 先采用“仓库内源模板 + 导出脚本”的轻量分发方式，不直接写入用户全局 skill 目录，避免污染本机环境；导出目录默认放到 `dist/agent-skills`，也支持显式指定输出路径
   next_action: 若继续推进，可补平台专用 metadata 文件，或让 CLI 直接包装 skill 导出命令
 
@@ -508,8 +798,8 @@
   duration: 0.5h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 新增并实跑 `scripts/v2_1-acceptance.sh`，覆盖 `memory-cli config check`、`mcp info`、`tui init`、`skills export` 与导出结果结构校验；同时将其接入 `scripts/write-test-reports.sh`，生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并把索引写入 `tests/reports/latest-run.md`
-  issues_decisions: 在沙箱内刷新统一报告时，集成测试因本地 PostgreSQL 访问受限出现 `Operation not permitted (os error 1)`；改为在已获授权的非沙箱环境重跑 `./scripts/write-test-reports.sh` 后恢复正常，说明失败源自执行环境限制而非代码回归
+  key_output: 新增并实跑 `docs/scripts/v2_1-acceptance.sh`，覆盖 `memory-cli config check`、`mcp info`、`tui init`、`skills export` 与导出结果结构校验；同时将其接入 `docs/scripts/write-test-reports.sh`，生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并把索引写入 `tests/reports/latest-run.md`
+  issues_decisions: 在沙箱内刷新统一报告时，集成测试因本地 PostgreSQL 访问受限出现 `Operation not permitted (os error 1)`；改为在已获授权的非沙箱环境重跑 `./docs/scripts/write-test-reports.sh` 后恢复正常，说明失败源自执行环境限制而非代码回归
   next_action: 继续推进 `V2.1-DOC-001` 的剩余 README/runbook 收口，或转入下一阶段的交互式 TUI 能力
 
 - timestamp: 2026-04-11 (Asia/Shanghai)
@@ -518,7 +808,7 @@
   duration: 0.6h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 为 `memory-cli tui init` 增加 `--interactive` 交互问答模式，支持逐步选择 MCP 开关、数据库 URL、Markdown/Assets 根目录、四类主模型 alias、数据库检查和配置写出；同时补齐交互模式单测、CLI 文档示例，并把 `scripts/v2_1-acceptance.sh` 扩展为覆盖交互式 smoke
+  key_output: 为 `memory-cli tui init` 增加 `--interactive` 交互问答模式，支持逐步选择 MCP 开关、数据库 URL、Markdown/Assets 根目录、四类主模型 alias、数据库检查和配置写出；同时补齐交互模式单测、CLI 文档示例，并把 `docs/scripts/v2_1-acceptance.sh` 扩展为覆盖交互式 smoke
   issues_decisions: 这一轮优先采用标准输入/输出驱动的轻量交互，不引入额外 TUI 依赖，以保持脚本化兼容和实现稳定；`--interactive` 明确不与 `--json` 组合，避免破坏 JSON 输出格式
   next_action: 若继续推进 TUI，可再升级为方向键/菜单式选择器，或转入 CLI/MCP 的错误提示优化收口
 
@@ -558,7 +848,7 @@
   duration: 0.8h
   status: ✅
   change_hash: N/A-uncommitted
-  key_output: 收口 V2.1 全量范围：补齐 `mcp info --check-http` 本地连通性检查；让交互式 TUI 的最终结果面板跟随语言切换；将英文交互流程纳入 `scripts/v2_1-acceptance.sh`；新增 `docs/runbook/v2_1-quickstart.md` 并完成 README/runbook 索引收口。至此 V2.1 的 CLI、MCP、Agent skill、TUI、文档与验收均已完成并可独立交付
+  key_output: 收口 V2.1 全量范围：补齐 `mcp info --check-http` 本地连通性检查；让交互式 TUI 的最终结果面板跟随语言切换；将英文交互流程纳入 `docs/scripts/v2_1-acceptance.sh`；新增 `docs/runbook/v2_1-quickstart.md` 并完成 README/runbook 索引收口。至此 V2.1 的 CLI、MCP、Agent skill、TUI、文档与验收均已完成并可独立交付
   issues_decisions: 统一采用“沙箱友好的验收方式”，避免依赖测试内临时监听端口；`mcp info --check-http` 在服务未启动时明确返回 `unreachable`，保持诊断信息可预期而不是静默失败
   next_action: V2.1 已完成；后续可转入 V3 多模态能力，或继续增强全屏式 TUI 体验
 
@@ -590,7 +880,7 @@
   change_hash: N/A-uncommitted
   key_output: 新增 `docs/meat-memory-scheme-v3.md`，基于 `meat-memory-scheme-v2.md` 汇总 V2/V2.1 已完成能力、配置统一化结果、当前工程基线，以及 V3 音频/视频全多模态规划；同步更新 `docs/README.md` 文档索引
   issues_decisions: 将 `Scheme V3` 明确区分为“当前方案文档版本”和“产品 V3 全多模态阶段”，避免把已完成的 V2.1 工程基线与后续音视频任务混在同一个完成状态里
-  next_action: 后续进入 V3 实现前，可继续细化音频/视频 object schema、asset metadata、timeline evidence 与 `scripts/v3-acceptance.sh`
+  next_action: 后续进入 V3 实现前，可继续细化音频/视频 object schema、asset metadata、timeline evidence 与 `docs/scripts/v3-acceptance.sh`
 
 - timestamp: 2026-04-11 (Asia/Shanghai)
   task_id: V2.2-IDX-002/V2.2-IDX-003/V2.2-QA-002

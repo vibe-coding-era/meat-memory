@@ -1,6 +1,8 @@
 use memory_domain::{
-    AccessKey, AccessKeyStatus, Artifact, ArtifactKind, KeyScopeKind, KeySourceKind, Memory,
-    MemoryKind, Scope, ScopeId, ScopeType, StorageMode, Visibility, hash_access_key,
+    AccessKey, AccessKeyStatus, AgentContext, Artifact, ArtifactKind, DocumentConflictState,
+    DocumentSyncState, KeyScopeKind, KeySourceKind, Memory, MemoryKind, MemorySource,
+    ProjectDocument, Scope, ScopeId, ScopeType, SourceSyncMode, StorageMode, Visibility,
+    hash_access_key,
 };
 use memory_store_pg::PgStore;
 
@@ -202,4 +204,150 @@ async fn pg_store_persists_access_key_and_isolation_links() {
         .unwrap()
         .unwrap();
     assert_eq!(updated.status, AccessKeyStatus::Disabled);
+}
+
+#[tokio::test]
+async fn pg_store_persists_v2_4_sources_contexts_and_documents() {
+    let store = PgStore::connect(&test_database_url()).await.unwrap();
+    store.migrate().await.unwrap();
+
+    let scope_id = ScopeId::new();
+    let scope = Scope::new_with_id(
+        scope_id.clone(),
+        ScopeType::Project,
+        "V2.4 Source Scope",
+        format!("integration/v2_4/{}", scope_id.as_str()),
+        None,
+    )
+    .unwrap();
+    store.seed_scope_definition(&scope).await.unwrap();
+
+    let source = MemorySource::new("cli", "codex-local", "rou", scope_id.clone())
+        .unwrap()
+        .with_source_uri("agent://codex/local")
+        .unwrap()
+        .with_local_root("/Users/Rou/dev_projects/meat-memory")
+        .unwrap()
+        .with_sync_mode(SourceSyncMode::IndexOnly);
+    store.upsert_memory_source(&source).await.unwrap();
+
+    let loaded_source = store.get_memory_source(&source.id).await.unwrap().unwrap();
+    assert_eq!(loaded_source.display_name, "codex-local");
+    assert_eq!(loaded_source.sync_mode, SourceSyncMode::IndexOnly);
+    assert_eq!(
+        store
+            .list_memory_sources(&scope_id, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let key_a = AccessKey::new(
+        &format!("mmk_v24_a_{}", scope_id.as_str()),
+        "codex-a",
+        KeySourceKind::Cli,
+        "rou",
+        scope_id.clone(),
+        KeyScopeKind::Personal,
+        StorageMode::All,
+        false,
+    )
+    .unwrap()
+    .with_source_id(source.id.clone());
+    let key_b = AccessKey::new(
+        &format!("mmk_v24_b_{}", scope_id.as_str()),
+        "codex-b",
+        KeySourceKind::Cli,
+        "rou",
+        scope_id.clone(),
+        KeyScopeKind::Personal,
+        StorageMode::File,
+        false,
+    )
+    .unwrap()
+    .with_source_id(source.id.clone());
+    store.upsert_access_key(&key_a).await.unwrap();
+    store.upsert_access_key(&key_b).await.unwrap();
+
+    let source_keys = store
+        .list_access_keys_for_source(&source.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(source_keys.len(), 2);
+    assert!(
+        source_keys
+            .iter()
+            .all(|key| key.source_id == Some(source.id.clone()))
+    );
+
+    let mut context = AgentContext::new(
+        scope_id.clone(),
+        "session-v2-4",
+        "Current V2.4 task",
+        "Implement PG store CRUD for source/context/document.",
+    )
+    .unwrap();
+    context.source_id = Some(source.id.clone());
+    context.key_id = Some(key_a.id.clone());
+    context.task_id = Some("V2.4-STO-001".to_string());
+    context.labels = vec!["v2.4".to_string(), "store".to_string()];
+    store.upsert_agent_context(&context).await.unwrap();
+
+    let contexts = store
+        .list_agent_contexts(&scope_id, "session-v2-4", Some("V2.4-STO-001"), 10)
+        .await
+        .unwrap();
+    assert_eq!(contexts.len(), 1);
+    assert_eq!(contexts[0].source_id, Some(source.id.clone()));
+    assert_eq!(
+        contexts[0].labels,
+        vec!["v2.4".to_string(), "store".to_string()]
+    );
+
+    store.delete_agent_context(&context.id).await.unwrap();
+    assert!(
+        store
+            .list_agent_contexts(&scope_id, "session-v2-4", None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let mut document = ProjectDocument::new(
+        source.id.clone(),
+        scope_id.clone(),
+        "file:///Users/Rou/dev_projects/meat-memory/docs/README.md",
+        "Docs README",
+        "sha256:v24",
+    )
+    .unwrap();
+    document.local_path = Some("/Users/Rou/dev_projects/meat-memory/docs/README.md".to_string());
+    document.sync_state = DocumentSyncState::Conflicted;
+    document.conflict_state = DocumentConflictState::BothChanged;
+    store.upsert_project_document(&document).await.unwrap();
+
+    let loaded_document = store
+        .get_project_document(&source.id, &document.canonical_uri)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded_document.title, "Docs README");
+    assert_eq!(loaded_document.sync_state, DocumentSyncState::Conflicted);
+
+    let documents = store
+        .list_project_documents_for_source(&source.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(documents.len(), 1);
+
+    let conflicts = store
+        .list_project_document_conflicts(&source.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(
+        conflicts[0].conflict_state,
+        DocumentConflictState::BothChanged
+    );
 }

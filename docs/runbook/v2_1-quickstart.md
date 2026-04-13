@@ -71,7 +71,7 @@ cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-
 ## 5. 运行 V2.1 验收
 
 ```bash
-./scripts/v2_1-acceptance.sh
+./docs/scripts/v2_1-acceptance.sh
 ```
 
 当前覆盖：

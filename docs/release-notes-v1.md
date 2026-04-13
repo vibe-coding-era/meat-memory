@@ -35,7 +35,7 @@
 | 入口 | 用途 |
 | --- | --- |
 | `cargo test --workspace --lib --bins --quiet` | 工作区主回归 |
-| `./scripts/v1-acceptance.sh` | V1 自动化验收入口 |
+| `./docs/scripts/v1-acceptance.sh` | V1 自动化验收入口 |
 | `docker compose config --quiet` | 本地部署编排校验 |
 | `helm lint infra/helm/meat-memory` | 云部署 chart 校验 |
 

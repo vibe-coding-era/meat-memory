@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use memory_domain::{Episode, Memory};
+use memory_domain::{Episode, Memory, MemoryLayer, ProjectDocument, SourceId};
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -55,6 +55,29 @@ pub struct EpisodeFrontmatter {
     pub ended_at: Option<String>,
     #[serde(default)]
     pub participants: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectDocumentFrontmatter {
+    pub id: String,
+    pub kind: String,
+    pub tenant: String,
+    pub source_id: String,
+    pub scope: String,
+    pub layer: String,
+    pub title: String,
+    pub canonical_uri: String,
+    #[serde(default)]
+    pub local_path: Option<String>,
+    pub content_hash: String,
+    pub sync_state: String,
+    pub conflict_state: String,
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+    #[serde(default)]
+    pub memory_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 pub fn render_frontmatter<T: Serialize>(value: &T) -> Result<String> {
@@ -118,6 +141,39 @@ impl EpisodeFrontmatter {
     }
 }
 
+impl ProjectDocumentFrontmatter {
+    pub fn from_project_document(
+        document: &ProjectDocument,
+        tenant: &str,
+        source_id: &SourceId,
+    ) -> Result<Self> {
+        Ok(Self {
+            id: document.id.as_str().to_string(),
+            kind: "project_document".to_string(),
+            tenant: tenant.to_string(),
+            source_id: source_id.as_str().to_string(),
+            scope: document.scope_id.as_str().to_string(),
+            layer: MemoryLayer::MidTerm.as_str().to_string(),
+            title: document.title.clone(),
+            canonical_uri: document.canonical_uri.clone(),
+            local_path: document.local_path.clone(),
+            content_hash: document.content_hash.clone(),
+            sync_state: document.sync_state.as_str().to_string(),
+            conflict_state: document.conflict_state.as_str().to_string(),
+            artifact_id: document
+                .artifact_id
+                .as_ref()
+                .map(|artifact_id| artifact_id.as_str().to_string()),
+            memory_id: document
+                .memory_id
+                .as_ref()
+                .map(|memory_id| memory_id.as_str().to_string()),
+            created_at: format_timestamp(document.created_at)?,
+            updated_at: format_timestamp(document.updated_at)?,
+        })
+    }
+}
+
 fn format_timestamp(value: OffsetDateTime) -> Result<String> {
     value
         .format(&Rfc3339)
@@ -169,12 +225,13 @@ fn episode_kind_to_str(kind: memory_domain::EpisodeKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        EpisodeFrontmatter, MemoryFrontmatter, MemoryFrontmatterScores, episode_kind_to_str,
-        format_timestamp, memory_kind_to_str, render_frontmatter, sensitivity_to_str,
-        visibility_to_str,
+        EpisodeFrontmatter, MemoryFrontmatter, MemoryFrontmatterScores, ProjectDocumentFrontmatter,
+        episode_kind_to_str, format_timestamp, memory_kind_to_str, render_frontmatter,
+        sensitivity_to_str, visibility_to_str,
     };
     use memory_domain::{
-        Episode, EpisodeKind, Memory, MemoryKind, MemoryScores, ScopeId, Sensitivity, Visibility,
+        DocumentConflictState, DocumentSyncState, Episode, EpisodeKind, Memory, MemoryKind,
+        MemoryScores, ProjectDocument, ScopeId, Sensitivity, SourceId, Visibility,
     };
     use time::macros::datetime;
 
@@ -205,6 +262,24 @@ mod tests {
         episode.id = memory_domain::EpisodeId::from_string("epi_frontmatter");
         episode.started_at = datetime!(2025-01-02 03:04:05 UTC);
         episode
+    }
+
+    fn sample_project_document() -> ProjectDocument {
+        let mut document = ProjectDocument::new(
+            SourceId::from_string("src_frontmatter"),
+            ScopeId::from_string("scp_frontmatter"),
+            "file:///tmp/README.md",
+            "README",
+            "sha256:frontmatter",
+        )
+        .expect("project document should build");
+        document.id = memory_domain::ProjectDocumentId::from_string("doc_frontmatter");
+        document.local_path = Some("/tmp/README.md".to_string());
+        document.sync_state = DocumentSyncState::Changed;
+        document.conflict_state = DocumentConflictState::LocalChanged;
+        document.created_at = datetime!(2025-01-02 03:04:05 UTC);
+        document.updated_at = datetime!(2025-01-03 04:05:06 UTC);
+        document
     }
 
     #[test]
@@ -319,6 +394,32 @@ mod tests {
                 assert_eq!(frontmatter.ended_at, None);
             }
         }
+    }
+
+    #[test]
+    fn project_document_frontmatter_from_document_maps_all_fields() {
+        let document = sample_project_document();
+        let frontmatter = ProjectDocumentFrontmatter::from_project_document(
+            &document,
+            "tenant-a",
+            &SourceId::from_string("src_frontmatter"),
+        )
+        .expect("project document should map");
+
+        assert_eq!(frontmatter.id, "doc_frontmatter");
+        assert_eq!(frontmatter.kind, "project_document");
+        assert_eq!(frontmatter.tenant, "tenant-a");
+        assert_eq!(frontmatter.source_id, "src_frontmatter");
+        assert_eq!(frontmatter.scope, "scp_frontmatter");
+        assert_eq!(frontmatter.layer, "mid_term");
+        assert_eq!(frontmatter.title, "README");
+        assert_eq!(frontmatter.canonical_uri, "file:///tmp/README.md");
+        assert_eq!(frontmatter.local_path.as_deref(), Some("/tmp/README.md"));
+        assert_eq!(frontmatter.content_hash, "sha256:frontmatter");
+        assert_eq!(frontmatter.sync_state, "changed");
+        assert_eq!(frontmatter.conflict_state, "local_changed");
+        assert_eq!(frontmatter.created_at, "2025-01-02T03:04:05Z");
+        assert_eq!(frontmatter.updated_at, "2025-01-03T04:05:06Z");
     }
 
     #[test]

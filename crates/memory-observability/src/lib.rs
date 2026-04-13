@@ -49,6 +49,7 @@ pub struct MetricsSnapshot {
     pub search: SearchMetricsSnapshot,
     pub write: WriteMetricsSnapshot,
     pub key: KeyMetricsSnapshot,
+    pub v2_4: V24MetricsSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -59,6 +60,19 @@ pub struct KeyMetricsSnapshot {
     pub file_mode_operations: u64,
     pub vector_mode_operations: u64,
     pub all_mode_operations: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct V24MetricsSnapshot {
+    pub source_operations: u64,
+    pub source_failures: u64,
+    pub context_operations: u64,
+    pub context_failures: u64,
+    pub docs_operations: u64,
+    pub docs_failures: u64,
+    pub docs_imported_documents: u64,
+    pub docs_missing_documents: u64,
+    pub docs_conflicts: u64,
 }
 
 #[derive(Debug)]
@@ -79,6 +93,15 @@ struct ObservabilityRegistry {
     key_file_mode: AtomicU64,
     key_vector_mode: AtomicU64,
     key_all_mode: AtomicU64,
+    source_operations: AtomicU64,
+    source_failures: AtomicU64,
+    context_operations: AtomicU64,
+    context_failures: AtomicU64,
+    docs_operations: AtomicU64,
+    docs_failures: AtomicU64,
+    docs_imported_documents: AtomicU64,
+    docs_missing_documents: AtomicU64,
+    docs_conflicts: AtomicU64,
     search_latency: Mutex<LatencyReservoir>,
     write_latency: Mutex<LatencyReservoir>,
 }
@@ -102,6 +125,15 @@ impl Default for ObservabilityRegistry {
             key_file_mode: AtomicU64::new(0),
             key_vector_mode: AtomicU64::new(0),
             key_all_mode: AtomicU64::new(0),
+            source_operations: AtomicU64::new(0),
+            source_failures: AtomicU64::new(0),
+            context_operations: AtomicU64::new(0),
+            context_failures: AtomicU64::new(0),
+            docs_operations: AtomicU64::new(0),
+            docs_failures: AtomicU64::new(0),
+            docs_imported_documents: AtomicU64::new(0),
+            docs_missing_documents: AtomicU64::new(0),
+            docs_conflicts: AtomicU64::new(0),
             search_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
             write_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
         }
@@ -257,6 +289,47 @@ pub fn record_key_operation(storage_mode: &str, success: bool) {
     }
 }
 
+pub fn record_source_operation(success: bool) {
+    let registry = registry();
+    registry.source_operations.fetch_add(1, Ordering::Relaxed);
+    if !success {
+        registry.source_failures.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn record_context_operation(success: bool) {
+    let registry = registry();
+    registry.context_operations.fetch_add(1, Ordering::Relaxed);
+    if !success {
+        registry.context_failures.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn record_docs_operation(
+    success: bool,
+    imported_documents: usize,
+    missing_documents: usize,
+    conflicts: usize,
+) {
+    let registry = registry();
+    registry.docs_operations.fetch_add(1, Ordering::Relaxed);
+    if success {
+        registry.docs_imported_documents.fetch_add(
+            imported_documents.min(u64::MAX as usize) as u64,
+            Ordering::Relaxed,
+        );
+        registry.docs_missing_documents.fetch_add(
+            missing_documents.min(u64::MAX as usize) as u64,
+            Ordering::Relaxed,
+        );
+        registry
+            .docs_conflicts
+            .fetch_add(conflicts.min(u64::MAX as usize) as u64, Ordering::Relaxed);
+    } else {
+        registry.docs_failures.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 pub fn metrics_snapshot() -> MetricsSnapshot {
     let registry = registry();
     let hit_queries = registry.search_hits.load(Ordering::Relaxed);
@@ -287,6 +360,17 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
             file_mode_operations: registry.key_file_mode.load(Ordering::Relaxed),
             vector_mode_operations: registry.key_vector_mode.load(Ordering::Relaxed),
             all_mode_operations: registry.key_all_mode.load(Ordering::Relaxed),
+        },
+        v2_4: V24MetricsSnapshot {
+            source_operations: registry.source_operations.load(Ordering::Relaxed),
+            source_failures: registry.source_failures.load(Ordering::Relaxed),
+            context_operations: registry.context_operations.load(Ordering::Relaxed),
+            context_failures: registry.context_failures.load(Ordering::Relaxed),
+            docs_operations: registry.docs_operations.load(Ordering::Relaxed),
+            docs_failures: registry.docs_failures.load(Ordering::Relaxed),
+            docs_imported_documents: registry.docs_imported_documents.load(Ordering::Relaxed),
+            docs_missing_documents: registry.docs_missing_documents.load(Ordering::Relaxed),
+            docs_conflicts: registry.docs_conflicts.load(Ordering::Relaxed),
         },
     }
 }
@@ -319,8 +403,9 @@ fn rate(part: u64, total: u64) -> f64 {
 mod tests {
     use super::{
         LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
-        record_key_operation, record_search_failure, record_search_success, record_write_failure,
-        record_write_success,
+        record_context_operation, record_docs_operation, record_key_operation,
+        record_search_failure, record_search_success, record_source_operation,
+        record_write_failure, record_write_success,
     };
     use std::time::Duration;
 
@@ -392,6 +477,10 @@ mod tests {
         record_key_operation("file", true);
         record_key_operation("vector", false);
         record_key_operation("all", true);
+        record_source_operation(true);
+        record_context_operation(true);
+        record_docs_operation(true, 2, 1, 1);
+        record_docs_operation(false, 0, 0, 0);
 
         let after = metrics_snapshot();
 
@@ -457,6 +546,48 @@ mod tests {
                 .keyed_operations
                 .saturating_sub(before.key.keyed_operations)
                 >= 3
+        );
+        assert!(
+            after
+                .v2_4
+                .source_operations
+                .saturating_sub(before.v2_4.source_operations)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_4
+                .context_operations
+                .saturating_sub(before.v2_4.context_operations)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_4
+                .docs_operations
+                .saturating_sub(before.v2_4.docs_operations)
+                >= 2
+        );
+        assert!(
+            after
+                .v2_4
+                .docs_imported_documents
+                .saturating_sub(before.v2_4.docs_imported_documents)
+                >= 2
+        );
+        assert!(
+            after
+                .v2_4
+                .docs_missing_documents
+                .saturating_sub(before.v2_4.docs_missing_documents)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_4
+                .docs_conflicts
+                .saturating_sub(before.v2_4.docs_conflicts)
+                >= 1
         );
         assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);
         assert!(

@@ -6,17 +6,28 @@ V1 的云部署目标是“单节点、单实例可用”，不是一开始就�
 
 当前仓库已经提供：
 
-- 运行镜像：`Dockerfile`
+- 运行镜像：`Dockerfile` 的 `app-runtime` / `worker-runtime` targets
 - 云配置样例：`config/app.toml`
 - Helm Chart：`infra/helm/meat-memory`
 
 ## 2. 构建镜像
 
 ```bash
-docker build -t meat-memory:v1 .
+docker build --target app-runtime -t meat-memory-app:v1 .
+docker build --target worker-runtime -t meat-memory-worker:v1 .
 ```
 
-CI 也会执行一次 `docker build`，用来提前发现镜像回归。
+建议镜像命名：
+
+- `meat-memory-app:<tag>`
+- `meat-memory-worker:<tag>`
+
+如果使用 GitHub Actions release 流水线，推荐直接消费：
+
+- `ghcr.io/<owner>/meat-memory-app:<tag>`
+- `ghcr.io/<owner>/meat-memory-worker:<tag>`
+
+其中 `<tag>` 与 Git tag 或 release 版本保持一致，例如 `v0.4.0`。
 
 ## 3. 直接用 Docker 运行
 
@@ -32,7 +43,7 @@ docker run --rm -p 8080:8080 \
   -e MEAT_MEMORY_MARKDOWN_ROOT=/data/markdown \
   -e MEAT_MEMORY_ASSETS_ROOT=/data/assets \
   -e MEAT_MEMORY_ENABLE_MCP=true \
-  meat-memory:v1
+  meat-memory-app:v1
 ```
 
 说明：
@@ -40,6 +51,19 @@ docker run --rm -p 8080:8080 \
 - 云端也读取统一的 `config/app.toml`
 - 建议通过 `MEAT_MEMORY_DATABASE_URL`、`MEAT_MEMORY_MARKDOWN_ROOT`、`MEAT_MEMORY_ASSETS_ROOT` 覆盖云 PostgreSQL 地址和持久卷目录
 - 如果需要接云模型，再补相应 API Key 环境变量
+
+如果需要单独运行 worker：
+
+```bash
+docker run --rm \
+  -v "$(pwd)/config:/app/config:ro" \
+  -v "$(pwd)/runtime-data:/data" \
+  -e MEAT_MEMORY_CONFIG=/app/config/app.toml \
+  -e MEAT_MEMORY_DATABASE_URL='postgres://postgres:postgres@postgresql:5432/meat_memory' \
+  -e MEAT_MEMORY_MARKDOWN_ROOT=/data/markdown \
+  -e MEAT_MEMORY_ASSETS_ROOT=/data/assets \
+  meat-memory-worker:v1
+```
 
 ## 4. Helm 部署
 
@@ -49,7 +73,7 @@ helm lint infra/helm/meat-memory
 
 ```bash
 helm upgrade --install meat-memory infra/helm/meat-memory \
-  --set image.repository=meat-memory \
+  --set image.repository=ghcr.io/<owner>/meat-memory-app \
   --set image.tag=v1 \
   --set postgres.databaseUrl='postgres://postgres:postgres@postgresql:5432/meat_memory'
 ```
@@ -58,11 +82,23 @@ helm upgrade --install meat-memory infra/helm/meat-memory \
 
 ```bash
 helm upgrade --install meat-memory infra/helm/meat-memory \
-  --set image.repository=meat-memory \
+  --set image.repository=ghcr.io/<owner>/meat-memory-app \
   --set image.tag=v1 \
   --set postgres.databaseUrl='postgres://postgres:postgres@postgresql:5432/meat_memory' \
   --set secrets.geminiApiKey='xxx' \
   --set secrets.openaiApiKey='xxx'
+```
+
+如果你已经在集群里准备好了现成 Secret 和 PVC，推荐覆盖：
+
+```bash
+helm upgrade --install meat-memory infra/helm/meat-memory \
+  --set image.repository=ghcr.io/<owner>/meat-memory-app \
+  --set workerImage.repository=ghcr.io/<owner>/meat-memory-worker \
+  --set image.tag=v1 \
+  --set worker.enabled=true \
+  --set persistence.existingClaim=meat-memory-data \
+  --set secrets.existingSecretName=meat-memory-secrets
 ```
 
 ## 5. Helm 默认策略
@@ -71,6 +107,8 @@ helm upgrade --install meat-memory infra/helm/meat-memory \
 - worker 默认关闭
 - 默认启用持久卷
 - 默认启用 HTTP + MCP
+- 支持单独覆盖 `workerImage.repository`
+- 支持复用已有 `Secret` 和 `PVC`
 
 这样做是为了让 V1 更贴合“单实例独立部署”的边界。
 

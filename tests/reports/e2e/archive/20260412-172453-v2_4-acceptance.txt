@@ -1,0 +1,105 @@
+# report_category: e2e
+# report_name: v2_4-acceptance.txt
+# started_at: 2026-04-12 17:24:53 CST
+# workdir: /Users/Rou/dev_projects/meat-memory
+# command: ./scripts/v2_4-acceptance.sh
+
+[v2.4] checking domain layer models
+
+running 23 tests
+.......................
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[v2.4] checking observability v2_4 metrics
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[v2.4] checking local project document sync engine
+
+running 13 tests
+.............
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+i
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+test: file_replication_engine_smoke_benchmark_reports_latency_percentiles, ignore_message: run with ./scripts/v2-perf.sh
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[v2.4] checking PostgreSQL source/context/document store
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+[v2.4] checking kernel source/context/docs services
+
+running 13 tests
+.............
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[v2.4] checking HTTP source/context/docs/metrics APIs
+
+running 18 tests
+..................
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+[v2.4] checking HTTP V2.4 integration flows
+
+running 21 tests
+.....................
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+[v2.4] checking MCP V2.4 tools
+
+running 14 tests
+..............
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+[v2.4] checking MCP V2.4 integration flows
+
+running 8 tests
+........
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+[v2.4] checking CLI V2.4 commands
+
+running 31 tests
+...............................
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+[v2.4] checking CLI V2.4 e2e flows
+
+running 8 tests
+........
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.14s
+
+[v2.4] checking workspace interface consistency
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+[v2.4] acceptance completed
+
+# exit_code: 0
+# finished_at: 2026-04-12 17:25:00 CST

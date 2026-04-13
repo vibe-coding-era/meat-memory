@@ -1,7 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use memory_domain::{Artifact, DocumentConflictState, DocumentSyncState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -336,6 +338,326 @@ pub fn can_retry(state: SyncState) -> bool {
     matches!(state, SyncState::Queued | SyncState::InFlight)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectDocumentSnapshot {
+    pub canonical_uri: String,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalProjectDocumentDraft {
+    pub canonical_uri: String,
+    pub local_path: PathBuf,
+    pub title: String,
+    pub content_text: String,
+    pub content_hash: String,
+    pub sync_state: DocumentSyncState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissingProjectDocument {
+    pub canonical_uri: String,
+    pub sync_state: DocumentSyncState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectDocumentConflictInput {
+    pub canonical_uri: String,
+    pub base_content_hash: Option<String>,
+    pub indexed_content_hash: Option<String>,
+    pub local_content_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectDocumentConflictReport {
+    pub canonical_uri: String,
+    pub sync_state: DocumentSyncState,
+    pub conflict_state: DocumentConflictState,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalProjectDocumentSyncPlan {
+    pub root: PathBuf,
+    pub documents: Vec<LocalProjectDocumentDraft>,
+    pub missing: Vec<MissingProjectDocument>,
+    pub conflicts: Vec<ProjectDocumentConflictReport>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalProjectDocumentSyncEngine {
+    root: PathBuf,
+    extensions: BTreeSet<String>,
+}
+
+impl LocalProjectDocumentSyncEngine {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self::with_extensions(root, ["md", "markdown", "txt"])
+    }
+
+    pub fn with_extensions<I, S>(root: impl Into<PathBuf>, extensions: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let extensions = extensions
+            .into_iter()
+            .map(|extension| normalize_extension(&extension.into()))
+            .filter(|extension| !extension.is_empty())
+            .collect::<BTreeSet<_>>();
+        Self {
+            root: root.into(),
+            extensions,
+        }
+    }
+
+    pub fn scan(
+        &self,
+        previous: &[ProjectDocumentSnapshot],
+    ) -> Result<LocalProjectDocumentSyncPlan> {
+        let root = self.root.canonicalize()?;
+        let previous_by_uri = previous
+            .iter()
+            .map(|snapshot| {
+                (
+                    snapshot.canonical_uri.clone(),
+                    snapshot.content_hash.clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut seen = BTreeSet::new();
+        let mut documents = Vec::new();
+
+        for path in collect_document_paths(&root, &self.extensions)? {
+            let content_text = fs::read_to_string(&path)?;
+            let content_hash = Artifact::compute_content_hash(&content_text);
+            let canonical_uri = canonical_file_uri(&path);
+            seen.insert(canonical_uri.clone());
+            let sync_state = match previous_by_uri.get(&canonical_uri) {
+                Some(previous_hash) if previous_hash == &content_hash => DocumentSyncState::Clean,
+                Some(_) => DocumentSyncState::Changed,
+                None => DocumentSyncState::Changed,
+            };
+            documents.push(LocalProjectDocumentDraft {
+                title: document_title(&path, &content_text),
+                canonical_uri,
+                local_path: path,
+                content_text,
+                content_hash,
+                sync_state,
+            });
+        }
+
+        let missing = previous
+            .iter()
+            .filter(|snapshot| !seen.contains(&snapshot.canonical_uri))
+            .map(|snapshot| MissingProjectDocument {
+                canonical_uri: snapshot.canonical_uri.clone(),
+                sync_state: DocumentSyncState::Missing,
+            })
+            .collect::<Vec<_>>();
+        let conflicts = build_conflict_reports(previous, &documents, &missing);
+
+        Ok(LocalProjectDocumentSyncPlan {
+            root,
+            documents,
+            missing,
+            conflicts,
+        })
+    }
+}
+
+pub fn classify_project_document_conflict(
+    input: ProjectDocumentConflictInput,
+) -> ProjectDocumentConflictReport {
+    let base = input.base_content_hash.as_deref();
+    let indexed = input.indexed_content_hash.as_deref();
+    let local = input.local_content_hash.as_deref();
+
+    let (sync_state, conflict_state, reason) = match (base, indexed, local) {
+        (None, None, None) => (
+            DocumentSyncState::Missing,
+            DocumentConflictState::None,
+            Some("document is absent locally and has no indexed baseline".to_string()),
+        ),
+        (None, _, Some(_)) => (
+            DocumentSyncState::Changed,
+            DocumentConflictState::LocalChanged,
+            None,
+        ),
+        (Some(base), Some(indexed), Some(local)) if base == indexed && base == local => {
+            (DocumentSyncState::Clean, DocumentConflictState::None, None)
+        }
+        (Some(base), Some(indexed), None) if base == indexed => (
+            DocumentSyncState::Deleted,
+            DocumentConflictState::None,
+            None,
+        ),
+        (Some(base), Some(indexed), None) if base != indexed => (
+            DocumentSyncState::Conflicted,
+            DocumentConflictState::BothChanged,
+            Some("local document was deleted while indexed document changed".to_string()),
+        ),
+        (Some(_), Some(_), None) => (
+            DocumentSyncState::Conflicted,
+            DocumentConflictState::BothChanged,
+            Some(
+                "local document was deleted while indexed document state is ambiguous".to_string(),
+            ),
+        ),
+        (Some(base), Some(indexed), Some(local)) if base == indexed && base != local => (
+            DocumentSyncState::Changed,
+            DocumentConflictState::LocalChanged,
+            None,
+        ),
+        (Some(base), Some(indexed), Some(local)) if base == local && base != indexed => (
+            DocumentSyncState::Changed,
+            DocumentConflictState::RemoteChanged,
+            None,
+        ),
+        (Some(_), Some(indexed), Some(local)) if indexed == local => (
+            DocumentSyncState::Changed,
+            DocumentConflictState::None,
+            Some("local and indexed content converged after baseline".to_string()),
+        ),
+        (Some(_), Some(_), Some(_)) => (
+            DocumentSyncState::Conflicted,
+            DocumentConflictState::BothChanged,
+            Some("local and indexed document changed differently".to_string()),
+        ),
+        (Some(_), None, None) => (
+            DocumentSyncState::Deleted,
+            DocumentConflictState::None,
+            None,
+        ),
+        (Some(base), None, Some(local)) if base == local => {
+            (DocumentSyncState::Clean, DocumentConflictState::None, None)
+        }
+        (Some(_), None, Some(_)) => (
+            DocumentSyncState::Changed,
+            DocumentConflictState::LocalChanged,
+            None,
+        ),
+        (None, Some(_), None) => (
+            DocumentSyncState::Changed,
+            DocumentConflictState::RemoteChanged,
+            None,
+        ),
+    };
+
+    ProjectDocumentConflictReport {
+        canonical_uri: input.canonical_uri,
+        sync_state,
+        conflict_state,
+        reason,
+    }
+}
+
+fn build_conflict_reports(
+    previous: &[ProjectDocumentSnapshot],
+    documents: &[LocalProjectDocumentDraft],
+    missing: &[MissingProjectDocument],
+) -> Vec<ProjectDocumentConflictReport> {
+    let local_by_uri = documents
+        .iter()
+        .map(|document| {
+            (
+                document.canonical_uri.clone(),
+                document.content_hash.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let missing_uris = missing
+        .iter()
+        .map(|document| document.canonical_uri.as_str())
+        .collect::<BTreeSet<_>>();
+
+    previous
+        .iter()
+        .filter_map(|snapshot| {
+            let report = classify_project_document_conflict(ProjectDocumentConflictInput {
+                canonical_uri: snapshot.canonical_uri.clone(),
+                base_content_hash: Some(snapshot.content_hash.clone()),
+                indexed_content_hash: Some(snapshot.content_hash.clone()),
+                local_content_hash: local_by_uri.get(&snapshot.canonical_uri).cloned(),
+            });
+            if matches!(report.sync_state, DocumentSyncState::Clean)
+                && !missing_uris.contains(snapshot.canonical_uri.as_str())
+            {
+                None
+            } else {
+                Some(report)
+            }
+        })
+        .collect()
+}
+
+fn collect_document_paths(root: &Path, extensions: &BTreeSet<String>) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    collect_document_paths_into(root, extensions, &mut paths)?;
+    paths.sort();
+    Ok(paths)
+}
+
+fn collect_document_paths_into(
+    current: &Path,
+    extensions: &BTreeSet<String>,
+    output: &mut Vec<PathBuf>,
+) -> Result<()> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            if entry
+                .file_name()
+                .to_str()
+                .map(|name| name.starts_with('.'))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            collect_document_paths_into(&path, extensions, output)?;
+        } else if file_type.is_file()
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(normalize_extension)
+                .map(|extension| extensions.contains(&extension))
+                .unwrap_or(false)
+        {
+            output.push(path.canonicalize()?);
+        }
+    }
+    Ok(())
+}
+
+fn canonical_file_uri(path: &Path) -> String {
+    format!("file://{}", path.to_string_lossy())
+}
+
+fn document_title(path: &Path, content_text: &str) -> String {
+    content_text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches('#').trim().to_string())
+        .filter(|line| !line.is_empty())
+        .or_else(|| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| path.to_string_lossy().to_string())
+}
+
+fn normalize_extension(extension: &str) -> String {
+    extension
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
+}
+
 fn pull_entries(entries: &[OplogEntry], cursor: SyncCursor) -> SyncBatch {
     let start = cursor
         .after_op_id
@@ -454,11 +776,13 @@ fn persist_state(path: &Path, state: &PersistentReplicationState) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::{
-        FileReplicationEngine, InMemoryReplicationEngine, MergeDecision, OplogEntry,
-        OplogOperation, SyncCursor, SyncObjectKind, SyncState, append_oplog_entry, can_retry,
-        merge_ops,
+        FileReplicationEngine, InMemoryReplicationEngine, LocalProjectDocumentSyncEngine,
+        MergeDecision, OplogEntry, OplogOperation, ProjectDocumentConflictInput,
+        ProjectDocumentSnapshot, SyncCursor, SyncObjectKind, SyncState, append_oplog_entry,
+        can_retry, canonical_file_uri, classify_project_document_conflict, merge_ops,
     };
     use crate::{ReplicationEngine, SyncBatch};
+    use memory_domain::{Artifact, DocumentConflictState, DocumentSyncState};
     use time::OffsetDateTime;
 
     #[test]
@@ -778,5 +1102,99 @@ mod tests {
         let reopened = FileReplicationEngine::open(&path).unwrap();
         assert_eq!(reopened.entries().len(), 1);
         assert_eq!(reopened.conflicts().len(), 1);
+    }
+
+    #[test]
+    fn local_project_document_sync_scans_changed_clean_and_missing_documents() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let docs = tempdir.path().join("docs");
+        std::fs::create_dir_all(docs.join("nested")).unwrap();
+        std::fs::write(docs.join("README.md"), "# Project README\nhello").unwrap();
+        std::fs::write(docs.join("nested").join("guide.txt"), "Guide\nbody").unwrap();
+        std::fs::write(docs.join("skip.json"), "{}").unwrap();
+
+        let readme_uri = canonical_file_uri(&docs.join("README.md").canonicalize().unwrap());
+        let previous = vec![
+            ProjectDocumentSnapshot {
+                canonical_uri: readme_uri.clone(),
+                content_hash: Artifact::compute_content_hash("# Project README\nhello"),
+            },
+            ProjectDocumentSnapshot {
+                canonical_uri: "file:///missing.md".to_string(),
+                content_hash: "old".to_string(),
+            },
+        ];
+
+        let plan = LocalProjectDocumentSyncEngine::new(&docs)
+            .scan(&previous)
+            .unwrap();
+
+        assert_eq!(plan.documents.len(), 2);
+        assert_eq!(plan.missing.len(), 1);
+        assert_eq!(plan.missing[0].sync_state, DocumentSyncState::Missing);
+        assert_eq!(plan.conflicts.len(), 1);
+        assert_eq!(plan.conflicts[0].sync_state, DocumentSyncState::Deleted);
+        let readme = plan
+            .documents
+            .iter()
+            .find(|document| document.canonical_uri == readme_uri)
+            .unwrap();
+        assert_eq!(readme.title, "Project README");
+        assert_eq!(readme.sync_state, DocumentSyncState::Clean);
+        let guide = plan
+            .documents
+            .iter()
+            .find(|document| document.title == "Guide")
+            .unwrap();
+        assert_eq!(guide.sync_state, DocumentSyncState::Changed);
+        assert!(
+            !plan
+                .documents
+                .iter()
+                .any(|document| document.canonical_uri.ends_with("skip.json"))
+        );
+    }
+
+    #[test]
+    fn project_document_conflict_classifier_covers_clean_changed_deleted_and_conflicted() {
+        let clean = classify_project_document_conflict(ProjectDocumentConflictInput {
+            canonical_uri: "file:///clean.md".to_string(),
+            base_content_hash: Some("same".to_string()),
+            indexed_content_hash: Some("same".to_string()),
+            local_content_hash: Some("same".to_string()),
+        });
+        assert_eq!(clean.sync_state, DocumentSyncState::Clean);
+        assert_eq!(clean.conflict_state, DocumentConflictState::None);
+
+        let changed = classify_project_document_conflict(ProjectDocumentConflictInput {
+            canonical_uri: "file:///changed.md".to_string(),
+            base_content_hash: Some("base".to_string()),
+            indexed_content_hash: Some("base".to_string()),
+            local_content_hash: Some("local".to_string()),
+        });
+        assert_eq!(changed.sync_state, DocumentSyncState::Changed);
+        assert_eq!(changed.conflict_state, DocumentConflictState::LocalChanged);
+
+        let deleted = classify_project_document_conflict(ProjectDocumentConflictInput {
+            canonical_uri: "file:///deleted.md".to_string(),
+            base_content_hash: Some("base".to_string()),
+            indexed_content_hash: Some("base".to_string()),
+            local_content_hash: None,
+        });
+        assert_eq!(deleted.sync_state, DocumentSyncState::Deleted);
+        assert_eq!(deleted.conflict_state, DocumentConflictState::None);
+
+        let conflicted = classify_project_document_conflict(ProjectDocumentConflictInput {
+            canonical_uri: "file:///conflict.md".to_string(),
+            base_content_hash: Some("base".to_string()),
+            indexed_content_hash: Some("remote".to_string()),
+            local_content_hash: Some("local".to_string()),
+        });
+        assert_eq!(conflicted.sync_state, DocumentSyncState::Conflicted);
+        assert_eq!(
+            conflicted.conflict_state,
+            DocumentConflictState::BothChanged
+        );
+        assert!(conflicted.reason.is_some());
     }
 }

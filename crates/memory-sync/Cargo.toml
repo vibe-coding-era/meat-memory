@@ -8,6 +8,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+memory-domain = { path = "../memory-domain" }
 time.workspace = true
 ulid.workspace = true
 

@@ -1,0 +1,26 @@
+{
+  "name": "@meat-memory/cli",
+  "version": "0.1.0",
+  "description": "npm wrapper for the Meat Memory CLI",
+  "license": "MIT",
+  "bin": {
+    "meat-memory": "bin/meat-memory.js",
+    "memory-cli": "bin/meat-memory.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js",
+    "check": "node --check bin/meat-memory.js && node --check scripts/install.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "package.json"
+  ],
+  "config": {
+    "releaseBaseUrl": ""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

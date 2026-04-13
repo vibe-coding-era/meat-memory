@@ -41,6 +41,42 @@ If key enforcement is enabled, use the returned `raw_key` as `MEAT_MEMORY_KEY` o
 - After a durable decision: call `memory.remember` with `memory_kind = "decision"`.
 - After discovering a recurring rule: call `memory.remember` with `memory_kind = "constraint"` or `memory_kind = "procedure"`.
 - After a risky finding: call `memory.remember` with `memory_kind = "risk"`.
+- During an active coding session: call `memory.context.upsert` or `memory-cli context upsert` for short-term task state.
+- When project docs matter: call `memory.docs.sync` / `memory.docs.search` or `memory-cli docs status/sync/list` for mid-term project documents.
+- When using multiple integration surfaces: create a source and attach multiple keys with `memory-cli source key-create`.
+
+## V2.4 Project Context Commands
+
+Short-term context:
+
+```bash
+memory-cli context upsert \
+  --session-id claude-code-session \
+  --task-id current-change \
+  --title "Current coding context" \
+  --body "Claude Code is collecting local build and review notes." \
+  --labels claude-code,short-term \
+  --json
+```
+
+Project document source and sync:
+
+```bash
+memory-cli source create \
+  --name "Repository docs" \
+  --source-kind local_docs \
+  --sync-mode index_only \
+  --local-root ./docs \
+  --json
+```
+
+```bash
+memory-cli docs status --source-id src_... --json
+memory-cli docs sync --source-id src_... --dry-run --json
+memory-cli docs conflicts --source-id src_... --json
+```
+
+If conflicts or missing documents are reported, stop and surface them to the user instead of overwriting local files.
 
 ## CLI Fallback
 

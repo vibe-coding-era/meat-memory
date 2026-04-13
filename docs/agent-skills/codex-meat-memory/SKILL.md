@@ -44,6 +44,45 @@ Keep the returned `raw_key` in `MEAT_MEMORY_KEY` or pass it through the MCP HTTP
 4. Add source refs when possible, such as `workspace://path/to/file` or `thread://current`.
 5. Promote only when memory should move from a personal/user scope into a project/team scope.
 
+## V2.4 Short and Mid-Term Memory
+
+Use short-term Agent Context for current-session scratchpads, task state, and tool-result summaries that may later be promoted:
+
+```bash
+memory-cli context upsert \
+  --session-id codex-session \
+  --task-id current-task \
+  --title "Current implementation context" \
+  --body "Codex is wiring V2.4 Agent Context and Project Documents." \
+  --labels codex,v2.4 \
+  --json
+```
+
+Use project document sources for mid-term memory such as README, design docs, task docs, runbooks, and API docs:
+
+```bash
+memory-cli source create \
+  --name "Project docs" \
+  --source-kind local_docs \
+  --sync-mode index_only \
+  --local-root ./docs \
+  --json
+```
+
+```bash
+memory-cli docs status --source-id src_... --json
+memory-cli docs sync --source-id src_... --dry-run --json
+memory-cli docs sync --source-id src_... --json
+```
+
+Each source can have multiple keys:
+
+```bash
+memory-cli source key-create --source-id src_... --name codex-docs-key --json
+```
+
+Do not silently overwrite local project files when conflicts appear. Treat `missing` and `conflicts` as review items and ask for confirmation before applying external changes.
+
 ## CLI Examples
 
 Search:
@@ -80,5 +119,12 @@ Use these tools when the Agent platform supports MCP:
 - `memory.fetch_context`
 - `memory.publish`
 - `memory.promote`
+- `memory.context.upsert`
+- `memory.context.list`
+- `memory.context.promote`
+- `memory.context.delete`
+- `memory.docs.sync`
+- `memory.docs.search`
+- `memory.docs.conflicts`
 
 Call `memory.fetch_context` for task setup and `memory.remember` for durable outcomes.

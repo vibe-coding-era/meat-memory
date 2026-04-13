@@ -3,21 +3,29 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::{
-    AccessKeyId, AccessKeyStatus, ArtifactKind, KeyScopeKind, KeySourceKind, Memory, MemoryId,
-    MemoryKind, RequestContext, ScopeId, ScopeType, Sensitivity, StorageMode, Visibility,
+    AccessKeyId, AccessKeyStatus, AgentContext, AgentContextId, ArtifactKind,
+    DocumentConflictState, DocumentSyncState, KeyScopeKind, KeySourceKind, Memory, MemoryId,
+    MemoryKind, MemorySource, ProjectDocument, RequestContext, ScopeId, ScopeType, Sensitivity,
+    SourceId, SourceSyncMode, StorageMode, Visibility,
 };
 use memory_kernel::{
-    CreateAccessKeyRequest, Kernel, PromoteMemoryRequest, RememberImageRequest,
-    RememberTextRequest, SearchContextRequest, UpdateAccessKeyRequest,
+    ApplyProjectDocumentSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
+    Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, RememberTextResult,
+    SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+};
+use memory_sync::{
+    LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
+    ProjectDocumentConflictReport, ProjectDocumentSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::BTreeMap, sync::Arc};
-use time::format_description::well_known::Rfc3339;
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::error;
 
 const MAX_MEMORY_BODY_CHARS: usize = 16_000;
@@ -37,12 +45,23 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
+    "/api/v1/agent-contexts",
+    "/api/v1/agent-contexts/{context_id}",
+    "/api/v1/agent-contexts/{context_id}/promote",
     "/api/v1/explorer/memories",
     "/api/v1/assistant/chat",
     "/api/v1/keys",
     "/api/v1/keys/{key_id}",
     "/api/v1/keys/{key_id}/rotate",
     "/api/v1/keys/{key_id}/stats",
+    "/api/v1/sources",
+    "/api/v1/sources/{source_id}",
+    "/api/v1/sources/{source_id}/keys",
+    "/api/v1/sources/{source_id}/documents",
+    "/api/v1/sources/{source_id}/documents/{document_id}/projection",
+    "/api/v1/sources/{source_id}/documents/import",
+    "/api/v1/sources/{source_id}/documents/conflicts",
+    "/api/v1/sources/{source_id}/documents/sync",
     "/api/v1/metrics/keys",
 ];
 
@@ -99,6 +118,7 @@ pub struct AccessKeyResponse {
     pub key_id: String,
     pub raw_key: Option<String>,
     pub name: String,
+    pub source_id: Option<String>,
     pub source: String,
     pub owner_principal_id: String,
     pub owner_scope_id: String,
@@ -109,6 +129,128 @@ pub struct AccessKeyResponse {
     pub status: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateMemorySourceHttpRequest {
+    pub name: String,
+    pub source_kind: Option<String>,
+    pub source: Option<String>,
+    pub source_uri: Option<String>,
+    pub sync_mode: Option<String>,
+    pub local_root: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSourceAccessKeyHttpRequest {
+    pub raw_key: Option<String>,
+    pub name: String,
+    pub source: Option<String>,
+    pub owner_principal_id: Option<String>,
+    pub scope_kind: Option<String>,
+    pub storage_mode: Option<String>,
+    pub isolated: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemorySourceResponse {
+    pub source_id: String,
+    pub source_kind: String,
+    pub name: String,
+    pub owner_principal_id: String,
+    pub owner_scope_id: String,
+    pub source_uri: Option<String>,
+    pub sync_mode: String,
+    pub local_root: Option<String>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ListMemorySourcesQuery {
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportProjectDocumentHttpRequest {
+    pub scope_id: Option<String>,
+    pub canonical_uri: String,
+    pub title: String,
+    pub content_text: String,
+    pub local_path: Option<String>,
+    pub sync_state: Option<String>,
+    pub conflict_state: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ListProjectDocumentsQuery {
+    pub limit: Option<usize>,
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SyncProjectDocumentsHttpRequest {
+    pub scope_id: Option<String>,
+    pub local_root: Option<String>,
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectDocumentResponse {
+    pub document_id: String,
+    pub source_id: String,
+    pub scope_id: String,
+    pub local_path: Option<String>,
+    pub canonical_uri: String,
+    pub title: String,
+    pub content_hash: String,
+    pub last_seen_mtime: Option<String>,
+    pub sync_state: String,
+    pub conflict_state: String,
+    pub artifact_id: Option<String>,
+    pub memory_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectDocumentDraftResponse {
+    pub canonical_uri: String,
+    pub local_path: String,
+    pub title: String,
+    pub content_hash: String,
+    pub sync_state: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MissingProjectDocumentResponse {
+    pub canonical_uri: String,
+    pub sync_state: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectDocumentConflictResponse {
+    pub canonical_uri: String,
+    pub sync_state: String,
+    pub conflict_state: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectDocumentSyncResponse {
+    pub dry_run: bool,
+    pub planned_documents: Vec<ProjectDocumentDraftResponse>,
+    pub imported: Vec<ProjectDocumentResponse>,
+    pub missing: Vec<MissingProjectDocumentResponse>,
+    pub conflicts: Vec<ProjectDocumentConflictResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectDocumentProjectionResponse {
+    pub document: ProjectDocumentResponse,
+    pub projection_path: String,
+    pub markdown: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,6 +365,50 @@ pub struct SearchContextHttpResponse {
     pub scope_id: String,
     pub memory_count: usize,
     pub memories: Vec<MemorySummary>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertAgentContextHttpRequest {
+    pub scope_id: Option<String>,
+    pub session_id: String,
+    pub task_id: Option<String>,
+    pub title: String,
+    pub body: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListAgentContextsQuery {
+    pub scope_id: Option<String>,
+    pub session_id: String,
+    pub task_id: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PromoteAgentContextHttpRequest {
+    pub memory_kind: Option<String>,
+    pub visibility: Option<String>,
+    pub sensitivity: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AgentContextResponse {
+    pub context_id: String,
+    pub source_id: Option<String>,
+    pub key_id: Option<String>,
+    pub scope_id: String,
+    pub session_id: String,
+    pub task_id: Option<String>,
+    pub layer: String,
+    pub title: String,
+    pub body: String,
+    pub labels: Vec<String>,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -363,6 +549,18 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
         .route("/api/v1/context/search", post(search_context))
+        .route(
+            "/api/v1/agent-contexts",
+            post(upsert_agent_context).get(list_agent_contexts),
+        )
+        .route(
+            "/api/v1/agent-contexts/{context_id}",
+            delete(delete_agent_context),
+        )
+        .route(
+            "/api/v1/agent-contexts/{context_id}/promote",
+            post(promote_agent_context),
+        )
         .route("/api/v1/explorer/memories", get(browse_memories))
         .route("/api/v1/assistant/chat", post(chat_with_memory_assistant))
         .route(
@@ -372,6 +570,35 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/keys/{key_id}", patch(update_access_key))
         .route("/api/v1/keys/{key_id}/rotate", post(rotate_access_key))
         .route("/api/v1/keys/{key_id}/stats", get(access_key_stats))
+        .route(
+            "/api/v1/sources",
+            post(create_memory_source).get(list_memory_sources),
+        )
+        .route("/api/v1/sources/{source_id}", get(get_memory_source))
+        .route(
+            "/api/v1/sources/{source_id}/keys",
+            post(create_source_access_key).get(list_source_access_keys),
+        )
+        .route(
+            "/api/v1/sources/{source_id}/documents",
+            get(list_project_documents),
+        )
+        .route(
+            "/api/v1/sources/{source_id}/documents/{document_id}/projection",
+            get(get_project_document_projection),
+        )
+        .route(
+            "/api/v1/sources/{source_id}/documents/import",
+            post(import_project_document),
+        )
+        .route(
+            "/api/v1/sources/{source_id}/documents/conflicts",
+            get(list_project_document_conflicts),
+        )
+        .route(
+            "/api/v1/sources/{source_id}/documents/sync",
+            post(sync_project_documents),
+        )
         .route("/api/v1/metrics/keys", get(key_metrics))
         .with_state(state)
 }
@@ -425,6 +652,7 @@ async fn create_access_key(
         .create_access_key(CreateAccessKeyRequest {
             raw_key: payload.raw_key,
             display_name: payload.name,
+            source_id: None,
             source_kind,
             owner_principal_id,
             owner_scope_id,
@@ -520,6 +748,457 @@ async fn access_key_stats(
         .map_err(api_error_from_anyhow)?
         .ok_or_else(|| ApiError::not_found("access key not found"))?;
     Ok(Json(json!({ "stats": stats })))
+}
+
+async fn create_memory_source(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateMemorySourceHttpRequest>,
+) -> Result<(StatusCode, Json<MemorySourceResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source_kind = payload
+        .source_kind
+        .or(payload.source)
+        .unwrap_or_else(|| "custom".to_string());
+    let mut source = MemorySource::new(
+        source_kind,
+        payload.name,
+        context.principal_id.clone(),
+        context.owner_scope_id.clone(),
+    )
+    .map_err(api_error_from_domain)?;
+    if let Some(source_uri) = payload.source_uri {
+        source = source
+            .with_source_uri(source_uri)
+            .map_err(api_error_from_domain)?;
+    }
+    if let Some(local_root) = payload.local_root {
+        source = source
+            .with_local_root(local_root)
+            .map_err(api_error_from_domain)?;
+    }
+    if let Some(sync_mode) = payload.sync_mode {
+        source = source.with_sync_mode(parse_source_sync_mode(&sync_mode)?);
+    }
+
+    let source = state
+        .kernel
+        .upsert_memory_source(source, Some(&context))
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok((StatusCode::CREATED, Json(memory_source_response(source))))
+}
+
+async fn list_memory_sources(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListMemorySourcesQuery>,
+) -> Result<Json<Vec<MemorySourceResponse>>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let sources = state
+        .kernel
+        .list_memory_sources(
+            context.owner_scope_id.clone(),
+            query.limit.unwrap_or(100).clamp(1, 500),
+            Some(&context),
+        )
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(
+        sources
+            .into_iter()
+            .map(memory_source_response)
+            .collect::<Vec<_>>(),
+    ))
+}
+
+async fn get_memory_source(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+) -> Result<Json<MemorySourceResponse>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source =
+        get_memory_source_for_context(&state, &context, SourceId::from_string(source_id)).await?;
+    Ok(Json(memory_source_response(source)))
+}
+
+async fn list_source_access_keys(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+    Query(query): Query<ListMemorySourcesQuery>,
+) -> Result<Json<Vec<AccessKeyResponse>>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source_id = SourceId::from_string(source_id);
+    let _source = get_memory_source_for_context(&state, &context, source_id.clone()).await?;
+    let keys = state
+        .kernel
+        .list_access_keys_for_source(source_id, query.limit.unwrap_or(100).clamp(1, 500))
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(
+        keys.into_iter()
+            .map(|key| access_key_response(key, None))
+            .collect(),
+    ))
+}
+
+async fn create_source_access_key(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+    Json(payload): Json<CreateSourceAccessKeyHttpRequest>,
+) -> Result<(StatusCode, Json<AccessKeyResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source =
+        get_memory_source_for_context(&state, &context, SourceId::from_string(source_id)).await?;
+    let source_kind = payload
+        .source
+        .as_deref()
+        .map(parse_key_source)
+        .transpose()?
+        .unwrap_or(KeySourceKind::Custom);
+    let scope_kind = parse_key_scope(payload.scope_kind.as_deref().unwrap_or("personal"))?;
+    let storage_mode = parse_storage_mode(payload.storage_mode.as_deref().unwrap_or("all"))?;
+    let owner_principal_id = payload
+        .owner_principal_id
+        .unwrap_or_else(|| source.owner_principal_id.clone());
+    let result = state
+        .kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: payload.raw_key,
+            display_name: payload.name,
+            source_id: Some(source.id),
+            source_kind,
+            owner_principal_id,
+            owner_scope_id: source.owner_scope_id,
+            scope_kind,
+            storage_mode,
+            is_fully_isolated: payload.isolated.unwrap_or(false),
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(access_key_response(result.access_key, Some(result.raw_key))),
+    ))
+}
+
+async fn import_project_document(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+    Json(payload): Json<ImportProjectDocumentHttpRequest>,
+) -> Result<(StatusCode, Json<ProjectDocumentResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source =
+        get_memory_source_for_context(&state, &context, SourceId::from_string(source_id)).await?;
+    let scope_id = payload
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| source.owner_scope_id.clone());
+    ensure_context_scope_access(&context, &scope_id)?;
+    let mut request = ImportProjectDocumentRequest::new(
+        source.id,
+        scope_id,
+        payload.canonical_uri,
+        payload.title,
+        payload.content_text,
+    );
+    request.local_path = payload.local_path;
+    request.sync_state = payload
+        .sync_state
+        .as_deref()
+        .map(parse_document_sync_state)
+        .transpose()?
+        .unwrap_or(DocumentSyncState::Clean);
+    request.conflict_state = payload
+        .conflict_state
+        .as_deref()
+        .map(parse_document_conflict_state)
+        .transpose()?
+        .unwrap_or(DocumentConflictState::None);
+    request.context = Some(context);
+
+    let document = state
+        .kernel
+        .import_project_document(request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(project_document_response(document)),
+    ))
+}
+
+async fn list_project_documents(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+    Query(query): Query<ListProjectDocumentsQuery>,
+) -> Result<Json<Vec<ProjectDocumentResponse>>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source =
+        get_memory_source_for_context(&state, &context, SourceId::from_string(source_id)).await?;
+    let mut request = ListProjectDocumentsRequest::new(source.id);
+    request.limit = query.limit.unwrap_or(100).clamp(1, 500);
+    request.query = query.query;
+    request.context = Some(context);
+
+    let documents = state
+        .kernel
+        .list_project_documents(request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(
+        documents
+            .into_iter()
+            .map(project_document_response)
+            .collect(),
+    ))
+}
+
+async fn get_project_document_projection(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path((source_id, document_id)): Path<(String, String)>,
+) -> Result<Json<ProjectDocumentProjectionResponse>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let projection = state
+        .kernel
+        .get_project_document_projection(
+            SourceId::from_string(source_id),
+            memory_domain::ProjectDocumentId::from_string(document_id),
+            Some(&context),
+        )
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(ProjectDocumentProjectionResponse {
+        document: project_document_response(projection.document),
+        projection_path: projection.projection_path.display().to_string(),
+        markdown: projection.markdown,
+    }))
+}
+
+async fn list_project_document_conflicts(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+    Query(query): Query<ListMemorySourcesQuery>,
+) -> Result<Json<Vec<ProjectDocumentResponse>>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source =
+        get_memory_source_for_context(&state, &context, SourceId::from_string(source_id)).await?;
+    let documents = state
+        .kernel
+        .list_project_document_conflicts(
+            source.id,
+            query.limit.unwrap_or(100).clamp(1, 500),
+            Some(&context),
+        )
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(
+        documents
+            .into_iter()
+            .map(project_document_response)
+            .collect(),
+    ))
+}
+
+async fn sync_project_documents(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(source_id): Path<String>,
+    Json(payload): Json<SyncProjectDocumentsHttpRequest>,
+) -> Result<Json<ProjectDocumentSyncResponse>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let source =
+        get_memory_source_for_context(&state, &context, SourceId::from_string(source_id)).await?;
+    let scope_id = payload
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| source.owner_scope_id.clone());
+    ensure_context_scope_access(&context, &scope_id)?;
+    let local_root = payload
+        .local_root
+        .or_else(|| source.local_root.clone())
+        .ok_or_else(|| ApiError::bad_request("local_root is required for project document sync"))?;
+    let existing = state
+        .kernel
+        .list_project_documents(ListProjectDocumentsRequest {
+            source_id: source.id.clone(),
+            limit: 500,
+            query: None,
+            context: Some(context.clone()),
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+    let snapshots = existing
+        .iter()
+        .map(|document| ProjectDocumentSnapshot {
+            canonical_uri: document.canonical_uri.clone(),
+            content_hash: document.content_hash.clone(),
+        })
+        .collect::<Vec<_>>();
+    let plan = LocalProjectDocumentSyncEngine::new(PathBuf::from(local_root))
+        .scan(&snapshots)
+        .map_err(|error| {
+            ApiError::bad_request(format!("failed to scan local project documents: {error}"))
+        })?;
+    let planned_documents = plan
+        .documents
+        .iter()
+        .map(project_document_draft_response)
+        .collect::<Vec<_>>();
+    let dry_run = payload.dry_run.unwrap_or(false);
+    if dry_run {
+        return Ok(Json(ProjectDocumentSyncResponse {
+            dry_run,
+            planned_documents,
+            imported: Vec::new(),
+            missing: plan
+                .missing
+                .into_iter()
+                .map(missing_project_document_response)
+                .collect(),
+            conflicts: plan
+                .conflicts
+                .into_iter()
+                .map(project_document_conflict_response)
+                .collect(),
+        }));
+    }
+
+    let result = state
+        .kernel
+        .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+            source_id: source.id,
+            scope_id,
+            plan,
+            context: Some(context),
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(ProjectDocumentSyncResponse {
+        dry_run,
+        planned_documents,
+        imported: result
+            .imported
+            .into_iter()
+            .map(project_document_response)
+            .collect(),
+        missing: result
+            .missing
+            .into_iter()
+            .map(missing_project_document_response)
+            .collect(),
+        conflicts: result
+            .conflicts
+            .into_iter()
+            .map(project_document_conflict_response)
+            .collect(),
+    }))
+}
+
+async fn upsert_agent_context(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Json(payload): Json<UpsertAgentContextHttpRequest>,
+) -> Result<(StatusCode, Json<AgentContextResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let scope_id = payload
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| context.owner_scope_id.clone());
+    ensure_context_scope_access(&context, &scope_id)?;
+    let expires_at = parse_optional_timestamp(payload.expires_at.as_deref())?;
+    let mut request =
+        UpsertAgentContextRequest::new(scope_id, payload.session_id, payload.title, payload.body);
+    request.task_id = payload.task_id;
+    request.labels = payload.labels;
+    request.expires_at = expires_at;
+    request.context = Some(context);
+
+    let agent_context = state
+        .kernel
+        .upsert_agent_context(request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(agent_context_response(agent_context)),
+    ))
+}
+
+async fn list_agent_contexts(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListAgentContextsQuery>,
+) -> Result<Json<Vec<AgentContextResponse>>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let scope_id = query
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| context.owner_scope_id.clone());
+    ensure_context_scope_access(&context, &scope_id)?;
+    let mut request = ListAgentContextsRequest::new(scope_id, query.session_id);
+    request.task_id = query.task_id;
+    request.limit = query.limit.unwrap_or(50).clamp(1, 500);
+    request.context = Some(context);
+
+    let contexts = state
+        .kernel
+        .list_agent_contexts(request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(Json(
+        contexts
+            .into_iter()
+            .map(agent_context_response)
+            .collect::<Vec<_>>(),
+    ))
+}
+
+async fn delete_agent_context(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(context_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    state
+        .kernel
+        .delete_agent_context(AgentContextId::from_string(context_id), Some(&context))
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn promote_agent_context(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Path(context_id): Path<String>,
+    Json(payload): Json<PromoteAgentContextHttpRequest>,
+) -> Result<(StatusCode, Json<CreateMemoryResponse>), ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let mut request = PromoteAgentContextRequest::new(AgentContextId::from_string(context_id));
+    request.memory_kind = payload
+        .memory_kind
+        .as_deref()
+        .map(parse_memory_kind)
+        .transpose()?;
+    request.visibility = parse_visibility(payload.visibility.as_deref())?;
+    request.sensitivity = parse_sensitivity(payload.sensitivity.as_deref())?;
+    request.context = Some(context);
+
+    let result = state
+        .kernel
+        .promote_agent_context(request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    Ok((StatusCode::CREATED, Json(remember_text_response(result))))
 }
 
 async fn meta(State(state): State<HttpAppState>) -> Json<ApiMetadata> {
@@ -798,6 +1477,21 @@ async fn resolve_required_http_context(
         })
 }
 
+async fn get_memory_source_for_context(
+    state: &HttpAppState,
+    context: &RequestContext,
+    source_id: SourceId,
+) -> Result<MemorySource, ApiError> {
+    let source = state
+        .kernel
+        .get_memory_source(source_id)
+        .await
+        .map_err(api_error_from_anyhow)?
+        .ok_or_else(|| ApiError::not_found("memory source not found"))?;
+    ensure_context_scope_access(context, &source.owner_scope_id)?;
+    Ok(source)
+}
+
 fn ensure_context_scope_access(
     context: &RequestContext,
     scope_id: &ScopeId,
@@ -937,6 +1631,9 @@ fn access_key_response(
         key_id: access_key.id.as_str().to_string(),
         raw_key,
         name: access_key.display_name,
+        source_id: access_key
+            .source_id
+            .map(|source_id| source_id.as_str().to_string()),
         source: access_key.source_kind.as_str().to_string(),
         owner_principal_id: access_key.owner_principal_id,
         owner_scope_id: access_key.owner_scope_id.as_str().to_string(),
@@ -947,6 +1644,116 @@ fn access_key_response(
         status: access_key.status.as_str().to_string(),
         created_at: format_timestamp(access_key.created_at),
         last_used_at: access_key.last_used_at.map(format_timestamp),
+    }
+}
+
+fn memory_source_response(source: MemorySource) -> MemorySourceResponse {
+    MemorySourceResponse {
+        source_id: source.id.as_str().to_string(),
+        source_kind: source.source_kind,
+        name: source.display_name,
+        owner_principal_id: source.owner_principal_id,
+        owner_scope_id: source.owner_scope_id.as_str().to_string(),
+        source_uri: source.source_uri,
+        sync_mode: source.sync_mode.as_str().to_string(),
+        local_root: source.local_root,
+        status: source.status.as_str().to_string(),
+        created_at: format_timestamp(source.created_at),
+        updated_at: format_timestamp(source.updated_at),
+    }
+}
+
+fn project_document_response(document: ProjectDocument) -> ProjectDocumentResponse {
+    ProjectDocumentResponse {
+        document_id: document.id.as_str().to_string(),
+        source_id: document.source_id.as_str().to_string(),
+        scope_id: document.scope_id.as_str().to_string(),
+        local_path: document.local_path,
+        canonical_uri: document.canonical_uri,
+        title: document.title,
+        content_hash: document.content_hash,
+        last_seen_mtime: document.last_seen_mtime.map(format_timestamp),
+        sync_state: document.sync_state.as_str().to_string(),
+        conflict_state: document.conflict_state.as_str().to_string(),
+        artifact_id: document
+            .artifact_id
+            .map(|artifact_id| artifact_id.as_str().to_string()),
+        memory_id: document
+            .memory_id
+            .map(|memory_id| memory_id.as_str().to_string()),
+        created_at: format_timestamp(document.created_at),
+        updated_at: format_timestamp(document.updated_at),
+    }
+}
+
+fn project_document_draft_response(
+    document: &LocalProjectDocumentDraft,
+) -> ProjectDocumentDraftResponse {
+    ProjectDocumentDraftResponse {
+        canonical_uri: document.canonical_uri.clone(),
+        local_path: document.local_path.to_string_lossy().to_string(),
+        title: document.title.clone(),
+        content_hash: document.content_hash.clone(),
+        sync_state: document.sync_state.as_str().to_string(),
+    }
+}
+
+fn missing_project_document_response(
+    document: MissingProjectDocument,
+) -> MissingProjectDocumentResponse {
+    MissingProjectDocumentResponse {
+        canonical_uri: document.canonical_uri,
+        sync_state: document.sync_state.as_str().to_string(),
+    }
+}
+
+fn project_document_conflict_response(
+    conflict: ProjectDocumentConflictReport,
+) -> ProjectDocumentConflictResponse {
+    ProjectDocumentConflictResponse {
+        canonical_uri: conflict.canonical_uri,
+        sync_state: conflict.sync_state.as_str().to_string(),
+        conflict_state: conflict.conflict_state.as_str().to_string(),
+        reason: conflict.reason,
+    }
+}
+
+fn agent_context_response(agent_context: AgentContext) -> AgentContextResponse {
+    AgentContextResponse {
+        context_id: agent_context.id.as_str().to_string(),
+        source_id: agent_context
+            .source_id
+            .map(|source_id| source_id.as_str().to_string()),
+        key_id: agent_context
+            .key_id
+            .map(|key_id| key_id.as_str().to_string()),
+        scope_id: agent_context.scope_id.as_str().to_string(),
+        session_id: agent_context.session_id,
+        task_id: agent_context.task_id,
+        layer: agent_context.layer.as_str().to_string(),
+        title: agent_context.title,
+        body: agent_context.body,
+        labels: agent_context.labels,
+        expires_at: agent_context.expires_at.map(format_timestamp),
+        created_at: format_timestamp(agent_context.created_at),
+        updated_at: format_timestamp(agent_context.updated_at),
+    }
+}
+
+fn remember_text_response(result: RememberTextResult) -> CreateMemoryResponse {
+    CreateMemoryResponse {
+        artifact_id: result.artifact.id.as_str().to_string(),
+        memory_id: result.memory.id.as_str().to_string(),
+        scope_id: result.memory.scope_id.as_str().to_string(),
+        owner_scope_id: result.memory.owner_scope_id.as_str().to_string(),
+        title: result.memory.title.clone(),
+        body: result.memory.body.clone(),
+        language_code: result.memory.language_code.clone(),
+        memory_kind: memory_kind_label(result.memory.kind).to_string(),
+        memory_state: result.memory.state.as_str().to_string(),
+        evidence_count: result.memory.evidence_count,
+        wrote_pg: result.wrote_pg,
+        wrote_markdown: result.wrote_markdown,
     }
 }
 
@@ -1169,10 +1976,18 @@ fn search_terms(raw: &str) -> Vec<String> {
     terms
 }
 
-fn format_timestamp(value: time::OffsetDateTime) -> String {
+fn format_timestamp(value: OffsetDateTime) -> String {
     value
         .format(&Rfc3339)
         .unwrap_or_else(|_| value.unix_timestamp().to_string())
+}
+
+fn parse_optional_timestamp(raw: Option<&str>) -> Result<Option<OffsetDateTime>, ApiError> {
+    raw.map(|value| {
+        OffsetDateTime::parse(value, &Rfc3339)
+            .map_err(|_| ApiError::bad_request(format!("invalid timestamp: {value}")))
+    })
+    .transpose()
 }
 
 fn visibility_label(visibility: Visibility) -> &'static str {
@@ -1283,6 +2098,25 @@ fn parse_storage_mode(raw: &str) -> Result<StorageMode, ApiError> {
 fn parse_key_status(raw: &str) -> Result<AccessKeyStatus, ApiError> {
     AccessKeyStatus::parse(raw)
         .map_err(|_| ApiError::bad_request(format!("unsupported key status: {raw}")))
+}
+
+fn parse_source_sync_mode(raw: &str) -> Result<SourceSyncMode, ApiError> {
+    SourceSyncMode::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported source sync_mode: {raw}")))
+}
+
+fn parse_document_sync_state(raw: &str) -> Result<DocumentSyncState, ApiError> {
+    DocumentSyncState::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported document sync_state: {raw}")))
+}
+
+fn parse_document_conflict_state(raw: &str) -> Result<DocumentConflictState, ApiError> {
+    DocumentConflictState::parse(raw)
+        .map_err(|_| ApiError::bad_request(format!("unsupported document conflict_state: {raw}")))
+}
+
+fn api_error_from_domain(error: memory_domain::DomainError) -> ApiError {
+    ApiError::bad_request(error.to_string())
 }
 
 fn api_error_from_anyhow(error: anyhow::Error) -> ApiError {
@@ -1859,6 +2693,15 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
                   <span class="memory-meta-tag" id="mode-all">all 0</span>
                 </div>
               </div>
+              <div class="metric-block metric-block-wide">
+                <div class="stat-label">V2.4 Memory 能力</div>
+                <div class="metric-strip">
+                  <span class="memory-meta-tag" id="source-volume">Source 0</span>
+                  <span class="memory-meta-tag" id="context-volume">Context 0</span>
+                  <span class="memory-meta-tag" id="docs-volume">Docs 0</span>
+                  <span class="memory-meta-tag" id="docs-conflicts">Conflicts 0</span>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1876,12 +2719,59 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             <button type="submit" class="send-button">发送</button>
           </form>
         </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">Projection Debug</h2>
+            <span class="memory-meta-tag">source/document</span>
+          </div>
+          <div class="chat-note muted">
+            填写 raw key、source_id、document_id，直接查看 V2.4 project document markdown projection。
+          </div>
+          <div class="chat-composer" style="margin-top: 12px;">
+            <input id="projection-key" class="chat-input" placeholder="raw key" />
+            <button type="button" class="send-button" id="projection-load-sources">载入来源</button>
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="projection-source-search" class="chat-input" placeholder="筛选 source" />
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <select id="projection-source-select" class="chat-input">
+              <option value="">先载入 source 列表</option>
+            </select>
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="projection-source-id" class="chat-input" placeholder="source_id" />
+            <button type="button" class="send-button" id="projection-load-docs">载入文档</button>
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="projection-document-search" class="chat-input" placeholder="筛选 document" />
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <select id="projection-document-select" class="chat-input">
+              <option value="">先载入该 source 的文档列表</option>
+            </select>
+          </div>
+          <div id="projection-doc-actions" class="chip-row" style="margin-top: 10px;"></div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="projection-document-id" class="chat-input" placeholder="document_id" />
+            <button type="button" class="send-button" id="projection-fetch">查看</button>
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <button type="button" class="toolbar-button" id="projection-copy-path">复制路径</button>
+            <button type="button" class="toolbar-button" id="projection-copy-markdown">复制 Markdown</button>
+          </div>
+          <div id="projection-status" class="status-box hidden" style="margin-top: 12px;"></div>
+          <div id="projection-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
+          <pre id="projection-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+        </section>
       </div>
     </div>
   </div>
 
   <script>
     const metadata = __METADATA__;
+    const PROJECTION_DEBUG_STORAGE_KEY = "meat-memory.projection-debug.v1";
     async function fetchJson(url, options) {
       const response = await fetch(url, options);
       const text = await response.text();
@@ -1905,6 +2795,10 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       scopeFilter: "scp_meat_memory_v1",
       searchText: "",
       selectedMemoryId: null,
+      projectionSources: [],
+      projectionDocuments: [],
+      projectionSourceSearch: "",
+      projectionDocumentSearch: "",
       chatLoading: false,
       messages: [
         {
@@ -1936,10 +2830,30 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const modeFileEl = document.getElementById("mode-file");
     const modeVectorEl = document.getElementById("mode-vector");
     const modeAllEl = document.getElementById("mode-all");
+    const sourceVolumeEl = document.getElementById("source-volume");
+    const contextVolumeEl = document.getElementById("context-volume");
+    const docsVolumeEl = document.getElementById("docs-volume");
+    const docsConflictsEl = document.getElementById("docs-conflicts");
     const chatStackEl = document.getElementById("chat-stack");
     const chatFormEl = document.getElementById("chat-form");
     const chatInputEl = document.getElementById("chat-input");
     const chatNoteEl = document.getElementById("chat-note");
+    const projectionKeyEl = document.getElementById("projection-key");
+    const projectionLoadSourcesEl = document.getElementById("projection-load-sources");
+    const projectionSourceSearchEl = document.getElementById("projection-source-search");
+    const projectionSourceSelectEl = document.getElementById("projection-source-select");
+    const projectionSourceIdEl = document.getElementById("projection-source-id");
+    const projectionLoadDocsEl = document.getElementById("projection-load-docs");
+    const projectionDocumentSearchEl = document.getElementById("projection-document-search");
+    const projectionDocumentSelectEl = document.getElementById("projection-document-select");
+    const projectionDocActionsEl = document.getElementById("projection-doc-actions");
+    const projectionDocumentIdEl = document.getElementById("projection-document-id");
+    const projectionFetchEl = document.getElementById("projection-fetch");
+    const projectionCopyPathEl = document.getElementById("projection-copy-path");
+    const projectionCopyMarkdownEl = document.getElementById("projection-copy-markdown");
+    const projectionStatusEl = document.getElementById("projection-status");
+    const projectionMetaEl = document.getElementById("projection-meta");
+    const projectionOutputEl = document.getElementById("projection-output");
 
     function escapeHtml(value) {
       return String(value)
@@ -2005,6 +2919,144 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
     function metricLatency(value) {
       return String(Number(value || 0)) + "ms";
+    }
+
+    function loadProjectionDebugState() {
+      try {
+        const raw = localStorage.getItem(PROJECTION_DEBUG_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        const persisted = JSON.parse(raw);
+        projectionKeyEl.value = String(persisted.rawKey || "");
+        projectionSourceIdEl.value = String(persisted.sourceId || "");
+        projectionDocumentIdEl.value = String(persisted.documentId || "");
+        projectionSourceSearchEl.value = String(persisted.sourceSearch || "");
+        projectionDocumentSearchEl.value = String(persisted.documentSearch || "");
+        state.projectionSourceSearch = projectionSourceSearchEl.value;
+        state.projectionDocumentSearch = projectionDocumentSearchEl.value;
+      } catch (_error) {
+      }
+    }
+
+    function saveProjectionDebugState() {
+      try {
+        localStorage.setItem(
+          PROJECTION_DEBUG_STORAGE_KEY,
+          JSON.stringify({
+            rawKey: projectionKeyEl.value.trim(),
+            sourceId: projectionSourceIdEl.value.trim(),
+            documentId: projectionDocumentIdEl.value.trim(),
+            sourceSearch: projectionSourceSearchEl.value || "",
+            documentSearch: projectionDocumentSearchEl.value || "",
+          })
+        );
+      } catch (_error) {
+      }
+    }
+
+    function filteredProjectionSources() {
+      const query = state.projectionSourceSearch.trim().toLowerCase();
+      const sources = state.projectionSources || [];
+      if (!query) {
+        return sources;
+      }
+      return sources.filter((source) => {
+        return [
+          source.source_id,
+          source.name,
+          source.source_kind,
+          source.local_root,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      });
+    }
+
+    function filteredProjectionDocuments() {
+      const query = state.projectionDocumentSearch.trim().toLowerCase();
+      const documents = state.projectionDocuments || [];
+      if (!query) {
+        return documents;
+      }
+      return documents.filter((document) => {
+        return [
+          document.document_id,
+          document.title,
+          document.canonical_uri,
+          document.local_path,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      });
+    }
+
+    function renderProjectionSources() {
+      const sources = filteredProjectionSources();
+      if (!sources.length) {
+        projectionSourceSelectEl.innerHTML = '<option value="">' +
+          (state.projectionSources.length ? '没有匹配的 source' : '先载入 source 列表') +
+          '</option>';
+        return;
+      }
+      projectionSourceSelectEl.innerHTML =
+        '<option value="">选择一个 source_id</option>' +
+        sources
+          .map((source) => {
+            const id = String(source.source_id || "");
+            const name = String(source.name || id);
+            return '<option value="' + escapeHtml(id) + '">' + escapeHtml(name + " [" + id + "]") + '</option>';
+          })
+          .join("");
+      if (projectionSourceIdEl.value) {
+        projectionSourceSelectEl.value = projectionSourceIdEl.value;
+      }
+    }
+
+    function renderProjectionDocuments() {
+      const documents = filteredProjectionDocuments();
+      if (!documents.length) {
+        projectionDocumentSelectEl.innerHTML = '<option value="">' +
+          (state.projectionDocuments.length ? '没有匹配的文档' : '先载入该 source 的文档列表') +
+          '</option>';
+        projectionDocActionsEl.innerHTML = "";
+        return;
+      }
+      projectionDocumentSelectEl.innerHTML =
+        '<option value="">选择一个 document_id</option>' +
+        documents
+          .map((document) => {
+            const id = String(document.document_id || "");
+            const title = String(document.title || id);
+            return '<option value="' + escapeHtml(id) + '">' + escapeHtml(title + " [" + id + "]") + '</option>';
+          })
+          .join("");
+      projectionDocActionsEl.innerHTML = documents
+        .slice(0, 12)
+        .map((document) => {
+          const id = String(document.document_id || "");
+          const title = String(document.title || id);
+          return '<button type="button" class="toolbar-button projection-doc-button" data-document-id="' +
+            escapeHtml(id) +
+            '">' +
+            escapeHtml(title) +
+            "</button>";
+        })
+        .join("");
+      projectionDocActionsEl.querySelectorAll(".projection-doc-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          projectionDocumentIdEl.value = button.dataset.documentId || "";
+          projectionDocumentSelectEl.value = button.dataset.documentId || "";
+          loadProjection();
+        });
+      });
+      if (projectionDocumentIdEl.value) {
+        projectionDocumentSelectEl.value = projectionDocumentIdEl.value;
+      }
     }
 
     function renderOwnershipFilter() {
@@ -2175,6 +3227,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       const search = metrics.search || {};
       const write = metrics.write || {};
       const key = metrics.key || {};
+      const v24 = metrics.v2_4 || {};
 
       searchP95El.textContent = metricLatency(search.latency && search.latency.p95_ms);
       writeP95El.textContent = metricLatency(write.latency && write.latency.p95_ms);
@@ -2189,6 +3242,10 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       modeFileEl.textContent = "file " + metricNumber(key.file_mode_operations);
       modeVectorEl.textContent = "vector " + metricNumber(key.vector_mode_operations);
       modeAllEl.textContent = "all " + metricNumber(key.all_mode_operations);
+      sourceVolumeEl.textContent = "Source " + metricNumber(v24.source_operations);
+      contextVolumeEl.textContent = "Context " + metricNumber(v24.context_operations);
+      docsVolumeEl.textContent = "Docs " + metricNumber(v24.docs_operations);
+      docsConflictsEl.textContent = "Conflicts " + metricNumber(v24.docs_conflicts);
 
       metricsStatusEl.classList.add("hidden");
       metricsPanelEl.classList.remove("hidden");
@@ -2283,6 +3340,183 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       }
     }
 
+    async function loadProjection() {
+      const rawKey = projectionKeyEl.value.trim();
+      const sourceId = projectionSourceIdEl.value.trim();
+      const documentId = projectionDocumentIdEl.value.trim();
+      if (!rawKey || !sourceId || !documentId) {
+        projectionStatusEl.textContent = "请先填写 raw key、source_id、document_id。";
+        projectionStatusEl.classList.remove("hidden");
+        projectionMetaEl.classList.add("hidden");
+        projectionMetaEl.innerHTML = "";
+        projectionOutputEl.classList.add("hidden");
+        projectionOutputEl.textContent = "";
+        return;
+      }
+
+      projectionStatusEl.textContent = "正在加载 projection...";
+      projectionStatusEl.classList.remove("hidden");
+      projectionMetaEl.classList.add("hidden");
+      projectionMetaEl.innerHTML = "";
+      projectionOutputEl.classList.add("hidden");
+      projectionOutputEl.textContent = "";
+
+      try {
+        const payload = await fetchJson(
+          "/api/v1/sources/" + encodeURIComponent(sourceId) + "/documents/" + encodeURIComponent(documentId) + "/projection",
+          {
+            headers: {
+              "x-meat-memory-key": rawKey,
+            },
+          }
+        );
+        projectionStatusEl.textContent = "Projection: " + String(payload.projection_path || "");
+        projectionCopyPathEl.dataset.value = String(payload.projection_path || "");
+        projectionCopyMarkdownEl.dataset.value = String(payload.markdown || "");
+        projectionMetaEl.innerHTML =
+          '<div class="memory-expanded-title">' + escapeHtml(String(payload.document && payload.document.title || "")) + '</div>' +
+          '<div class="memory-expanded-meta muted">' +
+            escapeHtml(String(payload.document && payload.document.document_id || "")) +
+            " · " +
+            escapeHtml(String(payload.document && payload.document.scope_id || "")) +
+          '</div>' +
+          '<div class="memory-meta">' +
+            '<span class="memory-meta-tag">source ' + escapeHtml(String(payload.document && payload.document.source_id || "")) + '</span>' +
+            '<span class="memory-meta-tag">sync ' + escapeHtml(String(payload.document && payload.document.sync_state || "")) + '</span>' +
+            '<span class="memory-meta-tag">conflict ' + escapeHtml(String(payload.document && payload.document.conflict_state || "")) + '</span>' +
+          '</div>' +
+          '<div class="memory-inline-tags">' +
+            '<span class="memory-meta-tag">' + escapeHtml(String(payload.document && payload.document.canonical_uri || "")) + '</span>' +
+            '<span class="memory-meta-tag">' + escapeHtml(String(payload.document && payload.document.local_path || "")) + '</span>' +
+          '</div>';
+        projectionMetaEl.classList.remove("hidden");
+        projectionOutputEl.textContent = String(payload.markdown || "");
+        projectionOutputEl.classList.remove("hidden");
+      } catch (error) {
+        projectionStatusEl.textContent = "加载 projection 失败：" + String(error);
+        projectionCopyPathEl.dataset.value = "";
+        projectionCopyMarkdownEl.dataset.value = "";
+        projectionMetaEl.classList.add("hidden");
+        projectionMetaEl.innerHTML = "";
+        projectionOutputEl.classList.add("hidden");
+        projectionOutputEl.textContent = "";
+      }
+    }
+
+    async function loadProjectionSources() {
+      const rawKey = projectionKeyEl.value.trim();
+      if (!rawKey) {
+        projectionStatusEl.textContent = "请先填写 raw key。";
+        projectionStatusEl.classList.remove("hidden");
+        return;
+      }
+
+      projectionStatusEl.textContent = "正在加载 source 列表...";
+      projectionStatusEl.classList.remove("hidden");
+      state.projectionSources = [];
+      projectionSourceSelectEl.innerHTML = '<option value="">正在加载...</option>';
+
+      try {
+        const payload = await fetchJson("/api/v1/sources?limit=100", {
+          headers: {
+            "x-meat-memory-key": rawKey,
+          },
+        });
+        const sources = Array.isArray(payload) ? payload : [];
+        state.projectionSources = sources;
+        if (!sources.length) {
+          projectionSourceSelectEl.innerHTML = '<option value="">暂无 source</option>';
+          projectionStatusEl.textContent = "当前 key 下暂无 source。";
+          return;
+        }
+        renderProjectionSources();
+        if (projectionSourceIdEl.value) {
+          projectionSourceSelectEl.value = projectionSourceIdEl.value;
+        }
+        projectionStatusEl.textContent = "已载入 " + sources.length + " 个 source。";
+      } catch (error) {
+        state.projectionSources = [];
+        projectionSourceSelectEl.innerHTML = '<option value="">加载失败</option>';
+        projectionStatusEl.textContent = "加载 source 列表失败：" + String(error);
+      }
+    }
+
+    async function loadProjectionDocuments() {
+      const rawKey = projectionKeyEl.value.trim();
+      const sourceId = projectionSourceIdEl.value.trim();
+      if (!rawKey || !sourceId) {
+        projectionStatusEl.textContent = "请先填写 raw key 和 source_id。";
+        projectionStatusEl.classList.remove("hidden");
+        return;
+      }
+
+      projectionStatusEl.textContent = "正在加载该 source 的文档列表...";
+      projectionStatusEl.classList.remove("hidden");
+      state.projectionDocuments = [];
+      projectionDocumentSelectEl.innerHTML = '<option value="">正在加载...</option>';
+      projectionDocActionsEl.innerHTML = "";
+
+      try {
+        const payload = await fetchJson(
+          "/api/v1/sources/" + encodeURIComponent(sourceId) + "/documents?limit=100",
+          {
+            headers: {
+              "x-meat-memory-key": rawKey,
+            },
+          }
+        );
+        const documents = Array.isArray(payload) ? payload : [];
+        state.projectionDocuments = documents;
+        if (!documents.length) {
+          projectionDocumentSelectEl.innerHTML = '<option value="">该 source 暂无文档</option>';
+          projectionDocActionsEl.innerHTML = "";
+          projectionStatusEl.textContent = "该 source 暂无 project documents。";
+          return;
+        }
+        renderProjectionDocuments();
+        if (projectionDocumentIdEl.value) {
+          projectionDocumentSelectEl.value = projectionDocumentIdEl.value;
+        }
+        projectionStatusEl.textContent = "已载入 " + documents.length + " 个文档，可直接选择。";
+      } catch (error) {
+        state.projectionDocuments = [];
+        projectionDocumentSelectEl.innerHTML = '<option value="">加载失败</option>';
+        projectionDocActionsEl.innerHTML = "";
+        projectionStatusEl.textContent = "加载文档列表失败：" + String(error);
+      }
+    }
+
+    async function restoreProjectionDebugSession() {
+      if (!projectionKeyEl.value.trim()) {
+        return;
+      }
+      await loadProjectionSources();
+      if (!projectionSourceIdEl.value.trim()) {
+        return;
+      }
+      await loadProjectionDocuments();
+      if (!projectionDocumentIdEl.value.trim()) {
+        return;
+      }
+      await loadProjection();
+    }
+
+    async function copyProjectionValue(button, emptyMessage, successPrefix) {
+      const value = String(button.dataset.value || "");
+      if (!value) {
+        projectionStatusEl.textContent = emptyMessage;
+        projectionStatusEl.classList.remove("hidden");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        projectionStatusEl.textContent = successPrefix;
+      } catch (error) {
+        projectionStatusEl.textContent = "复制失败：" + String(error);
+      }
+      projectionStatusEl.classList.remove("hidden");
+    }
+
     document.querySelectorAll("#ownership-filter button").forEach((button) => {
       button.addEventListener("click", () => {
         state.ownershipFilter = button.dataset.value || "all";
@@ -2309,11 +3543,48 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       render();
     });
 
+    projectionKeyEl.addEventListener("input", saveProjectionDebugState);
+    projectionSourceIdEl.addEventListener("input", saveProjectionDebugState);
+    projectionDocumentIdEl.addEventListener("input", saveProjectionDebugState);
+
     refreshButtonEl.addEventListener("click", loadWorkspace);
     chatFormEl.addEventListener("submit", submitChat);
+    projectionLoadSourcesEl.addEventListener("click", loadProjectionSources);
+    projectionLoadDocsEl.addEventListener("click", loadProjectionDocuments);
+    projectionSourceSearchEl.addEventListener("input", (event) => {
+      state.projectionSourceSearch = event.target.value || "";
+      saveProjectionDebugState();
+      renderProjectionSources();
+    });
+    projectionDocumentSearchEl.addEventListener("input", (event) => {
+      state.projectionDocumentSearch = event.target.value || "";
+      saveProjectionDebugState();
+      renderProjectionDocuments();
+    });
+    projectionFetchEl.addEventListener("click", loadProjection);
+    projectionSourceSelectEl.addEventListener("change", () => {
+      projectionSourceIdEl.value = projectionSourceSelectEl.value || "";
+      state.projectionDocuments = [];
+      projectionDocumentSelectEl.innerHTML = '<option value="">先载入该 source 的文档列表</option>';
+      projectionDocActionsEl.innerHTML = "";
+      projectionDocumentIdEl.value = "";
+      saveProjectionDebugState();
+    });
+    projectionDocumentSelectEl.addEventListener("change", () => {
+      projectionDocumentIdEl.value = projectionDocumentSelectEl.value || "";
+      saveProjectionDebugState();
+    });
+    projectionCopyPathEl.addEventListener("click", () => {
+      copyProjectionValue(projectionCopyPathEl, "当前没有可复制的 projection 路径。", "已复制 projection 路径。");
+    });
+    projectionCopyMarkdownEl.addEventListener("click", () => {
+      copyProjectionValue(projectionCopyMarkdownEl, "当前没有可复制的 Markdown 内容。", "已复制 Markdown 内容。");
+    });
 
+    loadProjectionDebugState();
     render();
     loadWorkspace();
+    restoreProjectionDebugSession();
   </script>
 </body>
 </html>
@@ -2496,11 +3767,24 @@ mod tests {
         assert!(has_route("/metrics"));
         assert!(has_route("/api/v1/metrics/keys"));
         assert!(has_route("/api/v1/context/search"));
+        assert!(has_route("/api/v1/agent-contexts"));
+        assert!(has_route("/api/v1/agent-contexts/{context_id}"));
+        assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
         assert!(has_route("/api/v1/explorer/memories"));
         assert!(has_route("/api/v1/assistant/chat"));
         assert!(has_route("/api/v1/keys/{key_id}"));
         assert!(has_route("/api/v1/keys/{key_id}/rotate"));
         assert!(has_route("/api/v1/keys/{key_id}/stats"));
+        assert!(has_route("/api/v1/sources"));
+        assert!(has_route("/api/v1/sources/{source_id}"));
+        assert!(has_route("/api/v1/sources/{source_id}/keys"));
+        assert!(has_route("/api/v1/sources/{source_id}/documents"));
+        assert!(has_route(
+            "/api/v1/sources/{source_id}/documents/{document_id}/projection"
+        ));
+        assert!(has_route("/api/v1/sources/{source_id}/documents/import"));
+        assert!(has_route("/api/v1/sources/{source_id}/documents/conflicts"));
+        assert!(has_route("/api/v1/sources/{source_id}/documents/sync"));
     }
 
     #[tokio::test]
@@ -2776,6 +4060,10 @@ mod tests {
         assert_eq!(livez.status(), axum::http::StatusCode::OK);
         assert_eq!(metrics.status(), axum::http::StatusCode::OK);
         assert_eq!(key_metrics.status(), axum::http::StatusCode::OK);
+
+        let metrics_payload = response_json(metrics).await;
+        assert!(metrics_payload["v2_4"].is_object());
+        assert!(metrics_payload["v2_4"]["source_operations"].is_number());
     }
 
     #[tokio::test]

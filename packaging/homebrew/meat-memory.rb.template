@@ -1,0 +1,41 @@
+class MeatMemory < Formula
+  desc "Long-term memory kernel for agent and multi-client workflows"
+  homepage "__HOMEPAGE_URL__"
+  version "__VERSION__"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "__RELEASE_BASE_URL__/v#{version}/meat-memory-darwin-arm64.tar.gz"
+      sha256 "__DARWIN_ARM64_SHA256__"
+    end
+
+    on_intel do
+      url "__RELEASE_BASE_URL__/v#{version}/meat-memory-darwin-amd64.tar.gz"
+      sha256 "__DARWIN_AMD64_SHA256__"
+    end
+  end
+
+  def install
+    bin.install "bin/memory-cli"
+    bin.install "bin/memory-app"
+    bin.install "bin/memory-worker"
+    etc.install "config/app.toml" => "meat-memory/app.toml"
+  end
+
+  def caveats
+    <<~EOS
+      Example commands:
+        memory-cli config check
+        memory-cli mcp info
+        memory-cli skills export --target all --output-dir ./dist/agent-skills --force
+
+      Default config was installed to:
+        #{etc}/meat-memory/app.toml
+    EOS
+  end
+
+  test do
+    assert_match "Usage:", shell_output("#{bin}/memory-cli --help")
+  end
+end

@@ -1,8 +1,10 @@
 use anyhow::Result;
 use memory_domain::{
-    AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, Artifact, ArtifactId,
-    ArtifactKind, KeyScopeKind, KeySourceKind, KeyUsageBreakdown, Memory, MemoryId, MemoryKind,
-    MemoryScores, MemoryState, Scope, ScopeId, ScopeType, Sensitivity, StorageMode, Visibility,
+    AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, AgentContext, AgentContextId,
+    Artifact, ArtifactId, ArtifactKind, DocumentConflictState, DocumentSyncState, KeyScopeKind,
+    KeySourceKind, KeyUsageBreakdown, Memory, MemoryId, MemoryKind, MemoryScores, MemorySource,
+    MemoryState, ProjectDocument, ProjectDocumentId, Scope, ScopeId, ScopeType, Sensitivity,
+    SourceId, SourceStatus, SourceSyncMode, StorageMode, Visibility,
 };
 use sqlx::{Executor, PgPool, Postgres, QueryBuilder, Row};
 use time::OffsetDateTime;
@@ -12,6 +14,8 @@ const MIGRATION_0002: &str = include_str!("../../../migrations/0002_init_content
 const MIGRATION_0003: &str = include_str!("../../../migrations/0003_scope_governance.sql");
 const MIGRATION_0004: &str = include_str!("../../../migrations/0004_memory_v2_metadata.sql");
 const MIGRATION_0005: &str = include_str!("../../../migrations/0005_access_keys.sql");
+const MIGRATION_0006: &str =
+    include_str!("../../../migrations/0006_memory_v2_4_layers_sources.sql");
 const DEFAULT_SCHEMA: &str = "public";
 const SEED_SCOPE_SQL: &str = "INSERT INTO scopes (id, parent_scope_id, scope_type, name, path, owner_principal_id, inherit_policy, default_visibility, sync_policy)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -69,11 +73,12 @@ const SEARCH_MEMORY_PREFIX_SQL: &str = "SELECT id, scope_id, owner_scope_id, pub
              FROM memories
              WHERE scope_id = ";
 const INSERT_ACCESS_KEY_SQL: &str = "INSERT INTO access_keys
-                 (id, key_hash, display_name, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                 (id, key_hash, display_name, source_id, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                  ON CONFLICT (id) DO UPDATE SET
                    key_hash = EXCLUDED.key_hash,
                    display_name = EXCLUDED.display_name,
+                   source_id = EXCLUDED.source_id,
                    source_kind = EXCLUDED.source_kind,
                    owner_principal_id = EXCLUDED.owner_principal_id,
                    owner_scope_id = EXCLUDED.owner_scope_id,
@@ -83,13 +88,13 @@ const INSERT_ACCESS_KEY_SQL: &str = "INSERT INTO access_keys
                    isolation_group_id = EXCLUDED.isolation_group_id,
                    status = EXCLUDED.status,
                    last_used_at = EXCLUDED.last_used_at";
-const SELECT_ACCESS_KEY_BY_HASH_SQL: &str = "SELECT id, key_hash, display_name, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
+const SELECT_ACCESS_KEY_BY_HASH_SQL: &str = "SELECT id, key_hash, display_name, source_id, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
              FROM access_keys
              WHERE key_hash = $1";
-const SELECT_ACCESS_KEY_BY_ID_SQL: &str = "SELECT id, key_hash, display_name, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
+const SELECT_ACCESS_KEY_BY_ID_SQL: &str = "SELECT id, key_hash, display_name, source_id, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
              FROM access_keys
              WHERE id = $1";
-const LIST_ACCESS_KEYS_SQL: &str = "SELECT id, key_hash, display_name, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
+const LIST_ACCESS_KEYS_SQL: &str = "SELECT id, key_hash, display_name, source_id, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
              FROM access_keys
              ORDER BY created_at DESC
              LIMIT $1";
@@ -116,6 +121,87 @@ const SEARCH_MEMORY_BY_EMBEDDING_SQL: &str = "SELECT memories.id, memories.scope
              FROM memories
              JOIN memory_embeddings ON memory_embeddings.memory_id = memories.id
              WHERE memories.scope_id = ";
+const UPSERT_MEMORY_SOURCE_SQL: &str = "INSERT INTO memory_sources
+                 (id, source_kind, display_name, owner_principal_id, owner_scope_id, source_uri, sync_mode, local_root, status, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 ON CONFLICT (id) DO UPDATE SET
+                   source_kind = EXCLUDED.source_kind,
+                   display_name = EXCLUDED.display_name,
+                   owner_principal_id = EXCLUDED.owner_principal_id,
+                   owner_scope_id = EXCLUDED.owner_scope_id,
+                   source_uri = EXCLUDED.source_uri,
+                   sync_mode = EXCLUDED.sync_mode,
+                   local_root = EXCLUDED.local_root,
+                   status = EXCLUDED.status,
+                   updated_at = EXCLUDED.updated_at";
+const SELECT_MEMORY_SOURCE_SQL: &str = "SELECT id, source_kind, display_name, owner_principal_id, owner_scope_id, source_uri, sync_mode, local_root, status, created_at, updated_at
+             FROM memory_sources WHERE id = $1";
+const LIST_MEMORY_SOURCES_SQL: &str = "SELECT id, source_kind, display_name, owner_principal_id, owner_scope_id, source_uri, sync_mode, local_root, status, created_at, updated_at
+             FROM memory_sources
+             WHERE owner_scope_id = $1
+             ORDER BY updated_at DESC
+             LIMIT $2";
+const LIST_ACCESS_KEYS_FOR_SOURCE_SQL: &str = "SELECT id, key_hash, display_name, source_id, source_kind, owner_principal_id, owner_scope_id, scope_kind, storage_mode, is_fully_isolated, isolation_group_id, status, created_at, last_used_at
+             FROM access_keys
+             WHERE source_id = $1
+             ORDER BY created_at DESC
+             LIMIT $2";
+const UPSERT_AGENT_CONTEXT_SQL: &str = "INSERT INTO agent_contexts
+                 (id, source_id, key_id, scope_id, session_id, task_id, layer, title, body, labels, expires_at, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                 ON CONFLICT (id) DO UPDATE SET
+                   source_id = EXCLUDED.source_id,
+                   key_id = EXCLUDED.key_id,
+                   scope_id = EXCLUDED.scope_id,
+                   session_id = EXCLUDED.session_id,
+                   task_id = EXCLUDED.task_id,
+                   layer = EXCLUDED.layer,
+                   title = EXCLUDED.title,
+                   body = EXCLUDED.body,
+                   labels = EXCLUDED.labels,
+                   expires_at = EXCLUDED.expires_at,
+                   updated_at = EXCLUDED.updated_at";
+const LIST_AGENT_CONTEXTS_SQL: &str = "SELECT id, source_id, key_id, scope_id, session_id, task_id, layer, title, body, labels, expires_at, created_at, updated_at
+             FROM agent_contexts
+             WHERE scope_id = $1
+               AND session_id = $2
+               AND ($3::text IS NULL OR task_id = $3)
+               AND (expires_at IS NULL OR expires_at > NOW())
+             ORDER BY updated_at DESC
+             LIMIT $4";
+const SELECT_AGENT_CONTEXT_SQL: &str = "SELECT id, source_id, key_id, scope_id, session_id, task_id, layer, title, body, labels, expires_at, created_at, updated_at
+             FROM agent_contexts
+             WHERE id = $1
+               AND (expires_at IS NULL OR expires_at > NOW())";
+const DELETE_AGENT_CONTEXT_SQL: &str = "DELETE FROM agent_contexts WHERE id = $1";
+const UPSERT_PROJECT_DOCUMENT_SQL: &str = "INSERT INTO project_documents
+                 (id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                 ON CONFLICT (source_id, canonical_uri) DO UPDATE SET
+                   scope_id = EXCLUDED.scope_id,
+                   local_path = EXCLUDED.local_path,
+                   title = EXCLUDED.title,
+                   content_hash = EXCLUDED.content_hash,
+                   last_seen_mtime = EXCLUDED.last_seen_mtime,
+                   sync_state = EXCLUDED.sync_state,
+                   conflict_state = EXCLUDED.conflict_state,
+                   artifact_id = EXCLUDED.artifact_id,
+                   memory_id = EXCLUDED.memory_id,
+                   updated_at = EXCLUDED.updated_at";
+const SELECT_PROJECT_DOCUMENT_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at
+             FROM project_documents
+             WHERE source_id = $1 AND canonical_uri = $2";
+const LIST_PROJECT_DOCUMENTS_FOR_SOURCE_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at
+             FROM project_documents
+             WHERE source_id = $1
+             ORDER BY updated_at DESC
+             LIMIT $2";
+const LIST_PROJECT_DOCUMENT_CONFLICTS_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at
+             FROM project_documents
+             WHERE source_id = $1
+               AND (sync_state = 'conflicted' OR conflict_state <> 'none')
+             ORDER BY updated_at DESC
+             LIMIT $2";
 
 #[derive(Debug, Clone)]
 struct MemoryRecord {
@@ -144,6 +230,7 @@ struct AccessKeyRecord {
     id: String,
     key_hash: String,
     display_name: String,
+    source_id: Option<String>,
     source_kind: String,
     owner_principal_id: String,
     owner_scope_id: String,
@@ -154,6 +241,56 @@ struct AccessKeyRecord {
     status: String,
     created_at: OffsetDateTime,
     last_used_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone)]
+struct MemorySourceRecord {
+    id: String,
+    source_kind: String,
+    display_name: String,
+    owner_principal_id: String,
+    owner_scope_id: String,
+    source_uri: Option<String>,
+    sync_mode: String,
+    local_root: Option<String>,
+    status: String,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone)]
+struct AgentContextRecord {
+    id: String,
+    source_id: Option<String>,
+    key_id: Option<String>,
+    scope_id: String,
+    session_id: String,
+    task_id: Option<String>,
+    layer: String,
+    title: String,
+    body: String,
+    labels: Vec<String>,
+    expires_at: Option<OffsetDateTime>,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone)]
+struct ProjectDocumentRecord {
+    id: String,
+    source_id: String,
+    scope_id: String,
+    local_path: Option<String>,
+    canonical_uri: String,
+    title: String,
+    content_hash: String,
+    last_seen_mtime: Option<OffsetDateTime>,
+    sync_state: String,
+    conflict_state: String,
+    artifact_id: Option<String>,
+    memory_id: Option<String>,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
 }
 
 pub struct PgStore {
@@ -175,11 +312,18 @@ impl PgStore {
     }
 
     pub async fn migrate(&self) -> Result<()> {
-        self.pool.execute(sqlx::raw_sql(MIGRATION_0001)).await?;
-        self.pool.execute(sqlx::raw_sql(MIGRATION_0002)).await?;
-        self.pool.execute(sqlx::raw_sql(MIGRATION_0003)).await?;
-        self.pool.execute(sqlx::raw_sql(MIGRATION_0004)).await?;
-        self.pool.execute(sqlx::raw_sql(MIGRATION_0005)).await?;
+        let mut tx = self.pool.begin().await?;
+        tx.execute(sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtext('meat_memory_schema_migrations'))",
+        ))
+        .await?;
+        tx.execute(sqlx::raw_sql(MIGRATION_0001)).await?;
+        tx.execute(sqlx::raw_sql(MIGRATION_0002)).await?;
+        tx.execute(sqlx::raw_sql(MIGRATION_0003)).await?;
+        tx.execute(sqlx::raw_sql(MIGRATION_0004)).await?;
+        tx.execute(sqlx::raw_sql(MIGRATION_0005)).await?;
+        tx.execute(sqlx::raw_sql(MIGRATION_0006)).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -414,6 +558,7 @@ impl PgStore {
                     .bind(access_key.id.as_str())
                     .bind(&access_key.key_hash)
                     .bind(&access_key.display_name)
+                    .bind(access_key.source_id.as_ref().map(SourceId::as_str))
                     .bind(access_key.source_kind.as_str())
                     .bind(&access_key.owner_principal_id)
                     .bind(access_key.owner_scope_id.as_str())
@@ -449,6 +594,19 @@ impl PgStore {
 
     pub async fn list_access_keys(&self, limit: i64) -> Result<Vec<AccessKey>> {
         let rows = sqlx::query(list_access_keys_sql())
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_access_key).collect()
+    }
+
+    pub async fn list_access_keys_for_source(
+        &self,
+        source_id: &SourceId,
+        limit: i64,
+    ) -> Result<Vec<AccessKey>> {
+        let rows = sqlx::query(list_access_keys_for_source_sql())
+            .bind(source_id.as_str())
             .bind(limit.clamp(1, 500))
             .fetch_all(&self.pool)
             .await?;
@@ -628,6 +786,175 @@ impl PgStore {
         let rows = builder.build().fetch_all(&self.pool).await?;
         rows.into_iter().map(row_to_memory).collect()
     }
+
+    pub async fn upsert_memory_source(&self, source: &MemorySource) -> Result<SourceId> {
+        self.seed_scope(
+            &source.owner_scope_id,
+            source.owner_scope_id.as_str(),
+            &format!("default/scopes/{}", source.owner_scope_id.as_str()),
+        )
+        .await?;
+        self.pool
+            .execute(
+                sqlx::query(upsert_memory_source_sql())
+                    .bind(source.id.as_str())
+                    .bind(&source.source_kind)
+                    .bind(&source.display_name)
+                    .bind(&source.owner_principal_id)
+                    .bind(source.owner_scope_id.as_str())
+                    .bind(source.source_uri.as_deref())
+                    .bind(source.sync_mode.as_str())
+                    .bind(source.local_root.as_deref())
+                    .bind(source.status.as_str())
+                    .bind(source.created_at)
+                    .bind(source.updated_at),
+            )
+            .await?;
+        Ok(source.id.clone())
+    }
+
+    pub async fn get_memory_source(&self, source_id: &SourceId) -> Result<Option<MemorySource>> {
+        let row = sqlx::query(select_memory_source_sql())
+            .bind(source_id.as_str())
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(row_to_memory_source).transpose()
+    }
+
+    pub async fn list_memory_sources(
+        &self,
+        owner_scope_id: &ScopeId,
+        limit: i64,
+    ) -> Result<Vec<MemorySource>> {
+        let rows = sqlx::query(list_memory_sources_sql())
+            .bind(owner_scope_id.as_str())
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_memory_source).collect()
+    }
+
+    pub async fn upsert_agent_context(&self, context: &AgentContext) -> Result<AgentContextId> {
+        self.pool
+            .execute(
+                sqlx::query(upsert_agent_context_sql())
+                    .bind(context.id.as_str())
+                    .bind(context.source_id.as_ref().map(SourceId::as_str))
+                    .bind(context.key_id.as_ref().map(AccessKeyId::as_str))
+                    .bind(context.scope_id.as_str())
+                    .bind(&context.session_id)
+                    .bind(context.task_id.as_deref())
+                    .bind(context.layer.as_str())
+                    .bind(&context.title)
+                    .bind(&context.body)
+                    .bind(sqlx::types::Json(&context.labels))
+                    .bind(context.expires_at)
+                    .bind(context.created_at)
+                    .bind(context.updated_at),
+            )
+            .await?;
+        Ok(context.id.clone())
+    }
+
+    pub async fn list_agent_contexts(
+        &self,
+        scope_id: &ScopeId,
+        session_id: &str,
+        task_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<AgentContext>> {
+        let rows = sqlx::query(list_agent_contexts_sql())
+            .bind(scope_id.as_str())
+            .bind(session_id)
+            .bind(task_id)
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_agent_context).collect()
+    }
+
+    pub async fn get_agent_context(
+        &self,
+        context_id: &AgentContextId,
+    ) -> Result<Option<AgentContext>> {
+        let row = sqlx::query(select_agent_context_sql())
+            .bind(context_id.as_str())
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(row_to_agent_context).transpose()
+    }
+
+    pub async fn delete_agent_context(&self, context_id: &AgentContextId) -> Result<()> {
+        self.pool
+            .execute(sqlx::query(delete_agent_context_sql()).bind(context_id.as_str()))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn upsert_project_document(
+        &self,
+        document: &ProjectDocument,
+    ) -> Result<ProjectDocumentId> {
+        self.pool
+            .execute(
+                sqlx::query(upsert_project_document_sql())
+                    .bind(document.id.as_str())
+                    .bind(document.source_id.as_str())
+                    .bind(document.scope_id.as_str())
+                    .bind(document.local_path.as_deref())
+                    .bind(&document.canonical_uri)
+                    .bind(&document.title)
+                    .bind(&document.content_hash)
+                    .bind(document.last_seen_mtime)
+                    .bind(document.sync_state.as_str())
+                    .bind(document.conflict_state.as_str())
+                    .bind(document.artifact_id.as_ref().map(ArtifactId::as_str))
+                    .bind(document.memory_id.as_ref().map(MemoryId::as_str))
+                    .bind(document.created_at)
+                    .bind(document.updated_at),
+            )
+            .await?;
+        Ok(document.id.clone())
+    }
+
+    pub async fn get_project_document(
+        &self,
+        source_id: &SourceId,
+        canonical_uri: &str,
+    ) -> Result<Option<ProjectDocument>> {
+        let row = sqlx::query(select_project_document_sql())
+            .bind(source_id.as_str())
+            .bind(canonical_uri)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(row_to_project_document).transpose()
+    }
+
+    pub async fn list_project_documents_for_source(
+        &self,
+        source_id: &SourceId,
+        limit: i64,
+    ) -> Result<Vec<ProjectDocument>> {
+        let rows = sqlx::query(list_project_documents_for_source_sql())
+            .bind(source_id.as_str())
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_project_document).collect()
+    }
+
+    pub async fn list_project_document_conflicts(
+        &self,
+        source_id: &SourceId,
+        limit: i64,
+    ) -> Result<Vec<ProjectDocument>> {
+        let rows = sqlx::query(list_project_document_conflicts_sql())
+            .bind(source_id.as_str())
+            .bind(limit.clamp(1, 500))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(row_to_project_document).collect()
+    }
 }
 
 fn vector_literal(vector: &[f32]) -> String {
@@ -752,6 +1079,7 @@ fn row_to_access_key(row: sqlx::postgres::PgRow) -> Result<AccessKey> {
         id: row.try_get::<String, _>("id")?,
         key_hash: row.try_get("key_hash")?,
         display_name: row.try_get("display_name")?,
+        source_id: row.try_get::<Option<String>, _>("source_id")?,
         source_kind: row.try_get("source_kind")?,
         owner_principal_id: row.try_get("owner_principal_id")?,
         owner_scope_id: row.try_get("owner_scope_id")?,
@@ -762,6 +1090,62 @@ fn row_to_access_key(row: sqlx::postgres::PgRow) -> Result<AccessKey> {
         status: row.try_get("status")?,
         created_at: row.try_get("created_at")?,
         last_used_at: row.try_get("last_used_at")?,
+    })
+}
+
+fn row_to_memory_source(row: sqlx::postgres::PgRow) -> Result<MemorySource> {
+    memory_source_from_record(MemorySourceRecord {
+        id: row.try_get::<String, _>("id")?,
+        source_kind: row.try_get("source_kind")?,
+        display_name: row.try_get("display_name")?,
+        owner_principal_id: row.try_get("owner_principal_id")?,
+        owner_scope_id: row.try_get("owner_scope_id")?,
+        source_uri: row.try_get("source_uri")?,
+        sync_mode: row.try_get("sync_mode")?,
+        local_root: row.try_get("local_root")?,
+        status: row.try_get("status")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn row_to_agent_context(row: sqlx::postgres::PgRow) -> Result<AgentContext> {
+    let labels = row
+        .try_get::<sqlx::types::Json<Vec<String>>, _>("labels")?
+        .0;
+    agent_context_from_record(AgentContextRecord {
+        id: row.try_get::<String, _>("id")?,
+        source_id: row.try_get("source_id")?,
+        key_id: row.try_get("key_id")?,
+        scope_id: row.try_get("scope_id")?,
+        session_id: row.try_get("session_id")?,
+        task_id: row.try_get("task_id")?,
+        layer: row.try_get("layer")?,
+        title: row.try_get("title")?,
+        body: row.try_get("body")?,
+        labels,
+        expires_at: row.try_get("expires_at")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn row_to_project_document(row: sqlx::postgres::PgRow) -> Result<ProjectDocument> {
+    project_document_from_record(ProjectDocumentRecord {
+        id: row.try_get::<String, _>("id")?,
+        source_id: row.try_get("source_id")?,
+        scope_id: row.try_get("scope_id")?,
+        local_path: row.try_get("local_path")?,
+        canonical_uri: row.try_get("canonical_uri")?,
+        title: row.try_get("title")?,
+        content_hash: row.try_get("content_hash")?,
+        last_seen_mtime: row.try_get("last_seen_mtime")?,
+        sync_state: row.try_get("sync_state")?,
+        conflict_state: row.try_get("conflict_state")?,
+        artifact_id: row.try_get("artifact_id")?,
+        memory_id: row.try_get("memory_id")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
     })
 }
 
@@ -798,6 +1182,7 @@ fn access_key_from_record(record: AccessKeyRecord) -> Result<AccessKey> {
         id: AccessKeyId::from_string(record.id),
         key_hash: record.key_hash,
         display_name: record.display_name,
+        source_id: record.source_id.map(SourceId::from_string),
         source_kind: KeySourceKind::parse(&record.source_kind)?,
         owner_principal_id: record.owner_principal_id,
         owner_scope_id: ScopeId::from_string(record.owner_scope_id),
@@ -808,6 +1193,59 @@ fn access_key_from_record(record: AccessKeyRecord) -> Result<AccessKey> {
         status: AccessKeyStatus::parse(&record.status)?,
         created_at: record.created_at,
         last_used_at: record.last_used_at,
+    })
+}
+
+fn memory_source_from_record(record: MemorySourceRecord) -> Result<MemorySource> {
+    Ok(MemorySource {
+        id: SourceId::from_string(record.id),
+        source_kind: record.source_kind,
+        display_name: record.display_name,
+        owner_principal_id: record.owner_principal_id,
+        owner_scope_id: ScopeId::from_string(record.owner_scope_id),
+        source_uri: record.source_uri,
+        sync_mode: SourceSyncMode::parse(&record.sync_mode)?,
+        local_root: record.local_root,
+        status: SourceStatus::parse(&record.status)?,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    })
+}
+
+fn agent_context_from_record(record: AgentContextRecord) -> Result<AgentContext> {
+    Ok(AgentContext {
+        id: AgentContextId::from_string(record.id),
+        source_id: record.source_id.map(SourceId::from_string),
+        key_id: record.key_id.map(AccessKeyId::from_string),
+        scope_id: ScopeId::from_string(record.scope_id),
+        session_id: record.session_id,
+        task_id: record.task_id,
+        layer: memory_domain::MemoryLayer::parse(&record.layer)?,
+        title: record.title,
+        body: record.body,
+        labels: record.labels,
+        expires_at: record.expires_at,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    })
+}
+
+fn project_document_from_record(record: ProjectDocumentRecord) -> Result<ProjectDocument> {
+    Ok(ProjectDocument {
+        id: ProjectDocumentId::from_string(record.id),
+        source_id: SourceId::from_string(record.source_id),
+        scope_id: ScopeId::from_string(record.scope_id),
+        local_path: record.local_path,
+        canonical_uri: record.canonical_uri,
+        title: record.title,
+        content_hash: record.content_hash,
+        last_seen_mtime: record.last_seen_mtime,
+        sync_state: DocumentSyncState::parse(&record.sync_state)?,
+        conflict_state: DocumentConflictState::parse(&record.conflict_state)?,
+        artifact_id: record.artifact_id.map(ArtifactId::from_string),
+        memory_id: record.memory_id.map(MemoryId::from_string),
+        created_at: record.created_at,
+        updated_at: record.updated_at,
     })
 }
 
@@ -867,6 +1305,10 @@ fn list_access_keys_sql() -> &'static str {
     LIST_ACCESS_KEYS_SQL
 }
 
+fn list_access_keys_for_source_sql() -> &'static str {
+    LIST_ACCESS_KEYS_FOR_SOURCE_SQL
+}
+
 fn update_access_key_last_used_sql() -> &'static str {
     UPDATE_ACCESS_KEY_LAST_USED_SQL
 }
@@ -885,6 +1327,50 @@ fn insert_memory_key_link_sql() -> &'static str {
 
 fn upsert_memory_embedding_sql() -> &'static str {
     UPSERT_MEMORY_EMBEDDING_SQL
+}
+
+fn upsert_memory_source_sql() -> &'static str {
+    UPSERT_MEMORY_SOURCE_SQL
+}
+
+fn select_memory_source_sql() -> &'static str {
+    SELECT_MEMORY_SOURCE_SQL
+}
+
+fn list_memory_sources_sql() -> &'static str {
+    LIST_MEMORY_SOURCES_SQL
+}
+
+fn upsert_agent_context_sql() -> &'static str {
+    UPSERT_AGENT_CONTEXT_SQL
+}
+
+fn list_agent_contexts_sql() -> &'static str {
+    LIST_AGENT_CONTEXTS_SQL
+}
+
+fn select_agent_context_sql() -> &'static str {
+    SELECT_AGENT_CONTEXT_SQL
+}
+
+fn delete_agent_context_sql() -> &'static str {
+    DELETE_AGENT_CONTEXT_SQL
+}
+
+fn upsert_project_document_sql() -> &'static str {
+    UPSERT_PROJECT_DOCUMENT_SQL
+}
+
+fn select_project_document_sql() -> &'static str {
+    SELECT_PROJECT_DOCUMENT_SQL
+}
+
+fn list_project_documents_for_source_sql() -> &'static str {
+    LIST_PROJECT_DOCUMENTS_FOR_SOURCE_SQL
+}
+
+fn list_project_document_conflicts_sql() -> &'static str {
+    LIST_PROJECT_DOCUMENT_CONFLICTS_SQL
 }
 
 #[cfg(test)]

@@ -1,0 +1,22 @@
+[Unit]
+Description=Meat Memory Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=meat-memory
+Group=meat-memory
+EnvironmentFile=/etc/meat-memory/meat-memory.env
+WorkingDirectory=/opt/meat-memory
+ExecStart=/opt/meat-memory/bin/memory-worker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/meat-memory
+
+[Install]
+WantedBy=multi-user.target

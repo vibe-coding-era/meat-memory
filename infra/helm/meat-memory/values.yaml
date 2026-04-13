@@ -1,5 +1,10 @@
 image:
-  repository: meat-memory
+  repository: meat-memory-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+workerImage:
+  repository: meat-memory-worker
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -18,6 +23,7 @@ service:
 
 persistence:
   enabled: true
+  existingClaim: ""
   storageClassName: ""
   accessMode: ReadWriteOnce
   size: 10Gi
@@ -40,6 +46,7 @@ config:
     enableMcp: true
 
 secrets:
+  existingSecretName: ""
   openaiApiKey: ""
   anthropicApiKey: ""
   geminiApiKey: ""

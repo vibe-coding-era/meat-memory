@@ -343,6 +343,302 @@ fn cli_key_rotate_and_stats_work() {
     assert_ne!(rotated["key_id"], created["key_id"]);
 }
 
+#[test]
+fn cli_source_context_and_docs_management_work() {
+    let tempdir = tempdir().unwrap();
+    let config_path = write_test_config(tempdir.path());
+    let scope_id = ScopeId::new();
+
+    let owner_key = run_cli(
+        &config_path,
+        &[
+            "key",
+            "create",
+            "--name",
+            "v24 cli owner",
+            "--source",
+            "cli",
+            "--owner-principal-id",
+            "alice",
+            "--owner-scope-id",
+            scope_id.as_str(),
+            "--scope-kind",
+            "personal",
+            "--storage",
+            "all",
+            "--json",
+        ],
+    );
+    let raw_key = owner_key["raw_key"].as_str().unwrap();
+
+    let source = run_cli(
+        &config_path,
+        &[
+            "source",
+            "create",
+            "--key",
+            raw_key,
+            "--name",
+            "CLI project docs",
+            "--source-kind",
+            "local_docs",
+            "--sync-mode",
+            "index_only",
+            "--local-root",
+            tempdir.path().to_str().unwrap(),
+            "--json",
+        ],
+    );
+    let source_id = source["source_id"].as_str().unwrap();
+    assert_eq!(source["source_kind"], "local_docs");
+    assert_eq!(source["sync_mode"], "index_only");
+
+    let source_key = run_cli(
+        &config_path,
+        &[
+            "source",
+            "key-create",
+            "--key",
+            raw_key,
+            "--source-id",
+            source_id,
+            "--name",
+            "CLI source key",
+            "--json",
+        ],
+    );
+    assert_eq!(source_key["source_id"], source_id);
+    assert!(source_key["raw_key"].as_str().unwrap().starts_with("mmk_"));
+
+    let source_keys = run_cli(
+        &config_path,
+        &[
+            "source",
+            "keys",
+            "--key",
+            raw_key,
+            "--source-id",
+            source_id,
+            "--json",
+        ],
+    );
+    assert_eq!(source_keys["keys"].as_array().unwrap().len(), 1);
+
+    let session_id = format!("cli-session-{}", scope_id.as_str());
+    let context = run_cli(
+        &config_path,
+        &[
+            "context",
+            "upsert",
+            "--key",
+            raw_key,
+            "--scope-id",
+            scope_id.as_str(),
+            "--session-id",
+            &session_id,
+            "--task-id",
+            "cli-v24",
+            "--title",
+            "CLI short context",
+            "--body",
+            "CLI captured short-term context for V2.4.",
+            "--labels",
+            "cli,short-term",
+            "--json",
+        ],
+    );
+    let context_id = context["context_id"].as_str().unwrap();
+    assert_eq!(context["layer"], "short_term");
+
+    let contexts = run_cli(
+        &config_path,
+        &[
+            "context",
+            "list",
+            "--key",
+            raw_key,
+            "--scope-id",
+            scope_id.as_str(),
+            "--session-id",
+            &session_id,
+            "--task-id",
+            "cli-v24",
+            "--json",
+        ],
+    );
+    assert_eq!(contexts["contexts"].as_array().unwrap().len(), 1);
+
+    let promoted = run_cli(
+        &config_path,
+        &[
+            "context",
+            "promote",
+            "--key",
+            raw_key,
+            "--context-id",
+            context_id,
+            "--memory-kind",
+            "summary",
+            "--json",
+        ],
+    );
+    assert_eq!(promoted["memory_kind"], "summary");
+
+    let document = run_cli(
+        &config_path,
+        &[
+            "docs",
+            "import",
+            "--key",
+            raw_key,
+            "--source-id",
+            source_id,
+            "--scope-id",
+            scope_id.as_str(),
+            "--canonical-uri",
+            "file:///cli/README.md",
+            "--title",
+            "CLI README",
+            "--body",
+            "CLI imports project documentation.",
+            "--local-path",
+            "/cli/README.md",
+            "--json",
+        ],
+    );
+    assert_eq!(document["title"], "CLI README");
+
+    let documents = run_cli(
+        &config_path,
+        &[
+            "docs",
+            "list",
+            "--key",
+            raw_key,
+            "--source-id",
+            source_id,
+            "--query",
+            "README",
+            "--json",
+        ],
+    );
+    assert_eq!(documents["documents"].as_array().unwrap().len(), 1);
+    let document_id = documents["documents"][0]["document_id"].as_str().unwrap();
+
+    let projection = run_cli(
+        &config_path,
+        &[
+            "docs",
+            "projection",
+            "--key",
+            raw_key,
+            "--source-id",
+            source_id,
+            "--document-id",
+            document_id,
+            "--json",
+        ],
+    );
+    assert_eq!(projection["document"]["document_id"], document_id);
+    assert!(
+        projection["projection_path"]
+            .as_str()
+            .unwrap()
+            .contains("/sources/")
+    );
+    assert!(
+        projection["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("kind: project_document")
+    );
+    assert!(
+        projection["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("CLI imports project documentation.")
+    );
+
+    let conflicts = run_cli(
+        &config_path,
+        &[
+            "docs",
+            "conflicts",
+            "--key",
+            raw_key,
+            "--source-id",
+            source_id,
+            "--json",
+        ],
+    );
+    assert!(conflicts["documents"].as_array().unwrap().is_empty());
+
+    let docs_root = tempdir.path().join("docs-sync");
+    fs::create_dir_all(&docs_root).unwrap();
+    fs::write(
+        docs_root.join("SYNC.md"),
+        "# CLI Sync Doc\nCLI docs sync imports local project documents.",
+    )
+    .unwrap();
+    fs::write(
+        docs_root.join("runbook.txt"),
+        "CLI docs status should show planned documents.",
+    )
+    .unwrap();
+
+    let sync_source = run_cli(
+        &config_path,
+        &[
+            "source",
+            "create",
+            "--key",
+            raw_key,
+            "--name",
+            "CLI sync source",
+            "--source-kind",
+            "local_docs",
+            "--sync-mode",
+            "index_only",
+            "--local-root",
+            docs_root.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    let sync_source_id = sync_source["source_id"].as_str().unwrap();
+
+    let status = run_cli(
+        &config_path,
+        &[
+            "docs",
+            "status",
+            "--key",
+            raw_key,
+            "--source-id",
+            sync_source_id,
+            "--json",
+        ],
+    );
+    assert_eq!(status["dry_run"], true);
+    assert_eq!(status["planned_documents"].as_array().unwrap().len(), 2);
+
+    let sync = run_cli(
+        &config_path,
+        &[
+            "docs",
+            "sync",
+            "--key",
+            raw_key,
+            "--source-id",
+            sync_source_id,
+            "--scope-id",
+            scope_id.as_str(),
+            "--json",
+        ],
+    );
+    assert_eq!(sync["dry_run"], false);
+    assert_eq!(sync["imported"].as_array().unwrap().len(), 2);
+}
+
 fn run_cli(config_path: &Path, args: &[&str]) -> Value {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();

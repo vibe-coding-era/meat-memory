@@ -65,8 +65,8 @@
 - TUI 支持编号模型候选菜单、review summary、确认写出和本地化最终结果面板
 - Agent skill 模板覆盖 Codex、Claude Code / TRAE / Qoder、OpenClaw / CoWork / QoderWork 等接入类型
 - skill bundle 包含 `SKILL.md`、`agents/openai.yaml` 和 `assets/icon.svg`
-- V2.1 验收脚本 `scripts/v2_1-acceptance.sh` 覆盖 config / MCP / TUI / skill export smoke
-- 测试报告体系通过 `scripts/write-test-reports.sh` 写入 `tests/reports/`
+- V2.1 验收脚本 `docs/scripts/v2_1-acceptance.sh` 覆盖 config / MCP / TUI / skill export smoke
+- 测试报告体系通过 `docs/scripts/write-test-reports.sh` 写入 `tests/reports/`
 
 ### 2.3 配置体系已统一
 
@@ -268,9 +268,9 @@ config/
 | `cargo test --workspace --lib --bins --quiet` | Rust workspace 单测与 bin 测试主入口 |
 | `cargo test -p memory-config --lib --quiet` | 配置层定向回归 |
 | `cargo test -p memory-cli --bin memory-cli --quiet` | CLI / TUI 定向回归 |
-| `scripts/v1-acceptance.sh` | V1 端到端验收 |
-| `scripts/v2_1-acceptance.sh` | V2.1 CLI / MCP / TUI / skill smoke |
-| `scripts/write-test-reports.sh` | 将各类测试报告归档到 `tests/reports/` |
+| `docs/scripts/v1-acceptance.sh` | V1 端到端验收 |
+| `docs/scripts/v2_1-acceptance.sh` | V2.1 CLI / MCP / TUI / skill smoke |
+| `docs/scripts/write-test-reports.sh` | 将各类测试报告归档到 `tests/reports/` |
 | `docker compose config --quiet` | Compose 配置静态校验 |
 
 最近配置统一化后，已完成的关键回归包括：
@@ -280,7 +280,7 @@ config/
 - `cargo test -p memory-cli --bin memory-cli --quiet`
 - `cargo run -p memory-cli -- config check`
 - `docker compose config --quiet`
-- `scripts/v2_1-acceptance.sh`
+- `docs/scripts/v2_1-acceptance.sh`
 
 ## 9. V3 产品版本目标
 
@@ -364,8 +364,8 @@ V3 完成时建议至少满足：
 - 能通过 HTTP 或 MCP 写入视频并生成可检索文本 projection
 - 全多模态搜索能在同一查询中召回文本、图片、音频、视频来源
 - Markdown projection 能以人类可读方式展示音频 / 视频 evidence
-- `scripts/v3-acceptance.sh` 或等价验收脚本覆盖音频、视频、检索、发布和 Agent 工具面
-- `scripts/write-test-reports.sh` 能将 V3 验收报告写入 `tests/reports/e2e/latest/`
+- `docs/scripts/v3-acceptance.sh` 或等价验收脚本覆盖音频、视频、检索、发布和 Agent 工具面
+- `docs/scripts/write-test-reports.sh` 能将 V3 验收报告写入 `tests/reports/e2e/latest/`
 - `docs/agent-skills/` 中的 skill 模板补充全多模态使用方式
 - `config/README.md` 持续覆盖新增模型 provider 与 V3 相关 env 配置
 

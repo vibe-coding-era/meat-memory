@@ -7,14 +7,20 @@ use axum::{
     routing::{get, post},
 };
 use memory_domain::{
-    ArtifactKind, ContextBundle, Entity, EntityType, Memory, MemoryId, MemoryKind, Relation,
-    RelationState, RelationType, ScopeId, ScopeType, Sensitivity, Visibility,
+    AgentContext, AgentContextId, ArtifactKind, ContextBundle, Entity, EntityType, Memory,
+    MemoryId, MemoryKind, MemorySource, ProjectDocument, Relation, RelationState, RelationType,
+    ScopeId, ScopeType, Sensitivity, SourceId, Visibility,
 };
-use memory_kernel::{Kernel, PromoteMemoryRequest, RememberTextRequest, SearchContextRequest};
+use memory_kernel::{
+    ApplyProjectDocumentSyncPlanRequest, Kernel, ListAgentContextsRequest,
+    ListProjectDocumentsRequest, PromoteAgentContextRequest, PromoteMemoryRequest,
+    RememberTextRequest, SearchContextRequest, UpsertAgentContextRequest,
+};
 use memory_observability::operation_span;
+use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tracing::{Instrument, info};
 use ulid::Ulid;
 
@@ -52,6 +58,34 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
         name: "memory.promote",
         description: "Publish an existing memory into another scope with review-aware promotion. Required arguments: source_scope_id, memory_id, source_scope_type, target_scope_id, target_scope_type, target_visibility.",
     },
+    ToolSpec {
+        name: "memory.context.upsert",
+        description: "Create or refresh short-term Agent context. Required arguments: key, session_id, title, body. Optional: scope_id, task_id, labels.",
+    },
+    ToolSpec {
+        name: "memory.context.list",
+        description: "List short-term Agent contexts for a session. Required arguments: key, session_id. Optional: scope_id, task_id, limit.",
+    },
+    ToolSpec {
+        name: "memory.context.promote",
+        description: "Promote a short-term Agent context into long-term memory. Required arguments: key, context_id. Optional: memory_kind, visibility, sensitivity.",
+    },
+    ToolSpec {
+        name: "memory.context.delete",
+        description: "Delete a short-term Agent context. Required arguments: key, context_id.",
+    },
+    ToolSpec {
+        name: "memory.docs.sync",
+        description: "Scan and optionally import local project documents for a source. Required arguments: key, source_id. Optional: scope_id, local_root, dry_run.",
+    },
+    ToolSpec {
+        name: "memory.docs.search",
+        description: "Search/list project documents for a source. Required arguments: key, source_id. Optional: query, limit.",
+    },
+    ToolSpec {
+        name: "memory.docs.conflicts",
+        description: "List conflicted project documents for a source. Required arguments: key, source_id. Optional: limit.",
+    },
 ];
 
 pub const TOOL_NAMES: &[&str] = &[
@@ -60,6 +94,13 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory.search",
     "memory.publish",
     "memory.promote",
+    "memory.context.upsert",
+    "memory.context.list",
+    "memory.context.promote",
+    "memory.context.delete",
+    "memory.docs.sync",
+    "memory.docs.search",
+    "memory.docs.conflicts",
 ];
 
 #[derive(Clone)]
@@ -114,6 +155,31 @@ impl McpServer {
                 }
                 "memory.publish" => self.handle_publish(&trace_id, request.arguments).await?,
                 "memory.promote" => self.handle_promote(&trace_id, request.arguments).await?,
+                "memory.context.upsert" => {
+                    self.handle_context_upsert(&trace_id, request.arguments)
+                        .await?
+                }
+                "memory.context.list" => {
+                    self.handle_context_list(&trace_id, request.arguments)
+                        .await?
+                }
+                "memory.context.promote" => {
+                    self.handle_context_promote(&trace_id, request.arguments)
+                        .await?
+                }
+                "memory.context.delete" => {
+                    self.handle_context_delete(&trace_id, request.arguments)
+                        .await?
+                }
+                "memory.docs.sync" => self.handle_docs_sync(&trace_id, request.arguments).await?,
+                "memory.docs.search" => {
+                    self.handle_docs_search(&trace_id, request.arguments)
+                        .await?
+                }
+                "memory.docs.conflicts" => {
+                    self.handle_docs_conflicts(&trace_id, request.arguments)
+                        .await?
+                }
                 other => return Err(McpError::unsupported_tool(other)),
             };
 
@@ -343,6 +409,318 @@ impl McpServer {
         })
     }
 
+    async fn handle_context_upsert(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ContextUpsertToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| context.owner_scope_id.clone());
+        let mut request = UpsertAgentContextRequest::new(
+            scope_id,
+            payload.session_id,
+            payload.title,
+            payload.body,
+        );
+        request.task_id = payload.task_id;
+        request.labels = payload.labels;
+        request.context = Some(context);
+
+        let agent_context = self
+            .kernel
+            .upsert_agent_context(request)
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.context.upsert".to_string(),
+            trace_id: trace_id.to_string(),
+            data: agent_context_payload(agent_context),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_context_list(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ContextListToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| context.owner_scope_id.clone());
+        let mut request = ListAgentContextsRequest::new(scope_id, payload.session_id);
+        request.task_id = payload.task_id;
+        request.limit = payload.limit.unwrap_or(20);
+        request.context = Some(context);
+
+        let contexts = self
+            .kernel
+            .list_agent_contexts(request)
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.context.list".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "context_count": contexts.len(),
+                "contexts": contexts.into_iter().map(agent_context_payload).collect::<Vec<_>>(),
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_context_promote(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ContextPromoteToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        let mut request =
+            PromoteAgentContextRequest::new(AgentContextId::from_string(payload.context_id));
+        request.memory_kind = payload
+            .memory_kind
+            .as_deref()
+            .map(parse_memory_kind)
+            .transpose()?;
+        request.visibility = payload
+            .visibility
+            .as_deref()
+            .map(parse_visibility)
+            .transpose()?
+            .unwrap_or(Visibility::Private);
+        request.sensitivity = payload
+            .sensitivity
+            .as_deref()
+            .map(parse_sensitivity)
+            .transpose()?
+            .unwrap_or(Sensitivity::Internal);
+        request.context = Some(context);
+
+        let result = self
+            .kernel
+            .promote_agent_context(request)
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.context.promote".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "artifact_id": result.artifact.id.as_str(),
+                "memory_id": result.memory.id.as_str(),
+                "scope_id": result.memory.scope_id.as_str(),
+                "title": result.memory.title,
+                "body": result.memory.body,
+                "memory_kind": memory_kind_label(result.memory.kind),
+                "memory_state": result.memory.state.as_str(),
+                "visibility": visibility_label(result.memory.visibility),
+                "sensitivity": sensitivity_label(result.memory.sensitivity),
+                "wrote_pg": result.wrote_pg,
+                "wrote_markdown": result.wrote_markdown,
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_context_delete(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ContextDeleteToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        self.kernel
+            .delete_agent_context(
+                AgentContextId::from_string(payload.context_id.clone()),
+                Some(&context),
+            )
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.context.delete".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "context_id": payload.context_id,
+                "deleted": true,
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_docs_search(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<DocsSearchToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        let source_id = SourceId::from_string(payload.source_id);
+        let mut request = ListProjectDocumentsRequest::new(source_id);
+        request.limit = payload.limit.unwrap_or(20);
+        request.query = payload.query;
+        request.context = Some(context);
+
+        let documents = self
+            .kernel
+            .list_project_documents(request)
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.docs.search".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "document_count": documents.len(),
+                "documents": documents.into_iter().map(project_document_payload).collect::<Vec<_>>(),
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_docs_conflicts(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<DocsConflictsToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        let documents = self
+            .kernel
+            .list_project_document_conflicts(
+                SourceId::from_string(payload.source_id),
+                payload.limit.unwrap_or(20),
+                Some(&context),
+            )
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.docs.conflicts".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "conflict_count": documents.len(),
+                "documents": documents.into_iter().map(project_document_payload).collect::<Vec<_>>(),
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_docs_sync(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<DocsSyncToolArgs>(arguments)?;
+        let context = self.resolve_required_key(payload.key.as_deref()).await?;
+        let source_id = SourceId::from_string(payload.source_id);
+        let source = self
+            .kernel
+            .get_memory_source(source_id.clone())
+            .await
+            .map_err(map_kernel_error)?
+            .ok_or_else(|| McpError::not_found("memory source not found"))?;
+        ensure_source_access(&context, &source)?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| source.owner_scope_id.clone());
+        if context.owner_scope_id != scope_id {
+            return Err(McpError::forbidden(
+                "scope access forbidden for current meat memory key",
+            ));
+        }
+        let local_root = payload
+            .local_root
+            .or_else(|| source.local_root.clone())
+            .ok_or_else(|| McpError::invalid_arguments("local_root is required"))?;
+        let existing = self
+            .kernel
+            .list_project_documents(ListProjectDocumentsRequest {
+                source_id: source_id.clone(),
+                limit: 500,
+                query: None,
+                context: Some(context.clone()),
+            })
+            .await
+            .map_err(map_kernel_error)?;
+        let snapshots = existing
+            .iter()
+            .map(|document| ProjectDocumentSnapshot {
+                canonical_uri: document.canonical_uri.clone(),
+                content_hash: document.content_hash.clone(),
+            })
+            .collect::<Vec<_>>();
+        let plan = LocalProjectDocumentSyncEngine::new(PathBuf::from(local_root))
+            .scan(&snapshots)
+            .map_err(|error| {
+                McpError::invalid_arguments(format!(
+                    "failed to scan local project documents: {error}"
+                ))
+            })?;
+        let planned_documents = plan
+            .documents
+            .iter()
+            .map(|document| {
+                json!({
+                    "canonical_uri": document.canonical_uri,
+                    "local_path": document.local_path.to_string_lossy(),
+                    "title": document.title,
+                    "content_hash": document.content_hash,
+                    "sync_state": document.sync_state.as_str(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let dry_run = payload.dry_run.unwrap_or(false);
+        if dry_run {
+            return Ok(ToolCallResponse {
+                tool: "memory.docs.sync".to_string(),
+                trace_id: trace_id.to_string(),
+                data: json!({
+                    "dry_run": true,
+                    "planned_documents": planned_documents,
+                    "imported": [],
+                    "missing": plan.missing,
+                    "conflicts": plan.conflicts,
+                }),
+                warnings: Vec::new(),
+            });
+        }
+
+        let result = self
+            .kernel
+            .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+                source_id,
+                scope_id,
+                plan,
+                context: Some(context),
+            })
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.docs.sync".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "dry_run": false,
+                "planned_documents": planned_documents,
+                "imported": result.imported.into_iter().map(project_document_payload).collect::<Vec<_>>(),
+                "missing": result.missing,
+                "conflicts": result.conflicts,
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
     async fn resolve_optional_key(
         &self,
         raw_key: Option<&str>,
@@ -500,6 +878,66 @@ struct PromoteToolArgs {
     target_scope_id: String,
     target_scope_type: String,
     target_visibility: String,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ContextUpsertToolArgs {
+    scope_id: Option<String>,
+    session_id: String,
+    task_id: Option<String>,
+    title: String,
+    body: String,
+    #[serde(default)]
+    labels: Vec<String>,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ContextListToolArgs {
+    scope_id: Option<String>,
+    session_id: String,
+    task_id: Option<String>,
+    limit: Option<usize>,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ContextPromoteToolArgs {
+    context_id: String,
+    memory_kind: Option<String>,
+    visibility: Option<String>,
+    sensitivity: Option<String>,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ContextDeleteToolArgs {
+    context_id: String,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DocsSyncToolArgs {
+    source_id: String,
+    scope_id: Option<String>,
+    local_root: Option<String>,
+    dry_run: Option<bool>,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DocsSearchToolArgs {
+    source_id: String,
+    query: Option<String>,
+    limit: Option<usize>,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DocsConflictsToolArgs {
+    source_id: String,
+    limit: Option<usize>,
     key: Option<String>,
 }
 
@@ -700,6 +1138,55 @@ fn memory_payload(memory: &Memory) -> Value {
     })
 }
 
+fn agent_context_payload(agent_context: AgentContext) -> Value {
+    json!({
+        "context_id": agent_context.id.as_str(),
+        "source_id": agent_context.source_id.as_ref().map(|source_id| source_id.as_str()),
+        "key_id": agent_context.key_id.as_ref().map(|key_id| key_id.as_str()),
+        "scope_id": agent_context.scope_id.as_str(),
+        "session_id": agent_context.session_id,
+        "task_id": agent_context.task_id,
+        "layer": agent_context.layer.as_str(),
+        "title": agent_context.title,
+        "body": agent_context.body,
+        "labels": agent_context.labels,
+        "expires_at": agent_context.expires_at,
+        "created_at": agent_context.created_at,
+        "updated_at": agent_context.updated_at,
+    })
+}
+
+fn project_document_payload(document: ProjectDocument) -> Value {
+    json!({
+        "document_id": document.id.as_str(),
+        "source_id": document.source_id.as_str(),
+        "scope_id": document.scope_id.as_str(),
+        "local_path": document.local_path,
+        "canonical_uri": document.canonical_uri,
+        "title": document.title,
+        "content_hash": document.content_hash,
+        "last_seen_mtime": document.last_seen_mtime,
+        "sync_state": document.sync_state.as_str(),
+        "conflict_state": document.conflict_state.as_str(),
+        "artifact_id": document.artifact_id.as_ref().map(|artifact_id| artifact_id.as_str()),
+        "memory_id": document.memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+        "created_at": document.created_at,
+        "updated_at": document.updated_at,
+    })
+}
+
+fn ensure_source_access(
+    context: &memory_domain::RequestContext,
+    source: &MemorySource,
+) -> Result<(), McpError> {
+    if context.owner_scope_id != source.owner_scope_id {
+        return Err(McpError::forbidden(
+            "source access forbidden for current meat memory key",
+        ));
+    }
+    Ok(())
+}
+
 fn entity_payload(entity: &Entity) -> Value {
     json!({
         "entity_id": entity.id.as_str(),
@@ -862,6 +1349,7 @@ mod tests {
             .create_access_key(CreateAccessKeyRequest {
                 raw_key: None,
                 display_name: format!("key-{owner_scope_id}"),
+                source_id: None,
                 source_kind: KeySourceKind::Mcp,
                 owner_principal_id: owner_scope_id.to_string(),
                 owner_scope_id: ScopeId::from_string(owner_scope_id),
@@ -909,7 +1397,14 @@ mod tests {
     fn exposes_fetch_context_tool() {
         assert!(tool_supported("memory.fetch_context"));
         assert!(tool_supported("memory.promote"));
-        assert_eq!(TOOL_SPECS.len(), 5);
+        assert!(tool_supported("memory.context.upsert"));
+        assert!(tool_supported("memory.context.list"));
+        assert!(tool_supported("memory.context.promote"));
+        assert!(tool_supported("memory.context.delete"));
+        assert!(tool_supported("memory.docs.sync"));
+        assert!(tool_supported("memory.docs.search"));
+        assert!(tool_supported("memory.docs.conflicts"));
+        assert_eq!(TOOL_SPECS.len(), 12);
     }
 
     #[test]

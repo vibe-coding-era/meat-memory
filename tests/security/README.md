@@ -13,6 +13,6 @@
 
 - HTTP / 集成安全回归：`cargo test -p memory-http --test http_api_tests --quiet -- --test-threads=1`
 - MCP / 敏感工具回归：`cargo test -p memory-mcp --test mcp_tools_tests --quiet -- --test-threads=1`
-- 报告汇总：`./scripts/security-report.sh`
+- 报告汇总：`./docs/scripts/security-report.sh`
 
 报告目录见 `../reports/security/`。

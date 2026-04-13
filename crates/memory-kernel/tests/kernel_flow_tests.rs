@@ -1,10 +1,14 @@
 use memory_domain::{
-    KeyScopeKind, KeySourceKind, MemoryId, MemoryState, ScopeId, ScopeType, Sensitivity,
-    StorageMode, Visibility,
+    DocumentConflictState, DocumentSyncState, KeyScopeKind, KeySourceKind, MemoryId, MemorySource,
+    MemoryState, ScopeId, ScopeType, Sensitivity, SourceSyncMode, StorageMode, Visibility,
 };
 use memory_kernel::{
-    CreateAccessKeyRequest, Kernel, PromoteMemoryRequest, RememberTextRequest, SearchContextRequest,
+    ApplyProjectDocumentSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
+    Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RememberTextRequest, SearchContextRequest, UpsertAgentContextRequest,
 };
+use memory_store_md::MarkdownStore;
+use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
 use std::env;
 use tempfile::tempdir;
 
@@ -220,6 +224,7 @@ async fn search_context_graph_expansion_finds_related_memories_without_leaking_o
         .create_access_key(CreateAccessKeyRequest {
             raw_key: Some(format!("mmk_kernel_graph_a_{}", scope_id.as_str())),
             display_name: "graph a".to_string(),
+            source_id: None,
             source_kind: KeySourceKind::Cli,
             owner_principal_id: "alice".to_string(),
             owner_scope_id: scope_id.clone(),
@@ -260,6 +265,7 @@ async fn search_context_graph_expansion_finds_related_memories_without_leaking_o
         .create_access_key(CreateAccessKeyRequest {
             raw_key: Some(format!("mmk_kernel_graph_b_{}", scope_id.as_str())),
             display_name: "graph b".to_string(),
+            source_id: None,
             source_kind: KeySourceKind::Cli,
             owner_principal_id: "bob".to_string(),
             owner_scope_id: scope_id.clone(),
@@ -296,4 +302,266 @@ async fn search_context_graph_expansion_finds_related_memories_without_leaking_o
             .iter()
             .any(|memory| memory.title == "Bob hidden gateway")
     );
+}
+
+#[tokio::test]
+async fn agent_context_flow_promotes_short_term_context_to_memory() {
+    let tempdir = tempdir().unwrap();
+    let kernel = Kernel::builder()
+        .with_postgres_url(&test_database_url())
+        .await
+        .unwrap()
+        .with_markdown_root(tempdir.path())
+        .unwrap()
+        .build()
+        .unwrap();
+    let scope_id = ScopeId::new();
+    let key = kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: Some(format!("mmk_kernel_context_{}", scope_id.as_str())),
+            display_name: "agent context key".to_string(),
+            source_id: None,
+            source_kind: KeySourceKind::Cli,
+            owner_principal_id: "alice".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: false,
+        })
+        .await
+        .unwrap();
+    let context = kernel
+        .resolve_access_key_context(&key.raw_key)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut upsert = UpsertAgentContextRequest::new(
+        scope_id.clone(),
+        "session-v2-4-kernel",
+        "Current V2.4 kernel task",
+        "Short term context says the next step is Kernel service wiring.",
+    );
+    upsert.task_id = Some("V2.4-KER-001".to_string());
+    upsert.labels = vec!["v2.4".to_string(), "kernel".to_string()];
+    upsert.context = Some(context.clone());
+    let agent_context = kernel.upsert_agent_context(upsert).await.unwrap();
+    assert_eq!(agent_context.key_id, Some(context.key_id.clone()));
+
+    let mut list = ListAgentContextsRequest::new(scope_id.clone(), "session-v2-4-kernel");
+    list.task_id = Some("V2.4-KER-001".to_string());
+    list.context = Some(context.clone());
+    let contexts = kernel.list_agent_contexts(list).await.unwrap();
+    assert_eq!(contexts.len(), 1);
+    assert_eq!(contexts[0].title, "Current V2.4 kernel task");
+
+    let mut promote = PromoteAgentContextRequest::new(agent_context.id.clone());
+    promote.context = Some(context.clone());
+    let remembered = kernel.promote_agent_context(promote).await.unwrap();
+    assert_eq!(remembered.memory.kind, memory_domain::MemoryKind::Summary);
+    assert!(remembered.wrote_pg);
+    assert!(remembered.wrote_markdown);
+
+    let mut search = SearchContextRequest::new(scope_id.clone(), "Kernel service wiring");
+    search.context = Some(context.clone());
+    let bundle = kernel.search_context(search).await.unwrap();
+    assert_eq!(bundle.memories.len(), 1);
+    assert_eq!(bundle.memories[0].title, "Current V2.4 kernel task");
+
+    kernel
+        .delete_agent_context(agent_context.id, Some(&context))
+        .await
+        .unwrap();
+    let mut list_after_delete = ListAgentContextsRequest::new(scope_id, "session-v2-4-kernel");
+    list_after_delete.context = Some(context);
+    assert!(
+        kernel
+            .list_agent_contexts(list_after_delete)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn project_document_kernel_flow_imports_lists_and_reports_conflicts() {
+    let tempdir = tempdir().unwrap();
+    let kernel = Kernel::builder()
+        .with_postgres_url(&test_database_url())
+        .await
+        .unwrap()
+        .with_markdown_root(tempdir.path())
+        .unwrap()
+        .build()
+        .unwrap();
+    let scope_id = ScopeId::new();
+    let key = kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: Some(format!("mmk_kernel_docs_{}", scope_id.as_str())),
+            display_name: "project docs key".to_string(),
+            source_id: None,
+            source_kind: KeySourceKind::Cli,
+            owner_principal_id: "alice".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: false,
+        })
+        .await
+        .unwrap();
+    let context = kernel
+        .resolve_access_key_context(&key.raw_key)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let source = MemorySource::new("cli", "kernel-docs-source", "alice", scope_id.clone())
+        .unwrap()
+        .with_source_uri("file:///Users/Rou/dev_projects/meat-memory/docs")
+        .unwrap()
+        .with_local_root("/Users/Rou/dev_projects/meat-memory/docs")
+        .unwrap()
+        .with_sync_mode(SourceSyncMode::IndexOnly);
+    let source = kernel
+        .upsert_memory_source(source, Some(&context))
+        .await
+        .unwrap();
+
+    let mut import = ImportProjectDocumentRequest::new(
+        source.id.clone(),
+        scope_id.clone(),
+        "file:///Users/Rou/dev_projects/meat-memory/docs/meat-memory-scheme-v2_4.md",
+        "V2.4 Scheme",
+        "V2.4 introduces short-term context and mid-term project document memory.",
+    );
+    import.local_path =
+        Some("/Users/Rou/dev_projects/meat-memory/docs/meat-memory-scheme-v2_4.md".to_string());
+    import.sync_state = DocumentSyncState::Conflicted;
+    import.conflict_state = DocumentConflictState::BothChanged;
+    import.context = Some(context.clone());
+
+    let document = kernel.import_project_document(import).await.unwrap();
+    assert_eq!(document.title, "V2.4 Scheme");
+    assert!(document.artifact_id.is_some());
+    assert_eq!(document.sync_state, DocumentSyncState::Conflicted);
+    let markdown_store = MarkdownStore::new(tempdir.path()).unwrap();
+    let projection = markdown_store
+        .find_project_document_markdown(&source.id, &document.id)
+        .unwrap()
+        .expect("project document projection should exist");
+    assert_eq!(projection.frontmatter.kind, "project_document");
+    assert_eq!(projection.frontmatter.sync_state, "conflicted");
+    assert_eq!(projection.frontmatter.conflict_state, "both_changed");
+    assert!(
+        projection
+            .body
+            .contains("V2.4 introduces short-term context")
+    );
+
+    let mut list = ListProjectDocumentsRequest::new(source.id.clone());
+    list.query = Some("scheme".to_string());
+    list.context = Some(context.clone());
+    let documents = kernel.list_project_documents(list).await.unwrap();
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].canonical_uri, document.canonical_uri);
+
+    let conflicts = kernel
+        .list_project_document_conflicts(source.id.clone(), 10, Some(&context))
+        .await
+        .unwrap();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(
+        conflicts[0].conflict_state,
+        DocumentConflictState::BothChanged
+    );
+
+    let sources = kernel
+        .list_memory_sources(scope_id, 10, Some(&context))
+        .await
+        .unwrap();
+    assert_eq!(sources.len(), 1);
+}
+
+#[tokio::test]
+async fn project_document_sync_plan_imports_local_documents_through_kernel() {
+    let tempdir = tempdir().unwrap();
+    let docs_root = tempdir.path().join("docs");
+    std::fs::create_dir_all(&docs_root).unwrap();
+    std::fs::write(
+        docs_root.join("sync-plan.md"),
+        "# Sync Plan\nV2.4 sync plan imports local project docs.",
+    )
+    .unwrap();
+    let kernel = Kernel::builder()
+        .with_postgres_url(&test_database_url())
+        .await
+        .unwrap()
+        .with_markdown_root(tempdir.path().join("markdown"))
+        .unwrap()
+        .build()
+        .unwrap();
+    let scope_id = ScopeId::new();
+    let key = kernel
+        .create_access_key(CreateAccessKeyRequest {
+            raw_key: Some(format!("mmk_kernel_sync_docs_{}", scope_id.as_str())),
+            display_name: "project docs sync key".to_string(),
+            source_id: None,
+            source_kind: KeySourceKind::Cli,
+            owner_principal_id: "alice".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::All,
+            is_fully_isolated: false,
+        })
+        .await
+        .unwrap();
+    let context = kernel
+        .resolve_access_key_context(&key.raw_key)
+        .await
+        .unwrap()
+        .unwrap();
+    let source = MemorySource::new("cli", "kernel-sync-docs-source", "alice", scope_id.clone())
+        .unwrap()
+        .with_local_root(docs_root.to_string_lossy())
+        .unwrap()
+        .with_sync_mode(SourceSyncMode::IndexOnly);
+    let source = kernel
+        .upsert_memory_source(source, Some(&context))
+        .await
+        .unwrap();
+
+    let plan = LocalProjectDocumentSyncEngine::new(&docs_root)
+        .scan(&[ProjectDocumentSnapshot {
+            canonical_uri: "file:///missing-sync-doc.md".to_string(),
+            content_hash: "old".to_string(),
+        }])
+        .unwrap();
+    let result = kernel
+        .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+            source_id: source.id.clone(),
+            scope_id: scope_id.clone(),
+            plan,
+            context: Some(context.clone()),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.imported.len(), 1);
+    assert_eq!(result.imported[0].title, "Sync Plan");
+    assert_eq!(result.imported[0].sync_state, DocumentSyncState::Changed);
+    assert_eq!(result.missing.len(), 1);
+    assert_eq!(result.conflicts.len(), 1);
+    assert_eq!(result.conflicts[0].sync_state, DocumentSyncState::Deleted);
+
+    let documents = kernel
+        .list_project_documents(ListProjectDocumentsRequest {
+            source_id: source.id,
+            limit: 10,
+            query: Some("sync plan".to_string()),
+            context: Some(context),
+        })
+        .await
+        .unwrap();
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].title, "Sync Plan");
 }

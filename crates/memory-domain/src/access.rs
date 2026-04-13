@@ -1,4 +1,4 @@
-use crate::{AccessKeyId, DomainError, ScopeId};
+use crate::{AccessKeyId, DomainError, ScopeId, SourceId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -130,6 +130,7 @@ pub struct AccessKey {
     pub id: AccessKeyId,
     pub key_hash: String,
     pub display_name: String,
+    pub source_id: Option<SourceId>,
     pub source_kind: KeySourceKind,
     pub owner_principal_id: String,
     pub owner_scope_id: ScopeId,
@@ -213,6 +214,7 @@ impl AccessKey {
             id,
             key_hash,
             display_name,
+            source_id: None,
             source_kind,
             owner_principal_id,
             owner_scope_id,
@@ -229,6 +231,7 @@ impl AccessKey {
     pub fn to_context(&self) -> RequestContext {
         RequestContext {
             key_id: self.id.clone(),
+            source_id: self.source_id.clone(),
             source_kind: self.source_kind,
             principal_id: self.owner_principal_id.clone(),
             owner_scope_id: self.owner_scope_id.clone(),
@@ -238,11 +241,17 @@ impl AccessKey {
             isolation_group_id: self.isolation_group_id.clone(),
         }
     }
+
+    pub fn with_source_id(mut self, source_id: SourceId) -> Self {
+        self.source_id = Some(source_id);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestContext {
     pub key_id: AccessKeyId,
+    pub source_id: Option<SourceId>,
     pub source_kind: KeySourceKind,
     pub principal_id: String,
     pub owner_scope_id: ScopeId,
@@ -272,7 +281,7 @@ fn non_empty(value: String, field: &'static str) -> Result<String, DomainError> 
 #[cfg(test)]
 mod tests {
     use super::{AccessKey, KeyScopeKind, KeySourceKind, StorageMode, hash_access_key};
-    use crate::ScopeId;
+    use crate::{ScopeId, SourceId};
 
     #[test]
     fn builds_access_key_context_without_storing_raw_secret() {
@@ -291,7 +300,28 @@ mod tests {
         assert_ne!(key.key_hash, "mmk_secret");
         assert_eq!(key.scope_kind, KeyScopeKind::Personal);
         assert_eq!(key.storage_mode, StorageMode::All);
+        assert_eq!(key.source_id, None);
         assert_eq!(key.to_context().isolation_group_id, "personal:rou");
+    }
+
+    #[test]
+    fn access_key_can_belong_to_a_source_instance() {
+        let source_id = SourceId::from_string("src_codex");
+        let key = AccessKey::new(
+            "mmk_secret",
+            "codex local",
+            KeySourceKind::Cli,
+            "rou",
+            ScopeId::from_string("scp_user_rou"),
+            KeyScopeKind::Personal,
+            StorageMode::All,
+            false,
+        )
+        .unwrap()
+        .with_source_id(source_id.clone());
+
+        assert_eq!(key.source_id.as_ref(), Some(&source_id));
+        assert_eq!(key.to_context().source_id.as_ref(), Some(&source_id));
     }
 
     #[test]

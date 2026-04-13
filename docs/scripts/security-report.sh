@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPORT_DIR="${1:-$ROOT_DIR/tests/reports/security/latest}"
 ARCHIVE_DIR="$ROOT_DIR/tests/reports/security/archive"
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"

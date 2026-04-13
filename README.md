@@ -5,6 +5,8 @@
 ## 你可以先看什么
 
 - 想立刻跑起来：看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)
+- 想安装或部署：看 [`docs/runbook/install.md`](docs/runbook/install.md)
+- 想看当前版本归档：看 [`docs/release-notes-v2_5.md`](docs/release-notes-v2_5.md)
 - 想理解整体实现：看 [`docs/architecture/system-design.md`](docs/architecture/system-design.md)
 - 想找所有文档入口：看 [`docs/README.md`](docs/README.md)
 - 想查命令和协议：看 [`docs/api/README.md`](docs/api/README.md)
@@ -26,10 +28,9 @@
 .
 ├── config/          运行配置与配置说明
 ├── crates/          Rust workspace 各业务 crate
-├── docs/            使用说明、架构设计、API 与运维文档
+├── docs/            使用说明、架构设计、脚本、API 与运维文档
 ├── infra/           Docker / Helm 等基础设施资产
 ├── migrations/      PostgreSQL schema 迁移
-├── scripts/         本地开发、验收与报告脚本
 └── tests/           测试入口与测试报告目录说明
 ```
 
@@ -48,7 +49,7 @@
 
 ```bash
 cp .env.example .env
-./scripts/dev-up.sh
+./docs/scripts/dev-up.sh
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/api/v1/meta
 ```
@@ -56,17 +57,17 @@ curl http://127.0.0.1:8080/api/v1/meta
 停止环境：
 
 ```bash
-./scripts/dev-down.sh
+./docs/scripts/dev-down.sh
 ```
 
 ### 方案 B：本地开发运行
 
 ```bash
 cp .env.example .env
-./scripts/dev-db-up.sh
-./scripts/bootstrap.sh
-./scripts/verify.sh
-./scripts/test-required.sh
+./docs/scripts/dev-db-up.sh
+./docs/scripts/bootstrap.sh
+./docs/scripts/verify.sh
+./docs/scripts/test-required.sh
 cargo run -p memory-app
 ```
 
@@ -75,6 +76,18 @@ cargo run -p memory-app
 ```bash
 cargo run -p memory-cli -- serve --bind 127.0.0.1:8080
 ```
+
+### 方案 C：安装 CLI 到本机
+
+```bash
+cargo install --path crates/memory-cli --locked
+memory-cli --help
+memory-cli config check
+memory-cli mcp info
+memory-cli skills export --target all --output-dir ./dist/agent-skills --force
+```
+
+更多安装、打包和部署方式见 [`docs/runbook/install.md`](docs/runbook/install.md)。
 
 ## 常用命令
 
@@ -123,11 +136,13 @@ cargo run -p memory-cli -- search "评审 风险" \
 ## 文档导航
 
 - [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)：完整使用说明
+- [`docs/runbook/install.md`](docs/runbook/install.md)：安装、打包与部署入口
+- [`docs/release-notes-v2_5.md`](docs/release-notes-v2_5.md)：V2.5 版本归档
 - [`docs/architecture/system-design.md`](docs/architecture/system-design.md)：系统架构设计
 - [`docs/runbook/README.md`](docs/runbook/README.md)：部署与验收入口
 - [`docs/agent-skills/README.md`](docs/agent-skills/README.md)：Agent Skill 模板和导出方式
+- [`docs/scripts/README.md`](docs/scripts/README.md)：脚本入口导航
 - [`crates/README.md`](crates/README.md)：workspace 模块职责导航
-- [`scripts/README.md`](scripts/README.md)：脚本入口导航
 - [`migrations/README.md`](migrations/README.md)：数据库迁移说明
 - [`infra/README.md`](infra/README.md)：基础设施目录说明
 - [`config/README.md`](config/README.md)：配置组织方式

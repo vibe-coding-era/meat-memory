@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SOURCE_DIR="$ROOT_DIR/docs/agent-skills"
 TARGET="${1:-all}"
 OUT_DIR="${2:-$ROOT_DIR/dist/agent-skills}"
@@ -9,7 +9,7 @@ OUT_DIR="${2:-$ROOT_DIR/dist/agent-skills}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/export-agent-skills.sh <target> [output-dir]
+  ./docs/scripts/export-agent-skills.sh <target> [output-dir]
 
 Targets:
   codex
@@ -18,8 +18,8 @@ Targets:
   all
 
 Examples:
-  ./scripts/export-agent-skills.sh codex /tmp/skills
-  ./scripts/export-agent-skills.sh all ./dist/agent-skills
+  ./docs/scripts/export-agent-skills.sh codex /tmp/skills
+  ./docs/scripts/export-agent-skills.sh all ./dist/agent-skills
 EOF
 }
 

@@ -29,9 +29,13 @@ services:
 
   app:
     # 对外提供 HTTP / Browser Console / MCP 的主服务。
+    image: ${MEAT_MEMORY_APP_IMAGE:-meat-memory-app}:${MEAT_MEMORY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
+      target: app-runtime
+      args:
+        MEAT_MEMORY_VERSION: ${MEAT_MEMORY_IMAGE_TAG:-local}
     container_name: meat-memory-app
     environment:
       MEAT_MEMORY_CONFIG: /app/config/app.toml
@@ -57,11 +61,14 @@ services:
 
   worker:
     # 后台工作进程，和 app 共用同一份运行配置。
+    image: ${MEAT_MEMORY_WORKER_IMAGE:-meat-memory-worker}:${MEAT_MEMORY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
+      target: worker-runtime
+      args:
+        MEAT_MEMORY_VERSION: ${MEAT_MEMORY_IMAGE_TAG:-local}
     container_name: meat-memory-worker
-    command: ["memory-worker"]
     environment:
       MEAT_MEMORY_CONFIG: /app/config/app.toml
       MEAT_MEMORY_SERVER_BIND: 0.0.0.0:8080

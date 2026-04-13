@@ -58,7 +58,7 @@ cp .env.example .env
 2. 启动本地完整栈。
 
 ```bash
-./scripts/dev-up.sh
+./docs/scripts/dev-up.sh
 ```
 
 这会启动：
@@ -106,7 +106,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/context/search \
 6. 停止服务。
 
 ```bash
-./scripts/dev-down.sh
+./docs/scripts/dev-down.sh
 ```
 
 说明：
@@ -127,25 +127,25 @@ cp .env.example .env
 2. 先启动本地 PG 开发库。
 
 ```bash
-./scripts/dev-db-up.sh
+./docs/scripts/dev-db-up.sh
 ```
 
 3. 安装 Rust 组件并初始化本地开发环境。
 
 ```bash
-./scripts/bootstrap.sh
+./docs/scripts/bootstrap.sh
 ```
 
 4. 运行环境校验。
 
 ```bash
-./scripts/verify.sh
+./docs/scripts/verify.sh
 ```
 
 注意：
 
 - `verify.sh` 会检查 `pgvector` 是否可连通。
-- 所以第一次试跑时，应该先执行 `./scripts/dev-db-up.sh`，再执行 `./scripts/verify.sh`。
+- 所以第一次试跑时，应该先执行 `./docs/scripts/dev-db-up.sh`，再执行 `./docs/scripts/verify.sh`。
 
 5. 跑测试。
 
@@ -168,7 +168,7 @@ cargo run -p memory-cli -- serve --bind 127.0.0.1:8080
 7. 调试完成后停止数据库。
 
 ```bash
-./scripts/dev-db-down.sh
+./docs/scripts/dev-db-down.sh
 ```
 
 ## 一次完整试用
@@ -353,13 +353,13 @@ MEAT_MEMORY_CONFIG=config/local.toml cargo run -p memory-app
 
 | 命令 | 用途 |
 |---|---|
-| `./scripts/bootstrap.sh` | 安装 Rust 组件并初始化本地开发环境 |
-| `./scripts/verify.sh` | 校验本机工具链、Docker、PG、pgvector 等环境 |
-| `./scripts/dev-db-up.sh` | 只启动 `pgvector` |
-| `./scripts/dev-db-down.sh` | 只停止 `pgvector` |
-| `./scripts/dev-up.sh` | 启动 `pgvector + app + worker` |
-| `./scripts/dev-down.sh` | 停止 `pgvector + app + worker` |
-| `./scripts/v1-acceptance.sh` | 执行 V1 验收脚本 |
+| `./docs/scripts/bootstrap.sh` | 安装 Rust 组件并初始化本地开发环境 |
+| `./docs/scripts/verify.sh` | 校验本机工具链、Docker、PG、pgvector 等环境 |
+| `./docs/scripts/dev-db-up.sh` | 只启动 `pgvector` |
+| `./docs/scripts/dev-db-down.sh` | 只停止 `pgvector` |
+| `./docs/scripts/dev-up.sh` | 启动 `pgvector + app + worker` |
+| `./docs/scripts/dev-down.sh` | 停止 `pgvector + app + worker` |
+| `./docs/scripts/v1-acceptance.sh` | 执行 V1 验收脚本 |
 
 如果你使用 `just`：
 
@@ -383,7 +383,7 @@ just dev-down
 | `cargo test -p memory-mcp --test mcp_tools_tests --quiet` | Passed |
 | `cargo test -p memory-cli --test cli_e2e --quiet` | Passed |
 | `cargo test --workspace --lib --bins --quiet` | Passed |
-| `./scripts/v1-acceptance.sh` | Passed |
+| `./docs/scripts/v1-acceptance.sh` | Passed |
 
 最新单测覆盖率快照：
 
@@ -423,7 +423,7 @@ crates/
   memory-cli/
   memory-app/
 config/
-scripts/
+docs/scripts/
 docs/
 tasks/
 tests/
@@ -507,7 +507,7 @@ evidence_count: 1
 ## 当前快照
 
 - 已完成底座：Rust workspace、PGSQL + Markdown 双存储、kernel `remember/search/publish`、知识图谱抽取、HTTP/CLI/MCP 接入层、基础 observability、sync oplog/merge baseline、V1 多模型能力抽象与 provider/model/route registry、V1 图片资产存储与寻址基线、V1 `remember_image` 写入链路、V1 最小图片理解链路、Agent 接入文档、Docker/Helm 部署骨架、V1 验收脚本与文档包、中文系统化验收语料、Browser Console / failover 回归入口，以及 V1 release notes / 封板说明。
-- 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
+- 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./docs/scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
 - 当前最重要的未完成范围：V2 的团队隔离/多语言规划准备。
 
@@ -553,7 +553,7 @@ evidence_count: 1
 | `V1-DEP-002` | 云端独立部署包：Docker/Helm/最小发布闭环 | done | 已完成 Dockerfile 修正、`.dockerignore`、`config/cloud.example.toml`、Helm chart、`helm lint` 与镜像构建验证 |
 | `V1-SYN-001` | 为混合部署预留 sync/oplog/merge 抽象接口 | done | 已有 `OplogEntry`、cursor/batch、append、merge、内存 replication engine |
 | `V1-OBS-001` | V1 可观测性：结构化日志、延迟/命中率指标、health/ready/live/metrics | done | 已完成第一阶段 observability |
-| `V1-QA-001` | V1 端到端验收：HTTP + CLI + MCP + 文本 + 图片 + provider mock | done | 已完成 CLI E2E、HTTP/MCP 集成测试、`scripts/v1-acceptance.sh` 与 provider mock 路由命中校验 |
+| `V1-QA-001` | V1 端到端验收：HTTP + CLI + MCP + 文本 + 图片 + provider mock | done | 已完成 CLI E2E、HTTP/MCP 集成测试、`docs/scripts/v1-acceptance.sh` 与 provider mock 路由命中校验 |
 | `V1-DOC-001` | V1 文档包：安装、部署、Agent 接入、API/MCP/CLI 使用说明 | done | 已完成 Agent/HTTP/MCP/CLI/本地部署/云部署/验收文档收口 |
 | `V1-REL-003` | V1 版本封板、release notes 与交付边界收口 | done | 已补齐 `docs/release-notes-v1.md`、更新 `CHANGELOG.md` / `README.md` / `tasks/*`，并将仓库状态收口到 “V1 已完成” |
 
@@ -684,7 +684,7 @@ evidence_count: 1
 │   ├── meat-memory-scheme-v1.md
 │   └── meat-memory-scheme-v2.md
 ├── infra/
-├── scripts/
+├── docs/scripts/
 └── tasks/
     ├── project-index.md
     ├── task-log.md
@@ -774,7 +774,7 @@ evidence_count: 1
 - 用途：定义 bind、logging、markdown、postgres、assets、models、sync、features
 - 当前价值：`memory-app`、`memory-cli`、`memory-worker` 已从此文件读取并校验模型 registry
 
-`scripts/`
+`docs/scripts/`
 
 - 角色：本地开发与验证入口
 - 用途：环境验证、bootstrap、本地 pgvector 库启动与关闭、V1 验收执行
@@ -835,7 +835,7 @@ evidence_count: 1
 - `.env.example`、`justfile`、pre-commit/commit-msg hooks 已补齐
 - 本地 pgvector 目标库已可用
 - V1 用户文档包已补齐：Agent 接入、HTTP/MCP/CLI、local/cloud runbook、acceptance
-- V1 验收脚本 `./scripts/v1-acceptance.sh` 已补齐并通过
+- V1 验收脚本 `./docs/scripts/v1-acceptance.sh` 已补齐并通过
 - V1 中文系统化验收语料已补齐：`tests/integration/v1-zh-acceptance.md`
 - 中文 remember/search/publish 回归已覆盖 kernel / HTTP / MCP / CLI
 - Browser Console 首页与图片 failover `llm_notice` 已纳入回归入口
@@ -941,7 +941,7 @@ evidence_count: 1
 | 入口 | 用途 |
 | --- | --- |
 | `cargo test --workspace --lib --bins --quiet` | 工作区主回归 |
-| `./scripts/v1-acceptance.sh` | V1 自动化验收入口 |
+| `./docs/scripts/v1-acceptance.sh` | V1 自动化验收入口 |
 | `docker compose config --quiet` | 本地部署编排校验 |
 | `helm lint infra/helm/meat-memory` | 云部署 chart 校验 |
 

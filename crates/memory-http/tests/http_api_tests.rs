@@ -156,6 +156,449 @@ async fn http_key_create_and_authenticated_remember_flow() {
 }
 
 #[tokio::test]
+async fn http_source_routes_manage_multiple_keys_per_source() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let owner_scope = ScopeId::new();
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"name":"source owner key","source":"http","owner_principal_id":"alice","owner_scope_id":"{}","scope_kind":"personal","storage_mode":"all"}}"#,
+                    owner_scope.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key_response.status(), StatusCode::CREATED);
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+
+    let source_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/sources")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(
+                    r#"{"name":"Local project docs","source_kind":"local_docs","source_uri":"file:///tmp/meat-memory","sync_mode":"index_only","local_root":"/tmp/meat-memory"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(source_response.status(), StatusCode::CREATED);
+    let source_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(source_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let source_id = source_payload["source_id"].as_str().unwrap();
+    assert_eq!(source_payload["source_kind"], "local_docs");
+    assert_eq!(source_payload["owner_scope_id"], owner_scope.as_str());
+    assert_eq!(source_payload["sync_mode"], "index_only");
+
+    for name in ["docs writer key", "docs reader key"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/v1/sources/{source_id}/keys"))
+                    .header("content-type", "application/json")
+                    .header("x-meat-memory-key", raw_key)
+                    .body(Body::from(format!(
+                        r#"{{"name":"{name}","source":"custom","storage_mode":"vector"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let payload = serde_json::from_slice::<serde_json::Value>(
+            &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["source_id"], source_id);
+        assert_eq!(payload["owner_scope_id"], owner_scope.as_str());
+        assert_eq!(payload["storage_mode"], "vector");
+    }
+
+    let list_sources = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/sources?limit=10")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_sources.status(), StatusCode::OK);
+    let sources_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(list_sources.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        sources_payload
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|source| source["source_id"] == source_id)
+    );
+
+    let list_keys = app
+        .oneshot(
+            Request::get(format!("/api/v1/sources/{source_id}/keys?limit=10"))
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_keys.status(), StatusCode::OK);
+    let keys_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(list_keys.into_body(), usize::MAX).await.unwrap(),
+    )
+    .unwrap();
+    let source_keys = keys_payload.as_array().unwrap();
+    assert_eq!(source_keys.len(), 2);
+    assert!(
+        source_keys
+            .iter()
+            .all(|key| key["source_id"].as_str() == Some(source_id))
+    );
+}
+
+#[tokio::test]
+async fn http_agent_context_routes_upsert_list_promote_and_delete() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let owner_scope = ScopeId::new();
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"name":"agent context key","source":"http","owner_principal_id":"alice","owner_scope_id":"{}","scope_kind":"personal","storage_mode":"all"}}"#,
+                    owner_scope.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key_response.status(), StatusCode::CREATED);
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+    let session_id = format!("session-{}", owner_scope.as_str());
+
+    let upsert_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/agent-contexts")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","session_id":"{session_id}","task_id":"task-ctx","title":"HTTP agent scratchpad","body":"Codex is collecting V2.4 API context.","labels":["api","short-term"]}}"#,
+                    owner_scope.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upsert_response.status(), StatusCode::CREATED);
+    let upsert_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(upsert_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let context_id = upsert_payload["context_id"].as_str().unwrap();
+    assert_eq!(upsert_payload["scope_id"], owner_scope.as_str());
+    assert_eq!(upsert_payload["session_id"], session_id);
+    assert_eq!(upsert_payload["layer"], "short_term");
+    assert_eq!(upsert_payload["labels"].as_array().unwrap().len(), 2);
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/agent-contexts?scope_id={}&session_id={session_id}&task_id=task-ctx&limit=10",
+                owner_scope.as_str()
+            ))
+            .header("x-meat-memory-key", raw_key)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(list_payload.as_array().unwrap().len(), 1);
+    assert_eq!(list_payload[0]["context_id"], context_id);
+
+    let promote_response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/api/v1/agent-contexts/{context_id}/promote"))
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(
+                    r#"{"memory_kind":"summary","visibility":"private","sensitivity":"internal"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(promote_response.status(), StatusCode::CREATED);
+    let promote_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(promote_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(promote_payload["scope_id"], owner_scope.as_str());
+    assert_eq!(promote_payload["memory_kind"], "summary");
+    assert!(
+        promote_payload["body"]
+            .as_str()
+            .unwrap()
+            .contains("Codex is collecting")
+    );
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/api/v1/agent-contexts/{context_id}"))
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+
+    let list_after_delete = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/agent-contexts?scope_id={}&session_id={session_id}&task_id=task-ctx&limit=10",
+                owner_scope.as_str()
+            ))
+            .header("x-meat-memory-key", raw_key)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_after_delete.status(), StatusCode::OK);
+    let payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(list_after_delete.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(payload.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn http_project_document_sync_scans_imports_and_lists_documents() {
+    let _guard = http_test_guard();
+    let app = build_test_app().await;
+    let docs_root = tempdir().unwrap();
+    std::fs::write(
+        docs_root.path().join("README.md"),
+        "# Project README\nHTTP sync imports project docs.",
+    )
+    .unwrap();
+    std::fs::write(
+        docs_root.path().join("runbook.txt"),
+        "Runbook says sync should keep local files safe.",
+    )
+    .unwrap();
+
+    let owner_scope = ScopeId::new();
+    let key_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"name":"project docs key","source":"http","owner_principal_id":"alice","owner_scope_id":"{}","scope_kind":"personal","storage_mode":"all"}}"#,
+                    owner_scope.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key_response.status(), StatusCode::CREATED);
+    let key_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(key_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let raw_key = key_payload["raw_key"].as_str().unwrap();
+
+    let source_body = serde_json::json!({
+        "name": "HTTP project docs",
+        "source_kind": "local_docs",
+        "sync_mode": "index_only",
+        "local_root": docs_root.path().to_string_lossy(),
+    })
+    .to_string();
+    let source_response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/sources")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(source_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(source_response.status(), StatusCode::CREATED);
+    let source_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(source_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let source_id = source_payload["source_id"].as_str().unwrap();
+
+    let sync_response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/api/v1/sources/{source_id}/documents/sync"))
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","dry_run":false}}"#,
+                    owner_scope.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sync_response.status(), StatusCode::OK);
+    let sync_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(sync_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(sync_payload["dry_run"], false);
+    assert_eq!(
+        sync_payload["planned_documents"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(sync_payload["imported"].as_array().unwrap().len(), 2);
+    assert!(sync_payload["missing"].as_array().unwrap().is_empty());
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/sources/{source_id}/documents?query=README&limit=10"
+            ))
+            .header("x-meat-memory-key", raw_key)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(list_payload.as_array().unwrap().len(), 1);
+    assert_eq!(list_payload[0]["title"], "Project README");
+    let document_id = list_payload[0]["document_id"].as_str().unwrap();
+
+    let projection_response = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/sources/{source_id}/documents/{document_id}/projection"
+            ))
+            .header("x-meat-memory-key", raw_key)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(projection_response.status(), StatusCode::OK);
+    let projection_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(projection_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(projection_payload["document"]["document_id"], document_id);
+    assert!(
+        projection_payload["projection_path"]
+            .as_str()
+            .unwrap()
+            .contains("/sources/")
+    );
+    assert!(
+        projection_payload["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("kind: project_document")
+    );
+    assert!(
+        projection_payload["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("HTTP sync imports project docs.")
+    );
+
+    let conflicts_response = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/sources/{source_id}/documents/conflicts?limit=10"
+            ))
+            .header("x-meat-memory-key", raw_key)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conflicts_response.status(), StatusCode::OK);
+    let conflicts_payload = serde_json::from_slice::<serde_json::Value>(
+        &to_bytes(conflicts_response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(conflicts_payload.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn http_vector_key_flow_writes_pg_only_and_searches_with_key_context() {
     let _guard = http_test_guard();
     let app = build_test_app().await;

@@ -1,6 +1,6 @@
 # Meat Memory 版本化 TaskList
 
-更新时间：2026-04-11
+更新时间：2026-04-13
 
 ## 规划原则
 
@@ -13,9 +13,10 @@
 ## 当前快照
 
 - 已完成底座：Rust workspace、PGSQL + Markdown 双存储、kernel `remember/search/publish`、知识图谱抽取、HTTP/CLI/MCP 接入层、基础 observability、sync oplog/merge baseline、V1 多模型能力抽象与 provider/model/route registry、V1 图片资产存储与寻址基线、V1 `remember_image` 写入链路、V1 最小图片理解链路、Agent 接入文档、Docker/Helm 部署骨架、V1 验收脚本与文档包、中文系统化验收语料、Browser Console / failover 回归入口，以及 V1 release notes / 封板说明。
-- 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
+- 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./docs/scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
-- 当前最重要的未完成范围：V2.3 的安全与代码优化；V2.2 已完成，后续进入安全基线、专项扫描与架构收口阶段。
+- 当前封板状态：`v2.5` 已完成安装、打包与部署收口；V2.4 的 Agent 实时上下文、项目文档同步、source 多 key、Markdown projection、监控统计、验收脚本和分发部署主链路均已完成。
+- 当前最重要的未完成范围：V3 音频 / 视频多模态；npm 与 Homebrew 等公共发布渠道需要等待正式 release URL、npm scope 和 tap 地址后再接入真实发布。
 
 ## 版本范围总览
 
@@ -26,6 +27,8 @@
 | V2.1 | 强化 CLI / MCP 实用性、补齐多 Agent skill、提供安装后可快速配置系统的 TUI | 不做音频/视频，不做完整 GUI 桌面端 |
 | V2.2 | 增强用户端使用体验：key 申请、多 key 来源管理、权限隔离、存储模式、跨 key 图谱/索引、监控面板 | 不做完整桌面端，不在 MVP 中强求完整向量召回质量优化 |
 | V2.3 | 全面安全扫描、劫持/注入专项验证、统一安全边界与代码优化 | 不做技术路线重写，不做偏离当前分层的大规模重构 |
+| V2.4 | 增加短期和中期 Memory 能力：Agent 实时上下文、项目文档同步、每个来源多个 key | 不重写长期 Memory 主链路，不默认自动覆盖本地文档，不提前做音频/视频 |
+| V2.5 | 安装、打包与部署封板：二进制、Agent skills、cargo install、npm/Homebrew 骨架、Docker、Compose、systemd、Helm、release pipeline 与用户入口 | 不宣称 npm / Homebrew 已公开发布，不提前做音频/视频 |
 | V3 | 补齐全多模态，完成音频/视频 | 无 |
 
 ## V1 交付清单
@@ -62,7 +65,7 @@
 | `V1-DEP-002` | 云端独立部署包：Docker/Helm/最小发布闭环 | done | 已完成 Dockerfile 修正、`.dockerignore`、`config/app.toml`、Helm chart、`helm lint` 与镜像构建验证 |
 | `V1-SYN-001` | 为混合部署预留 sync/oplog/merge 抽象接口 | done | 已有 `OplogEntry`、cursor/batch、append、merge、内存 replication engine |
 | `V1-OBS-001` | V1 可观测性：结构化日志、延迟/命中率指标、health/ready/live/metrics | done | 已完成第一阶段 observability |
-| `V1-QA-001` | V1 端到端验收：HTTP + CLI + MCP + 文本 + 图片 + provider mock | done | 已完成 CLI E2E、HTTP/MCP 集成测试、`scripts/v1-acceptance.sh` 与 provider mock 路由命中校验 |
+| `V1-QA-001` | V1 端到端验收：HTTP + CLI + MCP + 文本 + 图片 + provider mock | done | 已完成 CLI E2E、HTTP/MCP 集成测试、`docs/scripts/v1-acceptance.sh` 与 provider mock 路由命中校验 |
 | `V1-DOC-001` | V1 文档包：安装、部署、Agent 接入、API/MCP/CLI 使用说明 | done | 已完成 Agent/HTTP/MCP/CLI/本地部署/云部署/验收文档收口 |
 | `V1-REL-003` | V1 版本封板、release notes 与交付边界收口 | done | 已补齐 `docs/release-notes-v1.md`、更新 `CHANGELOG.md` / `README.md` / `docs/tasks/*`，并将仓库状态收口到 “V1 已完成” |
 
@@ -120,7 +123,7 @@
 | `V2.1-TUI-002` | TUI 配置项：LLM provider / model route / API Key env / 数据库 / Markdown / MCP 开关 | done | 已完成参数模式与交互模式的默认 locale、MCP、数据库、Markdown、资产目录和四类模型路由配置；交互模式模型选择已升级为编号候选菜单 |
 | `V2.1-TUI-003` | TUI 运维动作：配置测试、连通性检查、保存与生成推荐配置 | done | 已完成 `config check --database`、`tui init --check-database`、配置写出、review 确认和最终结果面板本地化展示 |
 | `V2.1-DOC-001` | V2.1 文档包：CLI/MCP 快速使用、Agent skill 指南、TUI 使用说明 | done | 已完成 CLI/MCP 文档、Agent skill 指南、README 总览、runbook 索引和 `docs/runbook/v2_1-quickstart.md` 收口 |
-| `V2.1-QA-001` | V2.1 验收：CLI / MCP / TUI / skill smoke 与回归报告 | done | 已新增并实跑 `scripts/v2_1-acceptance.sh`，覆盖 `config check`、`mcp info`、`tui init`、`skills export` 与导出结果校验；统一报告已生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并写入 `latest-run.md` |
+| `V2.1-QA-001` | V2.1 验收：CLI / MCP / TUI / skill smoke 与回归报告 | done | 已新增并实跑 `docs/scripts/v2_1-acceptance.sh`，覆盖 `config check`、`mcp info`、`tui init`、`skills export` 与导出结果校验；统一报告已生成 `tests/reports/e2e/latest/v2_1-acceptance.txt` 并写入 `latest-run.md` |
 
 ### V2.1 建议执行顺序
 
@@ -230,7 +233,7 @@
 | `V2.3-TST-001` | 安全测试目录补齐 | done | 已补安全测试说明、HTTP/MCP 安全回归入口与报告脚本 |
 | `V2.3-TST-002` | 劫持回归测试 | done | 已覆盖无 key、越权 browse/promote、key 管理鉴权等场景 |
 | `V2.3-TST-003` | 注入回归测试 | done | 已覆盖异常 base64、超大 payload、Markdown marker/frontmatter 干扰等注入/边界场景 |
-| `V2.3-RPT-001` | 安全报告脚本与 latest 报告产物 | done | 已新增 `scripts/security-report.sh` 并接入 `write-test-reports.sh` |
+| `V2.3-RPT-001` | 安全报告脚本与 latest 报告产物 | done | 已新增 `docs/scripts/security-report.sh` 并接入 `write-test-reports.sh` |
 | `V2.3-QA-001` | V2.3 业务回归 | done | 已验证 HTTP/MCP/Kernel/Markdown 相关主链路不回退 |
 
 ### V2.3 建议执行顺序
@@ -250,6 +253,67 @@
 13. `V2.3-TST-003`
 14. `V2.3-RPT-001`
 15. `V2.3-QA-001`
+
+## V2.4 交付清单
+
+### V2.4 版本验收标准
+
+- 支持短期 Memory，用于管理 Agent 当前会话、当前任务、实时上下文和工具结果摘要。
+- 支持中期 Memory，用于管理项目文档、任务文档、设计文档、README、runbook 和 API 文档等工作集。
+- 本地项目文档存在时，能够通过 hash/mtime 检测同步状态，并默认不静默覆盖本地文件。
+- 将来源建模为一等对象，支持每个来源绑定多个 access key，并兼容现有 `source_kind` key 路径。
+- `fetch_context` 能按短期/中期/长期上下文组合结果，同时遵守 key、scope 和 isolation 策略。
+- HTTP / MCP / CLI 都具备最小可用入口，并补齐 V2.4 验收脚本与测试报告。
+
+### V2.4 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.4-DOC-001` | V2.4 方案文档与架构图 | done | 已新增 `docs/meat-memory-scheme-v2_4.md`，定义短期/中期/长期 Memory 分层、Source 多 key、项目文档同步边界 |
+| `V2.4-DOM-001` | MemoryLayer 领域模型 | done | 已新增 `short_term / mid_term / long_term` 生命周期层，并用于短期 context 与中期文档对象 |
+| `V2.4-DOM-002` | MemorySource 领域模型 | done | 已新增 source 实体，支持 access key 关联可选 `source_id`，并兼容现有 `source_kind` |
+| `V2.4-DB-001` | V2.4 数据迁移 | done | 已新增 `memory_sources`、`agent_contexts`、`project_documents`，并给 `access_keys` 增加 `source_id` |
+| `V2.4-KER-001` | 短期 Agent Context Kernel 服务 | done | 已支持 upsert/list/delete/promote 当前 Agent 实时上下文，并覆盖 Kernel PG+Markdown 集成测试 |
+| `V2.4-KER-002` | 中期 Project Document Kernel 服务 | done | 已支持 source 管理、文档导入、hash 追踪、artifact 关联、文档列表/关键词过滤与冲突查询 |
+| `V2.4-SYN-001` | 本地项目文档同步引擎 | done | 已实现本地文档扫描、hash 对比、clean/changed/missing 状态计划，并支持通过 Kernel 应用同步计划导入中期文档 |
+| `V2.4-SYN-002` | 文档同步冲突策略 | done | 已定义 `clean / changed / deleted / conflicted` 判定与冲突报告，Kernel 同步计划会返回 missing/conflicts 且不静默覆盖用户改动 |
+| `V2.4-STO-001` | PostgreSQL Store 扩展 | done | 已实现 source/context/document CRUD、source-key 查询，并覆盖 PG 集成测试；layer-aware 查询将在 Kernel 服务中继续接入 |
+| `V2.4-STO-002` | Markdown Store 扩展 | done | 已新增 project document markdown projection、frontmatter 元数据读写、本地路径映射与 Kernel 导入链路落盘测试 |
+| `V2.4-API-001` | HTTP API：source 多 key 管理 | done | 已新增 source 创建/列表/详情接口、source 维度 key 创建/列表接口，并在 key 响应中返回 `source_id` 以支持每个来源多个 key |
+| `V2.4-API-002` | HTTP API：Agent Context | done | 已新增短期上下文 upsert/list/delete/promote 接口，支持按 session/task 查询并可 promote 为长期 Memory |
+| `V2.4-API-003` | HTTP API：Project Documents Sync | done | 已新增 source 下项目文档导入、列表、冲突列表与本地同步扫描/执行接口，支持 `dry_run` 预览与 local_root 覆盖 |
+| `V2.4-MCP-001` | MCP 工具扩展：实时上下文 | done | 已新增 `memory.context.upsert`、`memory.context.list`、`memory.context.promote`、`memory.context.delete` 并覆盖 PG+Markdown 集成测试 |
+| `V2.4-MCP-002` | MCP 工具扩展：项目文档 | done | 已新增 `memory.docs.sync`、`memory.docs.search`、`memory.docs.conflicts`，支持本地文档扫描导入、按 source 查询和冲突列表 |
+| `V2.4-CLI-001` | CLI source/context/doc 管理命令 | done | 已新增 `source`、`context`、`docs` 子命令，覆盖 source 创建/列表/key 管理、Agent Context upsert/list/promote/delete、Project Document import/list/conflicts |
+| `V2.4-CLI-002` | 本地文档同步 CLI | done | 已支持 `docs status` 与 `docs sync`，复用本地文档扫描计划并输出 planned/imported/missing/conflicts |
+| `V2.4-SKL-001` | Agent Skill 文案更新 | done | 已更新 Codex/Claude/执行型 Agent skill，说明短期上下文、项目文档同步、source 多 key 用法与冲突处理原则 |
+| `V2.4-OBS-001` | 监控与统计 | done | 已扩展 metrics `v2_4` 快照，并在 Kernel/HTTP 监控面板统计 source/context/docs 操作、失败、导入、missing 与冲突数量 |
+| `V2.4-QA-001` | 单元与集成测试 | done | 已完成 domain、sync、store、kernel、HTTP、MCP、CLI 核心回归，覆盖 source/context/docs 与监控统计路径 |
+| `V2.4-QA-002` | V2.4 验收脚本与报告 | done | 已新增并实跑 `docs/scripts/v2_4-acceptance.sh`，接入 `write-test-reports.sh`，报告产物已写入 `tests/reports/e2e/latest/v2_4-acceptance.txt` 与 `latest-run.md` |
+
+### V2.4 建议执行顺序
+
+1. `V2.4-DOC-001`
+2. `V2.4-DOM-001`
+3. `V2.4-DOM-002`
+4. `V2.4-DB-001`
+5. `V2.4-STO-001`
+6. `V2.4-KER-001`
+7. `V2.4-KER-002`
+8. `V2.4-SYN-001`
+9. `V2.4-SYN-002`
+10. `V2.4-API-001`
+11. `V2.4-API-002`
+12. `V2.4-API-003`
+13. `V2.4-MCP-001`
+14. `V2.4-MCP-002`
+15. `V2.4-CLI-001`
+16. `V2.4-CLI-002`
+17. `V2.4-STO-002`
+18. `V2.4-SKL-001`
+19. `V2.4-OBS-001`
+20. `V2.4-QA-001`
+21. `V2.4-QA-002`
 
 ## V3 交付清单
 
@@ -277,6 +341,51 @@
 4. `V3-MM-004`
 5. `V3-MM-005`
 
+## V2.5 安装、打包与部署实施清单
+
+### 目标
+
+- 建立统一的安装入口，覆盖 `npm`、`cargo install`、预编译二进制、Homebrew、Docker。
+- 建立安装后 Agent skill 的标准交付路径，覆盖 Codex、Claude Code / TRAE / Qoder、执行型 Agent。
+- 建立统一的打包产物与发布流水线。
+- 建立本地、单机、容器和 Kubernetes 四类部署路径。
+
+对应方案文档：
+
+- `docs/architecture-design/install-package-deploy-plan.md`
+
+### 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `DIST-DOC-001` | 安装、打包、部署方案文档 | done | 已新增完整方案文档，明确安装渠道、打包产物、部署形态与发布顺序 |
+| `DIST-PKG-001` | 预编译二进制发布方案 | done | 已补 GitHub Release 多平台 workflow、`docs/scripts/build-release-artifacts.sh` 打包脚本，以及 `dist/release/*.tar.gz + *.sha256` 产物约定 |
+| `DIST-PKG-002` | npm 安装入口 | done | 已新增 `packaging/npm/` 包装层骨架，支持命令代理、平台 tarball 映射和可配置 releaseBaseUrl 下载入口 |
+| `DIST-PKG-003` | cargo install 路径收口 | done | 已补 `memory-cli` crate 元数据、CLI/usage 安装后验证说明，并通过 `cargo install --path crates/memory-cli --locked` 本地安装验证 |
+| `DIST-PKG-003A` | 安装后 Agent skill 交付闭环 | done | 已补 `build-agent-skills-bundle.sh`、release 附带 `agent-skills-bundle.zip`，并统一本地导出与发布交付说明 |
+| `DIST-PKG-004` | Homebrew 发布方案 | done | 已新增 `packaging/homebrew/` 发布说明与 Formula 模板，明确 tap、release tarball、sha256 和后续自动化接入流程 |
+| `DIST-PKG-005` | Docker 镜像规范化 | done | 已将 Dockerfile 收口为 `app-runtime` / `worker-runtime` targets，compose 与文档统一使用 `meat-memory-app:<tag>` / `meat-memory-worker:<tag>` 命名 |
+| `DIST-DEP-001` | 本地 compose 部署收口 | done | 已补 `.env` 镜像变量、compose 本地 tag 约定，以及 local/cloud/docker 相关说明，统一本地试跑入口 |
+| `DIST-DEP-002` | 单机 systemd 部署模板 | done | 已新增 `infra/systemd/` 模板、环境文件样例和 `docs/runbook/systemd-deploy.md`，覆盖 app / worker 单机部署 |
+| `DIST-DEP-003` | Helm / Kubernetes 部署完善 | done | 已补 app/worker 分镜像、existing Secret/PVC 复用约定，并更新 Helm values 与云端部署说明 |
+| `DIST-CI-001` | 发布流水线设计 | done | 已将 release workflow 收口为 tag 驱动的 release assets + agent skills + Docker 镜像发布骨架，并明确 npm / Homebrew 为后续接入点 |
+| `DIST-DOC-002` | 安装文档与用户入口收口 | done | 已新增 `docs/runbook/install.md`，并在 README、docs 总览、runbook、架构设计入口和 usage guide 中统一挂载安装/打包/部署入口 |
+
+### 建议执行顺序
+
+1. `DIST-DOC-001`
+2. `DIST-PKG-001`
+3. `DIST-PKG-002`
+4. `DIST-PKG-003A`
+5. `DIST-PKG-003`
+6. `DIST-PKG-005`
+7. `DIST-DEP-001`
+8. `DIST-DEP-002`
+9. `DIST-DEP-003`
+10. `DIST-CI-001`
+11. `DIST-PKG-004`
+12. `DIST-DOC-002`
+
 ## 历史任务映射
 
 本节用于保持和 `docs/tasks/task-log.md`、`docs/tasks/project-index.md` 的连续性。
@@ -296,4 +405,4 @@
 
 ## 当前下一步
 
-- V2.3 已完成方案与任务登记，下一优先级进入攻击面梳理、安全检查矩阵与正式扫描
+- `v2.5` 已完成安装、打包、部署和用户入口收口；后续可进入 V3 音频/视频多模态，或在正式发布地址确定后接入 npm / Homebrew 自动发布。

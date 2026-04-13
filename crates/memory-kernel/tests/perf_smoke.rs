@@ -48,7 +48,7 @@ impl PerfSummary {
 }
 
 #[tokio::test]
-#[ignore = "run with ./scripts/v2-perf.sh"]
+#[ignore = "run with ./docs/scripts/v2-perf.sh"]
 async fn markdown_kernel_smoke_benchmark_reports_latency_percentiles() {
     let tempdir = tempdir().unwrap();
     let kernel = Kernel::builder()

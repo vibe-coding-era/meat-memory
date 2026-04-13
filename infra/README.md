@@ -5,11 +5,13 @@
 ## 当前内容
 
 - `docker/`：容器初始化相关文件
+- `systemd/`：单机 Linux 部署模板与环境文件样例
 - `helm/`：Helm chart 骨架与默认 values
 
 其中：
 
 - [`docker/README.md`](docker/README.md)：本地 Docker 初始化资产说明
+- [`systemd/README.md`](systemd/README.md)：单机 systemd 部署模板说明
 
 ## 适用场景
 

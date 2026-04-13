@@ -5,7 +5,7 @@
 运行方式：
 
 ```bash
-./scripts/v2-perf.sh
+./docs/scripts/v2-perf.sh
 ```
 
 该脚本会执行被标记为 ignored 的 Rust 性能测试，当前重点覆盖：
@@ -21,5 +21,5 @@
 如果想连同其他测试报告一起刷新，可执行：
 
 ```bash
-./scripts/write-test-reports.sh
+./docs/scripts/write-test-reports.sh
 ```

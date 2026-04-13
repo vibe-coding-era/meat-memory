@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPORTS_DIR="$ROOT_DIR/tests/reports"
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
 
@@ -80,6 +80,7 @@ write_index() {
 - integration_report: \`tests/reports/integration/latest/v2-integration.txt\`
 - e2e_report: \`tests/reports/e2e/latest/cli-and-acceptance.txt\`
 - v21_report: \`tests/reports/e2e/latest/v2_1-acceptance.txt\`
+- v24_report: \`tests/reports/e2e/latest/v2_4-acceptance.txt\`
 - perf_summary: \`tests/reports/perf/latest/perf-summary.txt\`
 - perf_kernel: \`tests/reports/perf/latest/kernel-perf.txt\`
 - perf_sync: \`tests/reports/perf/latest/sync-perf.txt\`
@@ -105,20 +106,23 @@ run_multiline_report "integration" "v2-integration.txt" \
 
 run_multiline_report "e2e" "cli-and-acceptance.txt" \
   "cargo test -p memory-cli --test cli_e2e --quiet" \
-  "./scripts/v1-acceptance.sh"
+  "./docs/scripts/v1-acceptance.sh"
 
 run_command_report "e2e" "v2_1-acceptance.txt" \
-  ./scripts/v2_1-acceptance.sh
+  ./docs/scripts/v2_1-acceptance.sh
+
+run_command_report "e2e" "v2_4-acceptance.txt" \
+  ./docs/scripts/v2_4-acceptance.sh
 
 run_command_report "perf" "perf-summary.txt" \
-  ./scripts/v2-perf.sh "$REPORTS_DIR/perf/latest"
+  ./docs/scripts/v2-perf.sh "$REPORTS_DIR/perf/latest"
 cp "$REPORTS_DIR/perf/latest/kernel-perf.txt" \
   "$REPORTS_DIR/perf/archive/${TIMESTAMP}-kernel-perf.txt"
 cp "$REPORTS_DIR/perf/latest/sync-perf.txt" \
   "$REPORTS_DIR/perf/archive/${TIMESTAMP}-sync-perf.txt"
 
 run_command_report "security" "security-summary.txt" \
-  ./scripts/security-report.sh "$REPORTS_DIR/security/latest"
+  ./docs/scripts/security-report.sh "$REPORTS_DIR/security/latest"
 
 write_index
 rm -rf "$ROOT_DIR/target/perf"
