@@ -1,6 +1,6 @@
 # Meat Memory 项目索引
 
-更新时间：2026-04-13
+更新时间：2026-04-17
 
 索引范围：`/Users/Rou/dev_projects/meat-memory`
 
@@ -22,6 +22,12 @@
 │   ├── meat-memory-scheme-v2_2.md
 │   ├── meat-memory-scheme-v2_3.md
 │   ├── meat-memory-scheme-v2_4.md
+│   ├── V2.7/
+│   │   ├── README.md
+│   │   ├── V2.7.1-current-capability-gap.md
+│   │   ├── V2.7.2-lifecycle-schema.md
+│   │   ├── V2.7.3-recall-governance.md
+│   │   └── V2.7.4-delivery-plan.md
 │   ├── reports/
 │   │   └── test-coverage-report.md
 │   └── tasks/
@@ -43,7 +49,7 @@
 
 说明：
 
-- 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性 + V1 模型网关与图片理解基线 + V2.4 短期/中期 Memory + V2.5 安装打包部署封板”的阶段。
+- 当前仓库已经从“纯文档仓库”推进到“工程基线 + 存储层 + kernel 主链路 + 基础可观测性 + V1 模型网关与图片理解基线 + V2.4 短期/中期 Memory + V2.5 安装打包部署封板 + V2.6 项目边界引导完成 + V2.7 生命周期系统进入方案设计”的阶段。
 - 已具备 Rust workspace、核心领域模型、PG/Markdown 存储层、`memory-kernel` remember/search/publish 编排、entity/relation 抽取、HTTP / CLI / MCP 接入层、短期 Agent Context、中期 Project Documents、本地文档同步、source 多 key、基础配置、脚本、release workflow、Dockerfile、compose、本地 pgvector 开发库、systemd 模板、Helm chart、安装/打包/部署文档包与验收脚本。
 - 当前最重要的有效输入变成了三类：`docs/` 下的设计文档、`docs/tasks/` 下的执行文档、`crates/` 下的真实工程实现
 
@@ -98,6 +104,36 @@
 - 角色：V2.5 封板说明
 - 用途：归档安装、打包、部署和用户入口收口结果
 - 当前价值：作为本次 `v2.5` 提交的交接摘要
+
+`docs/V2.7/README.md`
+
+- 角色：V2.7 生命周期系统总方案
+- 用途：定义如何把短期、中期、长期三层记忆补成统一 lifecycle system
+- 当前价值：作为 V2.7 的总入口与范围判断依据
+
+`docs/V2.7/V2.7.1-current-capability-gap.md`
+
+- 角色：现状与目标差距分析
+- 用途：明确当前三层记忆骨架已经落地到什么程度、真正缺口在哪里
+- 当前价值：避免把 V3 规划误当成当前实现
+
+`docs/V2.7/V2.7.2-lifecycle-schema.md`
+
+- 角色：统一 schema 与生命周期设计
+- 用途：定义三层对象的统一 record 视图、状态、来源、置信度和演进语义
+- 当前价值：V2.7 底层模型设计依据
+
+`docs/V2.7/V2.7.3-recall-governance.md`
+
+- 角色：召回、解释、演进与治理设计
+- 用途：定义 recall guard、summary、supersede/conflict、forget/audit 设计
+- 当前价值：V2.7 行为层设计依据
+
+`docs/V2.7/V2.7.4-delivery-plan.md`
+
+- 角色：实施路线与验收标准
+- 用途：把 V2.7 分解成任务、顺序、风险和测试策略
+- 当前价值：V2.7 执行入口
 
 ### 2.2 `docs/tasks/`
 
@@ -206,34 +242,38 @@
 - Browser Console 首页与图片 failover `llm_notice` 已纳入回归入口
 - V1 release notes、CHANGELOG 与 README 边界说明已补齐
 
-换句话说，当前项目已经从“想清楚”和“拆任务”的阶段，进入了“V2.4 短期/中期 Memory 接入面、Agent skill、监控统计、核心回归与验收脚本已收口”的阶段。
+换句话说，当前项目已经从“想清楚”和“拆任务”的阶段，进入了“V2.4 短期/中期 Memory 接入面已收口、V2.6 项目边界引导已完成、V2.7 正在补齐生命周期系统”的阶段。
 
 ## 4. 当前剩余的关键工作
 
 以下工作目前仍需继续推进：
 
+- V2.7 生命周期系统落地
 - V3 音频/视频多模态规划与实现
 
-这意味着项目已经从“V2.4 实时上下文与项目文档同步实现”推进到“V2.4 主链路完成、可选择下一阶段”的阶段。
+这意味着项目已经从“V2.4 实时上下文与项目文档同步实现”推进到“V2.4/V2.6 主链路完成，下一阶段先补生命周期系统，再进入多模态”的阶段。
 
 ## 5. 推荐执行起点
 
 建议执行顺序：
 
-1. 若继续版本主线，进入 V3 音频/视频多模态方案与实现
+1. 先进入 V2.7 生命周期系统方案与实现
+2. 再进入 V3 音频/视频多模态方案与实现
 
 ## 6. 建议的第一批可执行任务
 
 最先启动的任务建议是：
 
-- `V3-MM-001`：音频 ingest、资产存储、转写入口
+- `V2.7-DOM-001`：统一 `Memory Record` 视图模型
+- `V2.7-KER-004`：`RecallGuard`
+- `V2.7-KER-008`：`ForgetService`
 
 当前项目已经处在“V2.4 HTTP API、MCP 工具、CLI 管理命令、Agent skill 文案、Markdown projection、监控统计、核心回归与验收脚本已完成”的状态。
 
 ## 7. 当前风险与注意事项
 
 - 当前图片 caption 已可自动生成，但尚未接入真实外部视觉 SDK，V1 仍属于“本地最小可运行 + 可切真实 SDK”的形态
-- `tasklist.md` 已切到版本视图，后续执行与汇报应优先使用 `V1-* / V2-* / V3-*` 编号
+- `tasklist.md` 已切到版本视图，后续执行与汇报应优先使用 `V1-* / V2-* / V2.7-* / V3-*` 编号
 - 若后续目录结构发生变化，应同步更新本文件和 `task-log.md`
 - `docs/meat-memory-scheme-v2.md` 应继续作为主设计依据，避免实现过程漂移回旧的 `MM-*` 粒度规划
 - `.cargo/config.toml` 已从“全局固定 `/usr/bin/clang`”收敛到“仅 Apple target 固定 clang”，避免 Linux 容器构建失败
@@ -242,4 +282,5 @@
 
 建议下一步直接扩展当前可运行闭环：
 
-1. 选择进入 V3 音频/视频多模态。
+1. 先完成 V2.7 生命周期系统。
+2. 再进入 V3 音频/视频多模态。

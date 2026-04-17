@@ -5,9 +5,9 @@
 ## 规划原则
 
 - 本文件从“原子级全量拆解”切换为“版本化交付清单”。
-- 从现在开始，`V1 / V2 / V2.1 / V2.2 / V3` 是范围管理的唯一主视图。
+- 从现在开始，`V1 / V2 / V2.1 / V2.2 / V2.7 / V3` 是范围管理的唯一主视图。
 - 历史执行记录仍保留在 `docs/tasks/task-log.md`，其中旧的 `MM-*` 编号继续有效。
-- 新任务优先使用 `V1-*`、`V2-*`、`V3-*` 编号。
+- 新任务优先使用 `V1-*`、`V2-*`、`V2.7-*`、`V3-*` 编号。
 - 本文件只描述版本目标、交付范围、任务状态和建议顺序，不等同于实现日志。
 
 ## 当前快照
@@ -17,7 +17,7 @@
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
 - 当前封板状态：`v2.5` 已完成安装、打包与部署收口；V2.4 的 Agent 实时上下文、项目文档同步、source 多 key、Markdown projection、监控统计、验收脚本和分发部署主链路均已完成。
 - 当前进行中范围：`v2.6` 新项目进入时的项目记忆边界确认、TUI/CLI 数字化向导、skill 接入规则与文档收口。
-- 当前最重要的未完成范围：V2.6 项目记忆边界引导；V3 音频 / 视频多模态；npm 与 Homebrew 等公共发布渠道需要等待正式 release URL、npm scope 和 tap 地址后再接入真实发布。
+- 当前最重要的未完成范围：V2.7 生命周期系统；V3 音频 / 视频多模态；npm 与 Homebrew 等公共发布渠道需要等待正式 release URL、npm scope 和 tap 地址后再接入真实发布。
 
 ## 版本范围总览
 
@@ -31,6 +31,7 @@
 | V2.4 | 增加短期和中期 Memory 能力：Agent 实时上下文、项目文档同步、每个来源多个 key | 不重写长期 Memory 主链路，不默认自动覆盖本地文档，不提前做音频/视频 |
 | V2.5 | 安装、打包与部署封板：二进制、Agent skills、cargo install、npm/Homebrew 骨架、Docker、Compose、systemd、Helm、release pipeline 与用户入口 | 不宣称 npm / Homebrew 已公开发布，不提前做音频/视频 |
 | V2.6 | 新项目进入时先确认项目记忆边界：数字选择新/旧项目、互通/隔离、团队/个人，并通过 TUI/CLI/skill 建立 key 与 scope 绑定 | 未经确认不改 MCP 工具面，不新增数据库表，不做完整 GUI |
+| V2.7 | 把已存在的短期、中期、长期三层记忆骨架补成可演进、可治理、可解释的生命周期系统 | 不进入音频/视频，不推倒当前三层对象，不默认做高风险自动覆盖或自动删除 |
 | V3 | 补齐全多模态，完成音频/视频 | 无 |
 
 ## V1 交付清单
@@ -348,6 +349,68 @@
 5. `V2.6-DOC-002`
 6. `V2.6-QA-001`
 
+## V2.7 生命周期系统清单
+
+### V2.7 版本验收标准
+
+- 短期 `AgentContext`、中期 `ProjectDocument / MemorySource`、长期 `Memory` 都能映射到统一的 lifecycle-aware record 视图。
+- 记录至少具备统一的 `layer`、`type`、`source`、`confidence`、`status` 语义。
+- 任务结束后能生成结构化摘要，保留目标、约束、决策、结果和待办。
+- 默认召回必须经过 lifecycle / privacy guard，排除 forgotten、deprecated、archived、sensitive、expired 等内容。
+- 召回结果必须能解释为什么被召回。
+- 系统能够标记 supersede、conflict、needs_review，并对 soft forget 生效。
+- HTTP / CLI / MCP 至少有一条基础治理主链路可用，并且不破坏 V2.4-V2.6 现有入口。
+
+### V2.7 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.7-DOC-001` | V2.7 方案文档包 | done | 已新增 `docs/V2.7/` 目录，包含总方案、差距分析、schema、recall/governance、实施计划 |
+| `V2.7-DOM-001` | 统一 `Memory Record` 视图模型 | done | 已新增统一 `MemoryRecord` 视图和 native/layer/type/source/status 字段，用于映射 `AgentContext` / `ProjectDocument` / `Memory` |
+| `V2.7-DOM-002` | 统一类型、来源、置信度、状态枚举 | done | 已新增 `record_type`、`source_kind`、`confidence`、`status` 统一枚举，并兼容现有 `MemoryKind` / `MemoryState` 映射 |
+| `V2.7-KER-001` | `LifecycleNormalizer` | done | 已新增 `LifecycleNormalizer`，可将三层对象标准化为统一 record |
+| `V2.7-KER-002` | `RecordClassifier` | done | 已新增基于现有字段和关键词的 `RecordClassifier`，补齐 type/source 推断 |
+| `V2.7-KER-003` | `TaskSummaryService` | done | 已新增结构化 `TaskSummaryService`，可从短期记录提取目标、约束、决策、变更、问题和下一步 |
+| `V2.7-KER-004` | `RecallGuard` | done | 已新增 `RecallGuard`，默认过滤 archived/deprecated/needs_review/restricted/expired 记录，并接入 `search_context` |
+| `V2.7-KER-005` | `RecallExplanation` | todo | 返回 why recalled、matched layer/type/scope、score |
+| `V2.7-KER-006` | `BudgetPacker` | todo | 先注入 summary，再按预算补 full content |
+| `V2.7-KER-007` | `EvolutionService` | todo | 标记 supersede、conflict、deprecated、needs_review |
+| `V2.7-KER-008` | `ForgetService` | todo | 实现 soft forget、restore、recall exclusion |
+| `V2.7-KER-009` | `AuditLogService` | todo | 记录 write/update/recall/archive/forget/delete/supersede/conflict |
+| `V2.7-STO-001` | 存储层兼容改造 | todo | 在不破坏旧链路的前提下保存新增 lifecycle 元数据 |
+| `V2.7-API-001` | HTTP lifecycle / governance API | todo | 提供 inspect、status change、forget、audit 查询入口 |
+| `V2.7-MCP-001` | MCP lifecycle tools | todo | 暴露受控治理与召回解释能力 |
+| `V2.7-CLI-001` | CLI lifecycle / governance 命令 | todo | 支持 inspect、archive、forget、restore、report |
+| `V2.7-OBS-001` | Lifecycle metrics | todo | 统计 recall hit/noise、archive/forget/supersede/conflict |
+| `V2.7-RPT-001` | Memory Health Report | todo | 输出热点、过期、冲突、已替代、待审核项 |
+| `V2.7-QA-001` | 单元测试 | done | 已覆盖 schema/normalizer/classifier/summary/guard 的核心单测，并补跑相关 kernel 主链路验证 |
+| `V2.7-QA-002` | 集成测试 | todo | 覆盖跨层 recall、summary、forget、conflict、supersede 主链路 |
+| `V2.7-QA-003` | 验收脚本与报告 | todo | 形成 V2.7 acceptance 入口与 latest report |
+
+### V2.7 建议执行顺序
+
+1. `V2.7-DOC-001`
+2. `V2.7-DOM-001`
+3. `V2.7-DOM-002`
+4. `V2.7-KER-001`
+5. `V2.7-KER-002`
+6. `V2.7-KER-003`
+7. `V2.7-KER-004`
+8. `V2.7-QA-001`
+9. `V2.7-KER-005`
+10. `V2.7-KER-006`
+11. `V2.7-KER-007`
+12. `V2.7-KER-008`
+13. `V2.7-KER-009`
+14. `V2.7-STO-001`
+15. `V2.7-API-001`
+16. `V2.7-MCP-001`
+17. `V2.7-CLI-001`
+18. `V2.7-QA-002`
+19. `V2.7-OBS-001`
+20. `V2.7-RPT-001`
+21. `V2.7-QA-003`
+
 ## V3 交付清单
 
 ### V3 版本验收标准
@@ -438,4 +501,6 @@
 
 ## 当前下一步
 
-- `v2.5` 已完成安装、打包、部署和用户入口收口；后续可进入 V3 音频/视频多模态，或在正式发布地址确定后接入 npm / Homebrew 自动发布。
+- `v2.5` 已完成安装、打包、部署和用户入口收口。
+- `v2.6` 已完成项目记忆边界引导。
+- 当前建议先进入 `V2.7` 生命周期系统，再进入 `V3` 音频/视频多模态。

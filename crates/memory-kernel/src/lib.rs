@@ -1,5 +1,10 @@
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
+mod lifecycle;
+
+pub use lifecycle::{
+    LifecycleNormalizer, RecallGuard, RecordClassifier, TaskSummary, TaskSummaryService,
+};
 use memory_assets::{FileSystemAssetStore, PutAssetRequest, StorageClass, StoredAsset};
 use memory_core::MemoryService;
 use memory_domain::{
@@ -1393,6 +1398,7 @@ impl Kernel {
                     memories
                 }
             };
+            let memories = RecallGuard::filter_memories(memories, request.context.as_ref());
             let (entities, relations) = build_context_graph(&request.scope_id, &memories);
 
             Ok(ContextBundle {

@@ -7,6 +7,7 @@
 - [`architecture-design/README.md`](architecture-design/README.md)：系统架构、版本方案、接口与部署设计
 - [`testing/README.md`](testing/README.md)：测试分层、验收入口、测试报告与覆盖率分析
 - [`document-management/README.md`](document-management/README.md)：文档分类、目录职责和维护规则
+- [`V2.7/README.md`](V2.7/README.md)：三层记忆骨架升级为生命周期系统的版本方案
 
 ## 推荐阅读顺序
 
@@ -21,6 +22,7 @@
 
 - [`architecture-design/README.md`](architecture-design/README.md)
 - [`architecture-design/install-package-deploy-plan.md`](architecture-design/install-package-deploy-plan.md)
+- [`V2.7/README.md`](V2.7/README.md)
 - [`architecture/README.md`](architecture/README.md)
 - [`api/README.md`](api/README.md)
 - [`agent-skills/README.md`](agent-skills/README.md)
@@ -43,6 +45,7 @@
 - [`runbook/README.md`](runbook/README.md)：部署、启动、验收和排障入口
 - [`runbook/install.md`](runbook/install.md)：安装、打包与部署入口
 - [`api/README.md`](api/README.md)：CLI、HTTP、MCP 文档入口
+- [`V2.7/README.md`](V2.7/README.md)：V2.7 生命周期系统方案入口
 - [`scripts/README.md`](scripts/README.md)：文档内统一管理的项目脚本
 - [`default/README.md`](default/README.md)：默认 Markdown projection 与示例内容说明
 - [`reports/README.md`](reports/README.md)：分析型报告入口

@@ -8,6 +8,7 @@ pub mod error;
 pub mod ids;
 pub mod lifecycle;
 pub mod memory;
+pub mod record;
 pub mod relation;
 pub mod scope;
 
@@ -30,5 +31,9 @@ pub use lifecycle::{
     ProjectDocument, SourceStatus, SourceSyncMode,
 };
 pub use memory::{Memory, MemoryKind, MemoryScores, MemoryState};
+pub use record::{
+    MemoryRecord, MemoryRecordConfidence, MemoryRecordNativeKind, MemoryRecordSourceKind,
+    MemoryRecordStatus, MemoryRecordType,
+};
 pub use relation::{Relation, RelationState, RelationType};
 pub use scope::{InheritPolicy, Scope, ScopeHierarchyValidator, ScopeType, SyncPolicy};
