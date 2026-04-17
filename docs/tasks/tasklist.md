@@ -1,6 +1,6 @@
 # Meat Memory 版本化 TaskList
 
-更新时间：2026-04-13
+更新时间：2026-04-14
 
 ## 规划原则
 
@@ -16,7 +16,8 @@
 - 当前复核状态：已确认 `memory-extract`、`memory-kernel`、`memory-http`、`memory-mcp`、`memory-cli` 定向回归，`cargo test --workspace --lib --bins --quiet`、`./docs/scripts/v1-acceptance.sh`、`docker compose config --quiet`、`helm lint infra/helm/meat-memory` 通过，V1 已完成。
 - 最新单测覆盖率快照：Line `95.46%`、Function `91.79%`、Region `87.91%`，产物位于 `target/coverage/unit-pass5/`。
 - 当前封板状态：`v2.5` 已完成安装、打包与部署收口；V2.4 的 Agent 实时上下文、项目文档同步、source 多 key、Markdown projection、监控统计、验收脚本和分发部署主链路均已完成。
-- 当前最重要的未完成范围：V3 音频 / 视频多模态；npm 与 Homebrew 等公共发布渠道需要等待正式 release URL、npm scope 和 tap 地址后再接入真实发布。
+- 当前进行中范围：`v2.6` 新项目进入时的项目记忆边界确认、TUI/CLI 数字化向导、skill 接入规则与文档收口。
+- 当前最重要的未完成范围：V2.6 项目记忆边界引导；V3 音频 / 视频多模态；npm 与 Homebrew 等公共发布渠道需要等待正式 release URL、npm scope 和 tap 地址后再接入真实发布。
 
 ## 版本范围总览
 
@@ -29,6 +30,7 @@
 | V2.3 | 全面安全扫描、劫持/注入专项验证、统一安全边界与代码优化 | 不做技术路线重写，不做偏离当前分层的大规模重构 |
 | V2.4 | 增加短期和中期 Memory 能力：Agent 实时上下文、项目文档同步、每个来源多个 key | 不重写长期 Memory 主链路，不默认自动覆盖本地文档，不提前做音频/视频 |
 | V2.5 | 安装、打包与部署封板：二进制、Agent skills、cargo install、npm/Homebrew 骨架、Docker、Compose、systemd、Helm、release pipeline 与用户入口 | 不宣称 npm / Homebrew 已公开发布，不提前做音频/视频 |
+| V2.6 | 新项目进入时先确认项目记忆边界：数字选择新/旧项目、互通/隔离、团队/个人，并通过 TUI/CLI/skill 建立 key 与 scope 绑定 | 未经确认不改 MCP 工具面，不新增数据库表，不做完整 GUI |
 | V3 | 补齐全多模态，完成音频/视频 | 无 |
 
 ## V1 交付清单
@@ -314,6 +316,37 @@
 19. `V2.4-OBS-001`
 20. `V2.4-QA-001`
 21. `V2.4-QA-002`
+
+## V2.6 项目记忆边界引导清单
+
+### V2.6 版本验收标准
+
+- 任意新项目接入 Meat Memory 前，Agent skill 必须先通过数字选择确认：是否新项目、是否与其他项目记忆互通、团队记忆还是个人记忆。
+- 新项目必须生成或绑定新的 `scope_id` 与 access key，并明确 `owner_scope_id`、`scope_kind`、`is_fully_isolated`，避免默认写入旧项目记忆。
+- 非新项目必须通过数字选择确认：列出现有记忆/项目列表，或手动输入已有 `scope_id`。
+- TUI 提供同等的数字化项目记忆初始化入口，能把选择结果落到 key/scope 边界。
+- CLI 提供可脚本化与可交互的项目边界初始化入口，并输出可直接用于后续 remember/search/context/docs 的 `scope_id`、`key_id` 与 raw key。
+- MCP 工具面本轮默认不改；如需新增 MCP project 工具，先单独形成方案并等待确认。
+
+### V2.6 任务表
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| `V2.6-DOC-001` | V2.6 方案与 TaskList 收口 | done | 已明确先走 TUI/CLI/skill，MCP 工具面暂不改；任务表记录验收标准、边界与执行顺序 |
+| `V2.6-CLI-001` | CLI 项目记忆初始化命令 | done | 已新增 `memory-cli project init`，支持新项目创建 scope/key、旧项目列出/手动输入、非交互 `--existing` / `--scope-kind` / `--isolated` / `--shared`，并输出 JSON/文本摘要 |
+| `V2.6-TUI-001` | TUI 项目记忆边界向导 | done | 已新增 `memory-cli tui project-init`，复用数字化项目记忆向导，覆盖新/旧项目、互通/隔离、团队/个人、列表/手动输入 |
+| `V2.6-SKL-001` | Agent skill 项目边界规则 | done | 已更新 Codex、Claude Code/TRAE/Qoder、执行型 Agent 三套 skill，要求写入前先确认项目边界，不默认混写 |
+| `V2.6-DOC-002` | CLI/TUI 使用文档 | done | 已更新 CLI 与 MCP 文档，说明 V2.6 初始化流程和 MCP 暂不改工具面的边界 |
+| `V2.6-QA-001` | V2.6 回归测试 | done | 已覆盖 CLI/TUI 新项目、旧项目、隔离/互通、团队/个人、非交互参数、JSON 输出，并通过 memory-cli 定向测试与 skill 导出 smoke |
+
+### V2.6 建议执行顺序
+
+1. `V2.6-DOC-001`
+2. `V2.6-CLI-001`
+3. `V2.6-TUI-001`
+4. `V2.6-SKL-001`
+5. `V2.6-DOC-002`
+6. `V2.6-QA-001`
 
 ## V3 交付清单
 

@@ -31,9 +31,36 @@ If key enforcement is enabled, use the returned `raw_key` as `MEAT_MEMORY_KEY` o
 
 ## Scope Guidance
 
+- Before reading or writing memory for a workspace, confirm the project memory boundary with numbered choices.
 - Use `scp_<project>` for shared project memory.
 - Use `scp_user_<name>` only for personal notes.
 - Promote from user to project scope when a memory affects the whole repository.
+
+## V2.6 Project Boundary Check
+
+When a project appears through a new repo, session, MCP client, CLI task, or imported working directory, ask with numbers first:
+
+1. 是否为新项目
+   1. 是，新项目
+   2. 否，已有项目
+2. If it is new, ask whether memory should interoperate with other projects:
+   1. 互通
+   2. 不互通，完全隔离
+3. If it is new, ask whether this is team or personal memory:
+   1. 团队记忆
+   2. 个人记忆
+4. If it is not new, ask how to select the boundary:
+   1. 列出现有记忆列表
+   2. 手动输入一个 `scope_id`
+
+Prefer:
+
+```bash
+memory-cli tui project-init --interactive
+memory-cli project init --interactive
+```
+
+Use the returned `scope_id` for `search`, `remember`, context, and docs commands. If the helper creates a new project, use the returned `raw_key`; if an existing project is selected, keep using the existing key for that scope. Do not write to the previous default scope unless the user selected it.
 
 ## Recommended Tool Use
 

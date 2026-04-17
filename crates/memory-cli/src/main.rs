@@ -55,6 +55,7 @@ enum Command {
     Skills(SkillsArgs),
     Key(KeyArgs),
     Source(SourceArgs),
+    Project(ProjectArgs),
     Context(ContextArgs),
     Docs(DocsArgs),
     Tui(TuiArgs),
@@ -101,6 +102,12 @@ struct SourceArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+struct ProjectArgs {
+    #[command(subcommand)]
+    command: ProjectCommand,
+}
+
+#[derive(Debug, Clone, Args)]
 struct ContextArgs {
     #[command(subcommand)]
     command: ContextCommand,
@@ -127,6 +134,11 @@ enum SourceCommand {
     List(SourceListArgs),
     Keys(SourceKeysArgs),
     KeyCreate(SourceKeyCreateArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+enum ProjectCommand {
+    Init(ProjectInitArgs),
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -157,6 +169,7 @@ struct TuiArgs {
 enum TuiCommand {
     Init(TuiInitArgs),
     KeyCreate(KeyCreateArgs),
+    ProjectInit(ProjectInitArgs),
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -282,6 +295,32 @@ struct SourceKeyCreateArgs {
     raw_key: Option<String>,
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ProjectInitArgs {
+    #[arg(long)]
+    json: bool,
+    #[arg(long)]
+    interactive: bool,
+    #[arg(long)]
+    existing: bool,
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long, default_value = "local-user")]
+    owner_principal_id: String,
+    #[arg(long, visible_alias = "scope-id")]
+    owner_scope_id: Option<String>,
+    #[arg(long, default_value = "team")]
+    scope_kind: String,
+    #[arg(long, default_value = "all")]
+    storage: String,
+    #[arg(long, conflicts_with = "shared")]
+    isolated: bool,
+    #[arg(long, conflicts_with = "isolated")]
+    shared: bool,
+    #[arg(long, default_value_t = 20)]
+    list_limit: usize,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -602,6 +641,7 @@ async fn main() -> Result<()> {
         Command::Skills(args) => skills_command(args),
         Command::Key(args) => key_command(args).await,
         Command::Source(args) => source_command(args).await,
+        Command::Project(args) => project_command(args).await,
         Command::Context(args) => context_command(args).await,
         Command::Docs(args) => docs_command(args).await,
         Command::Tui(args) => tui_command(args).await,
@@ -834,6 +874,36 @@ async fn source_command(args: SourceArgs) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+async fn project_command(args: ProjectArgs) -> Result<()> {
+    match args.command {
+        ProjectCommand::Init(init) => project_init_command(init, ProjectInitSurface::Cli).await,
+    }
+}
+
+async fn project_init_command(init: ProjectInitArgs, surface: ProjectInitSurface) -> Result<()> {
+    if init.json && init.interactive {
+        bail!("project init --interactive cannot be combined with --json");
+    }
+
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    let request = if init.interactive {
+        run_project_init_interactive(&kernel, &init, surface).await?
+    } else {
+        build_non_interactive_project_init_request(&init)?
+    };
+    let result = apply_project_init_request(&kernel, &init, request, surface).await?;
+
+    if init.json {
+        print_json(project_init_result_json(&result))?;
+    } else {
+        for line in project_init_result_lines(&result) {
+            println!("{line}");
+        }
+    }
+
     Ok(())
 }
 
@@ -1193,6 +1263,9 @@ async fn tui_command(args: TuiArgs) -> Result<()> {
                 command: KeyCommand::Create(create),
             })
             .await?;
+        }
+        TuiCommand::ProjectInit(init) => {
+            project_init_command(init, ProjectInitSurface::Tui).await?;
         }
     }
 
@@ -2882,6 +2955,379 @@ async fn build_local_docs_sync_plan(
         .context("failed to scan local project documents")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectInitSurface {
+    Cli,
+    Tui,
+}
+
+impl ProjectInitSurface {
+    fn key_source(self) -> KeySourceKind {
+        match self {
+            Self::Cli => KeySourceKind::Cli,
+            Self::Tui => KeySourceKind::Tui,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Cli => "cli",
+            Self::Tui => "tui",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ProjectInitRequest {
+    New {
+        name: String,
+        scope_id: ScopeId,
+        scope_kind: KeyScopeKind,
+        isolated: bool,
+    },
+    Existing {
+        name: Option<String>,
+        scope_id: ScopeId,
+        key_id: Option<AccessKeyId>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ProjectInitResult {
+    is_new_project: bool,
+    name: Option<String>,
+    scope_id: ScopeId,
+    key_id: Option<AccessKeyId>,
+    raw_key: Option<String>,
+    scope_kind: Option<KeyScopeKind>,
+    isolated: Option<bool>,
+    storage_mode: Option<StorageMode>,
+    surface: ProjectInitSurface,
+}
+
+async fn run_project_init_interactive(
+    kernel: &Kernel,
+    args: &ProjectInitArgs,
+    surface: ProjectInitSurface,
+) -> Result<ProjectInitRequest> {
+    let existing_keys = kernel
+        .list_access_keys(args.list_limit)
+        .await
+        .unwrap_or_default();
+    let stdin = io::stdin();
+    let mut reader = io::BufReader::new(stdin.lock());
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    run_project_init_interactive_io(args, surface, &existing_keys, &mut reader, &mut writer)
+}
+
+fn run_project_init_interactive_io<R: BufRead, W: Write>(
+    args: &ProjectInitArgs,
+    surface: ProjectInitSurface,
+    existing_keys: &[memory_domain::AccessKey],
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<ProjectInitRequest> {
+    writeln!(writer, "Meat Memory project memory boundary wizard")?;
+    writeln!(
+        writer,
+        "Use numbers to choose; press Enter to keep defaults."
+    )?;
+    writeln!(writer, "Surface: {}", surface.label())?;
+    writeln!(writer)?;
+
+    let project_choice = prompt_choice(
+        reader,
+        writer,
+        "是否为新项目",
+        &[
+            ("是，新项目", "创建新的 scope 和 key"),
+            ("否，已有项目", "选择或输入已有 scope"),
+        ],
+        0,
+    )?;
+
+    if project_choice == 0 {
+        let default_name = args
+            .name
+            .clone()
+            .unwrap_or_else(default_project_memory_name);
+        let name = prompt_text(reader, writer, "项目名称", &default_name)?.unwrap_or(default_name);
+        let sharing_choice = prompt_choice(
+            reader,
+            writer,
+            "是否记忆和其他项目互通",
+            &[
+                ("互通", "允许同一 owner scope 下的非完全隔离检索"),
+                ("不互通", "创建完全隔离 key，控制项目记忆边界"),
+            ],
+            1,
+        )?;
+        let scope_kind_choice = prompt_choice(
+            reader,
+            writer,
+            "是团队还是个人记忆",
+            &[
+                ("团队记忆", "适合项目共享上下文"),
+                ("个人记忆", "适合个人偏好和私有上下文"),
+            ],
+            0,
+        )?;
+        let scope_id = args
+            .owner_scope_id
+            .clone()
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| generated_project_scope_id(&name));
+        let scope_kind = if scope_kind_choice == 0 {
+            KeyScopeKind::Team
+        } else {
+            KeyScopeKind::Personal
+        };
+        return Ok(ProjectInitRequest::New {
+            name,
+            scope_id,
+            scope_kind,
+            isolated: sharing_choice == 1,
+        });
+    }
+
+    let existing_choice = prompt_choice(
+        reader,
+        writer,
+        "不是新项目，如何选择记忆边界",
+        &[
+            ("列出现有记忆列表", "从已有 key 的 owner scope 选择"),
+            ("手动输入一个", "直接输入已有 scope_id"),
+        ],
+        0,
+    )?;
+    if existing_choice == 0 && !existing_keys.is_empty() {
+        writeln!(writer, "现有记忆边界:")?;
+        let choices = existing_keys
+            .iter()
+            .map(|key| {
+                (
+                    format!("{} ({})", key.display_name, key.owner_scope_id.as_str()),
+                    format!(
+                        "key={}, scope_kind={}, isolated={}",
+                        key.id.as_str(),
+                        key.scope_kind.as_str(),
+                        key.is_fully_isolated
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let choice_refs = choices
+            .iter()
+            .map(|(title, description)| (title.as_str(), description.as_str()))
+            .collect::<Vec<_>>();
+        let selected = prompt_choice(reader, writer, "选择已有记忆边界", &choice_refs, 0)?;
+        let key = &existing_keys[selected];
+        return Ok(ProjectInitRequest::Existing {
+            name: Some(key.display_name.clone()),
+            scope_id: key.owner_scope_id.clone(),
+            key_id: Some(key.id.clone()),
+        });
+    }
+
+    if existing_choice == 0 {
+        writeln!(writer, "没有可列出的现有 key，请手动输入 scope_id。")?;
+    }
+    let scope_id = prompt_text(reader, writer, "已有 scope_id", "scp_existing_project")?
+        .context("scope_id is required for existing project")?;
+    if scope_id.trim().is_empty() {
+        bail!("scope_id is required for existing project");
+    }
+    Ok(ProjectInitRequest::Existing {
+        name: args.name.clone(),
+        scope_id: ScopeId::from_string(scope_id),
+        key_id: None,
+    })
+}
+
+fn build_non_interactive_project_init_request(
+    args: &ProjectInitArgs,
+) -> Result<ProjectInitRequest> {
+    if args.existing {
+        let scope_id = args
+            .owner_scope_id
+            .clone()
+            .context("--existing requires --scope-id or --owner-scope-id")?;
+        return Ok(ProjectInitRequest::Existing {
+            name: args.name.clone(),
+            scope_id: ScopeId::from_string(scope_id),
+            key_id: None,
+        });
+    }
+
+    let name = args
+        .name
+        .clone()
+        .unwrap_or_else(default_project_memory_name);
+    let scope_id = args
+        .owner_scope_id
+        .clone()
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| generated_project_scope_id(&name));
+    let isolated = !args.shared;
+    Ok(ProjectInitRequest::New {
+        name,
+        scope_id,
+        scope_kind: parse_key_scope(&args.scope_kind)?,
+        isolated,
+    })
+}
+
+async fn apply_project_init_request(
+    kernel: &Kernel,
+    args: &ProjectInitArgs,
+    request: ProjectInitRequest,
+    surface: ProjectInitSurface,
+) -> Result<ProjectInitResult> {
+    match request {
+        ProjectInitRequest::New {
+            name,
+            scope_id,
+            scope_kind,
+            isolated,
+        } => {
+            let storage_mode = parse_storage_mode(&args.storage)?;
+            let result = kernel
+                .create_access_key(CreateAccessKeyRequest {
+                    raw_key: None,
+                    display_name: format!("{} project memory", name),
+                    source_id: None,
+                    source_kind: surface.key_source(),
+                    owner_principal_id: args.owner_principal_id.clone(),
+                    owner_scope_id: scope_id.clone(),
+                    scope_kind,
+                    storage_mode,
+                    is_fully_isolated: isolated,
+                })
+                .await?;
+            Ok(ProjectInitResult {
+                is_new_project: true,
+                name: Some(name),
+                scope_id,
+                key_id: Some(result.access_key.id),
+                raw_key: Some(result.raw_key),
+                scope_kind: Some(scope_kind),
+                isolated: Some(isolated),
+                storage_mode: Some(storage_mode),
+                surface,
+            })
+        }
+        ProjectInitRequest::Existing {
+            name,
+            scope_id,
+            key_id,
+        } => Ok(ProjectInitResult {
+            is_new_project: false,
+            name,
+            scope_id,
+            key_id,
+            raw_key: None,
+            scope_kind: None,
+            isolated: None,
+            storage_mode: None,
+            surface,
+        }),
+    }
+}
+
+fn project_init_result_json(result: &ProjectInitResult) -> serde_json::Value {
+    json!({
+        "is_new_project": result.is_new_project,
+        "name": result.name.as_deref(),
+        "scope_id": result.scope_id.as_str(),
+        "key_id": result.key_id.as_ref().map(|key_id| key_id.as_str()),
+        "raw_key": result.raw_key.as_deref(),
+        "scope_kind": result.scope_kind.map(KeyScopeKind::as_str),
+        "isolated": result.isolated,
+        "storage_mode": result.storage_mode.map(StorageMode::as_str),
+        "surface": result.surface.label(),
+        "next_steps": [
+            format!("export MEAT_MEMORY_KEY={}", result.raw_key.as_deref().unwrap_or("<existing-key>")),
+            format!("memory-cli search <query> --scope-id {}", result.scope_id.as_str()),
+            format!("memory-cli remember --scope-id {} --body <text>", result.scope_id.as_str())
+        ],
+    })
+}
+
+fn project_init_result_lines(result: &ProjectInitResult) -> Vec<String> {
+    let mut lines = vec![
+        "Meat Memory project boundary ready".to_string(),
+        format!("New project: {}", result.is_new_project),
+        format!("Scope ID: {}", result.scope_id.as_str()),
+        format!("Surface: {}", result.surface.label()),
+    ];
+    if let Some(name) = result.name.as_ref() {
+        lines.push(format!("Name: {name}"));
+    }
+    if let Some(key_id) = result.key_id.as_ref() {
+        lines.push(format!("Key ID: {}", key_id.as_str()));
+    }
+    if let Some(raw_key) = result.raw_key.as_ref() {
+        lines.push(format!("Raw key: {raw_key}"));
+        lines.push(format!("Next: export MEAT_MEMORY_KEY={raw_key}"));
+    } else {
+        lines.push("Raw key: <use the existing key for this scope>".to_string());
+    }
+    if let Some(scope_kind) = result.scope_kind {
+        lines.push(format!("Scope kind: {}", scope_kind.as_str()));
+    }
+    if let Some(isolated) = result.isolated {
+        lines.push(format!("Isolated: {isolated}"));
+    }
+    lines.push(format!(
+        "Use with: memory-cli remember --scope-id {} --body <text>",
+        result.scope_id.as_str()
+    ));
+    lines
+}
+
+fn default_project_memory_name() -> String {
+    env::current_dir()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "project".to_string())
+}
+
+fn generated_project_scope_id(name: &str) -> ScopeId {
+    let slug = project_scope_slug(name);
+    let suffix = ScopeId::new()
+        .as_str()
+        .trim_start_matches("scp_")
+        .to_ascii_lowercase();
+    ScopeId::from_string(format!("scp_{slug}_{suffix}"))
+}
+
+fn project_scope_slug(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_sep = false;
+    for ch in name.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_was_sep = false;
+        } else if !last_was_sep && !slug.is_empty() {
+            slug.push('_');
+            last_was_sep = true;
+        }
+    }
+    while slug.ends_with('_') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "project".to_string()
+    } else {
+        slug
+    }
+}
+
 fn static_command_message(command: &Command) -> Option<&'static str> {
     match command {
         Command::Doctor => Some("Run ./docs/scripts/verify.sh for the full machine check."),
@@ -3327,23 +3773,25 @@ async fn shutdown_signal() {
 mod tests {
     use super::{
         api_metadata, bootstrap_loaded_config, build_cli_router, build_kernel,
-        build_remember_image_request, build_remember_request, build_search_request,
-        config_check_report, detect_image_media_type, ensure_default_key_material,
-        export_skill_bundle, load_body, load_body_from_reader, parse_artifact_kind,
-        parse_memory_kind, parse_sensitivity, parse_visibility, remember_command_with_runtime,
-        remember_image_command_with_runtime, remember_image_result_json,
-        remember_image_result_lines, remember_result_json, remember_result_lines, render_json,
-        resolve_bind, scope_id_or_default, search_bundle_json, search_bundle_lines,
-        search_command_with_runtime, serve_command_with_runtime, static_command_message,
-        tui_init_json, tui_init_lines, validate_model_registry, write_tui_config_if_requested,
+        build_non_interactive_project_init_request, build_remember_image_request,
+        build_remember_request, build_search_request, config_check_report, detect_image_media_type,
+        ensure_default_key_material, export_skill_bundle, generated_project_scope_id, load_body,
+        load_body_from_reader, parse_artifact_kind, parse_memory_kind, parse_sensitivity,
+        parse_visibility, project_init_result_json, project_init_result_lines, project_scope_slug,
+        remember_command_with_runtime, remember_image_command_with_runtime,
+        remember_image_result_json, remember_image_result_lines, remember_result_json,
+        remember_result_lines, render_json, resolve_bind, scope_id_or_default, search_bundle_json,
+        search_bundle_lines, search_command_with_runtime, serve_command_with_runtime,
+        static_command_message, tui_init_json, tui_init_lines, validate_model_registry,
+        write_tui_config_if_requested,
     };
     use axum::{body::Body, http::Request};
     use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
     use memory_config::AppConfig;
     use memory_core::ServiceInfo;
     use memory_domain::{
-        Artifact, ArtifactKind, ContextBundle, Memory, MemoryKind, MemoryState, ScopeId,
-        Sensitivity, Visibility,
+        AccessKey, AccessKeyId, Artifact, ArtifactKind, ContextBundle, KeyScopeKind, KeySourceKind,
+        Memory, MemoryKind, MemoryState, ScopeId, Sensitivity, StorageMode, Visibility,
     };
     use memory_kernel::{RememberImageResult, RememberTextResult};
     use memory_models::VisionResponse;
@@ -4081,6 +4529,187 @@ fallbacks = []
             .expect_err("interactive flow should support cancel");
 
         assert!(error.to_string().contains("取消") || error.to_string().contains("cancelled"));
+    }
+
+    fn sample_project_init_args() -> super::ProjectInitArgs {
+        super::ProjectInitArgs {
+            json: false,
+            interactive: true,
+            existing: false,
+            name: Some("Meat Memory".to_string()),
+            owner_principal_id: "rou".to_string(),
+            owner_scope_id: None,
+            scope_kind: "team".to_string(),
+            storage: "all".to_string(),
+            isolated: false,
+            shared: false,
+            list_limit: 20,
+        }
+    }
+
+    #[test]
+    fn project_scope_slug_keeps_boundaries_ascii_and_stable() {
+        assert_eq!(project_scope_slug("Meat Memory V2.6"), "meat_memory_v2_6");
+        assert_eq!(project_scope_slug("  项目  "), "project");
+        assert!(
+            generated_project_scope_id("Meat Memory")
+                .as_str()
+                .starts_with("scp_meat_memory_")
+        );
+    }
+
+    #[test]
+    fn interactive_project_init_collects_new_project_boundary() {
+        let args = sample_project_init_args();
+        let mut reader = Cursor::new(b"1\nAlpha Project\n2\n1\n".as_slice());
+        let mut output = Vec::new();
+
+        let request = super::run_project_init_interactive_io(
+            &args,
+            super::ProjectInitSurface::Tui,
+            &[],
+            &mut reader,
+            &mut output,
+        )
+        .unwrap();
+
+        match request {
+            super::ProjectInitRequest::New {
+                name,
+                scope_id,
+                scope_kind,
+                isolated,
+            } => {
+                assert_eq!(name, "Alpha Project");
+                assert!(scope_id.as_str().starts_with("scp_alpha_project_"));
+                assert_eq!(scope_kind, KeyScopeKind::Team);
+                assert!(isolated);
+            }
+            other => panic!("expected new project request, got {other:?}"),
+        }
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains("是否为新项目"));
+        assert!(rendered.contains("是否记忆和其他项目互通"));
+        assert!(rendered.contains("是团队还是个人记忆"));
+    }
+
+    #[test]
+    fn interactive_project_init_can_select_existing_boundary() {
+        let args = sample_project_init_args();
+        let existing_key = AccessKey::new(
+            "mmk_existing",
+            "Existing Project",
+            KeySourceKind::Cli,
+            "rou",
+            ScopeId::from_string("scp_existing"),
+            KeyScopeKind::Personal,
+            StorageMode::All,
+            false,
+        )
+        .unwrap();
+        let expected_key_id = existing_key.id.clone();
+        let mut reader = Cursor::new(b"2\n1\n1\n".as_slice());
+        let mut output = Vec::new();
+
+        let request = super::run_project_init_interactive_io(
+            &args,
+            super::ProjectInitSurface::Cli,
+            &[existing_key],
+            &mut reader,
+            &mut output,
+        )
+        .unwrap();
+
+        match request {
+            super::ProjectInitRequest::Existing {
+                name,
+                scope_id,
+                key_id,
+            } => {
+                assert_eq!(name.as_deref(), Some("Existing Project"));
+                assert_eq!(scope_id.as_str(), "scp_existing");
+                assert_eq!(key_id, Some(expected_key_id));
+            }
+            other => panic!("expected existing project request, got {other:?}"),
+        }
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains("现有记忆边界"));
+        assert!(rendered.contains("选择已有记忆边界"));
+    }
+
+    #[test]
+    fn non_interactive_project_init_supports_shared_personal_and_existing() {
+        let mut args = sample_project_init_args();
+        args.interactive = false;
+        args.name = Some("Solo Project".to_string());
+        args.scope_kind = "personal".to_string();
+        args.shared = true;
+        let request = build_non_interactive_project_init_request(&args).unwrap();
+
+        match request {
+            super::ProjectInitRequest::New {
+                name,
+                scope_id,
+                scope_kind,
+                isolated,
+            } => {
+                assert_eq!(name, "Solo Project");
+                assert!(scope_id.as_str().starts_with("scp_solo_project_"));
+                assert_eq!(scope_kind, KeyScopeKind::Personal);
+                assert!(!isolated);
+            }
+            other => panic!("expected new project request, got {other:?}"),
+        }
+
+        args.existing = true;
+        args.owner_scope_id = Some("scp_existing_manual".to_string());
+        let request = build_non_interactive_project_init_request(&args).unwrap();
+        match request {
+            super::ProjectInitRequest::Existing {
+                name,
+                scope_id,
+                key_id,
+            } => {
+                assert_eq!(name.as_deref(), Some("Solo Project"));
+                assert_eq!(scope_id.as_str(), "scp_existing_manual");
+                assert_eq!(key_id, None);
+            }
+            other => panic!("expected existing project request, got {other:?}"),
+        }
+
+        args.owner_scope_id = None;
+        let error = build_non_interactive_project_init_request(&args)
+            .expect_err("existing non-interactive mode should require a scope");
+        assert!(error.to_string().contains("--existing requires"));
+    }
+
+    #[test]
+    fn project_init_outputs_include_next_scope_and_key_steps() {
+        let result = super::ProjectInitResult {
+            is_new_project: true,
+            name: Some("Alpha".to_string()),
+            scope_id: ScopeId::from_string("scp_alpha"),
+            key_id: Some(AccessKeyId::from_string("key_alpha")),
+            raw_key: Some("mmk_alpha".to_string()),
+            scope_kind: Some(KeyScopeKind::Team),
+            isolated: Some(true),
+            storage_mode: Some(StorageMode::All),
+            surface: super::ProjectInitSurface::Tui,
+        };
+
+        let payload = project_init_result_json(&result);
+        let lines = project_init_result_lines(&result);
+
+        assert_eq!(payload["scope_id"], "scp_alpha");
+        assert_eq!(payload["raw_key"], "mmk_alpha");
+        assert_eq!(payload["scope_kind"], "team");
+        assert_eq!(payload["surface"], "tui");
+        assert!(lines.iter().any(|line| line == "Scope ID: scp_alpha"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Next: export MEAT_MEMORY_KEY=mmk_alpha")
+        );
     }
 
     #[test]

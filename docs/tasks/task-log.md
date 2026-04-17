@@ -2,6 +2,16 @@
 
 ## 结构化记录
 
+- timestamp: 2026-04-14 00:00:00 CST
+  task_id: V2.6-DOC-001/V2.6-CLI-001/V2.6-TUI-001/V2.6-SKL-001/V2.6-DOC-002/V2.6-QA-001
+  executor: Codex
+  duration: 0.8h
+  status: ✅
+  change_hash: N/A-uncommitted
+  key_output: 新增 V2.6 项目记忆边界引导：`memory-cli project init` 与 `memory-cli tui project-init` 支持数字化确认新/旧项目、互通/隔离、团队/个人、现有列表/手动 scope；非交互模式支持 `--existing`、`--scope-id`、`--scope-kind`、`--isolated/--shared`；Codex/Claude/执行型 Agent skill 与 CLI/MCP 文档已补项目边界规则
+  issues_decisions: 本轮不改 MCP 工具面和数据库 schema；项目边界复用现有 `scope_id`、access key、`owner_scope_id`、`scope_kind`、`is_fully_isolated` 机制，MCP 调用前由 CLI/TUI 或用户显式 scope 完成边界确认
+  next_action: 如后续需要 MCP 原生 project 工具，先单独形成 `memory.project.prepare/list` 方案并等待确认；否则可进入 V3 音频/视频多模态
+
 - timestamp: 2026-04-13 10:15:00 CST
   task_id: DIST-PKG-001
   executor: Codex

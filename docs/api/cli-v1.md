@@ -21,7 +21,9 @@ memory-cli
 | `key rotate` | 轮换指定 key，返回新的 raw key |
 | `key use` | 将 raw key 写入本地 env 文件 |
 | `key stats` | 查看全局或指定 key 的使用统计 |
+| `project init` | 初始化项目记忆边界，确认新/旧项目、互通/隔离、团队/个人并创建或选择 scope |
 | `tui init` | 打开安装后初始化配置面板预览 |
+| `tui project-init` | 通过 TUI 数字向导初始化项目记忆边界 |
 | `serve` | 启 HTTP 服务，可按配置启 MCP |
 | `remember` | 写入文本记忆 |
 | `remember-image` | 写入图片记忆 |
@@ -101,6 +103,38 @@ cargo run -p memory-cli -- key stats --json
 cargo run -p memory-cli -- key stats --key-id key_... --json
 ```
 
+初始化项目记忆边界：
+
+```bash
+cargo run -p memory-cli -- project init --interactive
+cargo run -p memory-cli -- tui project-init --interactive
+cargo run -p memory-cli -- project init --name "New Repo" --scope-kind team --isolated --json
+cargo run -p memory-cli -- project init --existing --scope-id scp_existing_project --json
+```
+
+V2.6 项目记忆边界向导会用数字方式询问：
+
+- 是否为新项目：`1. 是，新项目` / `2. 否，已有项目`
+- 新项目是否和其他项目记忆互通：`1. 互通` / `2. 不互通，完全隔离`
+- 新项目是团队还是个人记忆：`1. 团队记忆` / `2. 个人记忆`
+- 旧项目选择方式：`1. 列出现有记忆列表` / `2. 手动输入一个 scope_id`
+
+新项目会创建新的 `scope_id` 与 access key，并返回 `raw_key`。旧项目会返回选择或手动输入的 `scope_id`，后续命令应显式传入该 scope，避免和其他项目混写：
+
+```bash
+export MEAT_MEMORY_KEY=mmk_...
+cargo run -p memory-cli -- remember --scope-id scp_... --body "项目决策内容"
+cargo run -p memory-cli -- search "项目决策" --scope-id scp_...
+```
+
+非交互脚本参数：
+
+- `--existing`: 表示不是新项目，必须同时传 `--scope-id` 或 `--owner-scope-id`。
+- `--scope-kind team|personal`: 新项目 key 的团队/个人边界，默认 `team`。
+- `--isolated`: 新项目不和其他项目记忆互通。
+- `--shared`: 新项目允许按当前 key 策略互通。
+- `--storage file|vector|all`: 新项目 key 的存储模式，默认 `all`。
+
 存储模式：
 
 - `file`: 只写 Markdown，适合本地可审阅工作流。
@@ -140,6 +174,7 @@ cargo run -p memory-cli -- tui init
 cargo run -p memory-cli -- tui init --check-database
 cargo run -p memory-cli -- tui init --json
 printf 'y\n\n\n\n\n\n\n\n\n\n\n' | cargo run -p memory-cli -- tui init --interactive
+cargo run -p memory-cli -- tui project-init --interactive
 ```
 
 如果 `tui init` 写出了配置文件，并且 PG 可用，当前会自动创建一个默认 key 并写入 `access.key_store_path`。

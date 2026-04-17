@@ -30,13 +30,40 @@ If key enforcement is enabled, store the returned `raw_key` in the execution env
 
 ## Execution Workflow
 
-1. Fetch context at the start of a workflow.
-2. Record durable outcomes at the end of each major step.
-3. Store handoff notes as `summary` or `procedure`.
-4. Store irreversible operational risks as `risk`.
-5. Promote memory only after confirming it belongs to the shared project/team scope.
-6. Store active workflow state in short-term context with `memory.context.upsert` or `memory-cli context upsert`.
-7. Sync project runbooks and task docs as mid-term memory with `memory.docs.sync` or `memory-cli docs sync`.
+1. Confirm the project memory boundary before fetching or writing workflow memory.
+2. Fetch context at the start of a workflow.
+3. Record durable outcomes at the end of each major step.
+4. Store handoff notes as `summary` or `procedure`.
+5. Store irreversible operational risks as `risk`.
+6. Promote memory only after confirming it belongs to the shared project/team scope.
+7. Store active workflow state in short-term context with `memory.context.upsert` or `memory-cli context upsert`.
+8. Sync project runbooks and task docs as mid-term memory with `memory.docs.sync` or `memory-cli docs sync`.
+
+## V2.6 Project Boundary Check
+
+For every new workflow project, imported runbook set, execution workspace, or MCP/CLI entry path, ask with numbered choices before using memory:
+
+1. 是否为新项目
+   1. 是，新项目
+   2. 否，已有项目
+2. If it is new, ask whether memory should interoperate with other projects:
+   1. 互通
+   2. 不互通，完全隔离
+3. If it is new, ask whether this is team or personal memory:
+   1. 团队记忆
+   2. 个人记忆
+4. If it is not new, ask how to select the boundary:
+   1. 列出现有记忆列表
+   2. 手动输入一个 `scope_id`
+
+Prefer the helper:
+
+```bash
+memory-cli tui project-init --interactive
+memory-cli project init --interactive
+```
+
+Use the returned `scope_id` and key for all workflow context, docs, and durable memory commands. Do not share an execution workflow into an old project scope unless the user selected that scope.
 
 ## V2.4 Operational Context
 

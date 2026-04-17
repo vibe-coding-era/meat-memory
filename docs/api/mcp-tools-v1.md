@@ -28,6 +28,13 @@ V1 说明：
 
 - MCP 当前主打文本闭环。
 - 图片记忆在 V1 走 HTTP / CLI。
+- V2.6 项目记忆边界确认暂不新增 MCP 工具面；Agent 应先通过 `memory-cli project init --interactive`、`memory-cli tui project-init --interactive` 或用户显式提供的 `scope_id` 完成边界确认，再调用 MCP 读写记忆。
+
+V2.6 边界原则：
+
+- 新项目必须先确认是否和其他项目记忆互通、团队还是个人记忆，并创建新的 `scope_id` 与 key。
+- 旧项目必须先选择现有记忆边界或手动输入 `scope_id`。
+- MCP 调用不得默默写入旧默认 scope。
 
 ## 3. 工具发现
 

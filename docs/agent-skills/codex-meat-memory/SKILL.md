@@ -38,11 +38,38 @@ Keep the returned `raw_key` in `MEAT_MEMORY_KEY` or pass it through the MCP HTTP
 
 ## Preferred Workflow
 
-1. Search before writing if the user asks for historical context.
-2. Use a stable scope id for the project, for example `scp_meat_memory_v1`.
-3. Write concise memories as facts, preferences, decisions, procedures, constraints, risks, summaries, or insights.
-4. Add source refs when possible, such as `workspace://path/to/file` or `thread://current`.
-5. Promote only when memory should move from a personal/user scope into a project/team scope.
+1. Confirm the project memory boundary before reading or writing memory.
+2. Search before writing if the user asks for historical context.
+3. Use the confirmed scope id for the project instead of defaulting to `scp_meat_memory_v1`.
+4. Write concise memories as facts, preferences, decisions, procedures, constraints, risks, summaries, or insights.
+5. Add source refs when possible, such as `workspace://path/to/file` or `thread://current`.
+6. Promote only when memory should move from a personal/user scope into a project/team scope.
+
+## V2.6 Project Boundary Check
+
+When a project appears through a new workspace, thread, MCP client, CLI session, or any other entry path, ask the user with numbered choices before using long-term memory:
+
+1. 是否为新项目
+   1. 是，新项目
+   2. 否，已有项目
+2. If it is new, ask whether memory should interoperate with other projects:
+   1. 互通
+   2. 不互通，完全隔离
+3. If it is new, ask whether this is team or personal memory:
+   1. 团队记忆
+   2. 个人记忆
+4. If it is not new, ask how to select the boundary:
+   1. 列出现有记忆列表
+   2. 手动输入一个 `scope_id`
+
+Use the TUI or CLI helper when available:
+
+```bash
+memory-cli tui project-init --interactive
+memory-cli project init --interactive
+```
+
+For a new project, use the returned `scope_id` and `raw_key`. For an existing project, use the selected or manually provided `scope_id` and the existing key for that scope. Do not mix project memories by writing to an old default scope.
 
 ## V2.4 Short and Mid-Term Memory
 
