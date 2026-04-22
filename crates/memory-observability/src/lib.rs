@@ -50,6 +50,7 @@ pub struct MetricsSnapshot {
     pub write: WriteMetricsSnapshot,
     pub key: KeyMetricsSnapshot,
     pub v2_4: V24MetricsSnapshot,
+    pub v2_7: V27MetricsSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -73,6 +74,18 @@ pub struct V24MetricsSnapshot {
     pub docs_imported_documents: u64,
     pub docs_missing_documents: u64,
     pub docs_conflicts: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct V27MetricsSnapshot {
+    pub lifecycle_operations: u64,
+    pub lifecycle_failures: u64,
+    pub forget_operations: u64,
+    pub restore_operations: u64,
+    pub archive_operations: u64,
+    pub supersede_operations: u64,
+    pub conflict_operations: u64,
+    pub report_operations: u64,
 }
 
 #[derive(Debug)]
@@ -102,6 +115,14 @@ struct ObservabilityRegistry {
     docs_imported_documents: AtomicU64,
     docs_missing_documents: AtomicU64,
     docs_conflicts: AtomicU64,
+    lifecycle_operations: AtomicU64,
+    lifecycle_failures: AtomicU64,
+    lifecycle_forgets: AtomicU64,
+    lifecycle_restores: AtomicU64,
+    lifecycle_archives: AtomicU64,
+    lifecycle_supersedes: AtomicU64,
+    lifecycle_conflicts: AtomicU64,
+    lifecycle_reports: AtomicU64,
     search_latency: Mutex<LatencyReservoir>,
     write_latency: Mutex<LatencyReservoir>,
 }
@@ -134,6 +155,14 @@ impl Default for ObservabilityRegistry {
             docs_imported_documents: AtomicU64::new(0),
             docs_missing_documents: AtomicU64::new(0),
             docs_conflicts: AtomicU64::new(0),
+            lifecycle_operations: AtomicU64::new(0),
+            lifecycle_failures: AtomicU64::new(0),
+            lifecycle_forgets: AtomicU64::new(0),
+            lifecycle_restores: AtomicU64::new(0),
+            lifecycle_archives: AtomicU64::new(0),
+            lifecycle_supersedes: AtomicU64::new(0),
+            lifecycle_conflicts: AtomicU64::new(0),
+            lifecycle_reports: AtomicU64::new(0),
             search_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
             write_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
         }
@@ -330,6 +359,41 @@ pub fn record_docs_operation(
     }
 }
 
+pub fn record_lifecycle_operation(action: &str, success: bool) {
+    let registry = registry();
+    registry
+        .lifecycle_operations
+        .fetch_add(1, Ordering::Relaxed);
+    if !success {
+        registry.lifecycle_failures.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+
+    match action {
+        "forget" | "forgotten" => {
+            registry.lifecycle_forgets.fetch_add(1, Ordering::Relaxed);
+        }
+        "restore" | "active" => {
+            registry.lifecycle_restores.fetch_add(1, Ordering::Relaxed);
+        }
+        "archive" | "archived" => {
+            registry.lifecycle_archives.fetch_add(1, Ordering::Relaxed);
+        }
+        "supersede" | "deprecated" => {
+            registry
+                .lifecycle_supersedes
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "conflict" | "needs_review" => {
+            registry.lifecycle_conflicts.fetch_add(1, Ordering::Relaxed);
+        }
+        "report" => {
+            registry.lifecycle_reports.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+}
+
 pub fn metrics_snapshot() -> MetricsSnapshot {
     let registry = registry();
     let hit_queries = registry.search_hits.load(Ordering::Relaxed);
@@ -372,6 +436,16 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
             docs_missing_documents: registry.docs_missing_documents.load(Ordering::Relaxed),
             docs_conflicts: registry.docs_conflicts.load(Ordering::Relaxed),
         },
+        v2_7: V27MetricsSnapshot {
+            lifecycle_operations: registry.lifecycle_operations.load(Ordering::Relaxed),
+            lifecycle_failures: registry.lifecycle_failures.load(Ordering::Relaxed),
+            forget_operations: registry.lifecycle_forgets.load(Ordering::Relaxed),
+            restore_operations: registry.lifecycle_restores.load(Ordering::Relaxed),
+            archive_operations: registry.lifecycle_archives.load(Ordering::Relaxed),
+            supersede_operations: registry.lifecycle_supersedes.load(Ordering::Relaxed),
+            conflict_operations: registry.lifecycle_conflicts.load(Ordering::Relaxed),
+            report_operations: registry.lifecycle_reports.load(Ordering::Relaxed),
+        },
     }
 }
 
@@ -404,8 +478,8 @@ mod tests {
     use super::{
         LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
         record_context_operation, record_docs_operation, record_key_operation,
-        record_search_failure, record_search_success, record_source_operation,
-        record_write_failure, record_write_success,
+        record_lifecycle_operation, record_search_failure, record_search_success,
+        record_source_operation, record_write_failure, record_write_success,
     };
     use std::time::Duration;
 
@@ -481,6 +555,10 @@ mod tests {
         record_context_operation(true);
         record_docs_operation(true, 2, 1, 1);
         record_docs_operation(false, 0, 0, 0);
+        record_lifecycle_operation("forgotten", true);
+        record_lifecycle_operation("needs_review", true);
+        record_lifecycle_operation("report", true);
+        record_lifecycle_operation("archive", false);
 
         let after = metrics_snapshot();
 
@@ -587,6 +665,41 @@ mod tests {
                 .v2_4
                 .docs_conflicts
                 .saturating_sub(before.v2_4.docs_conflicts)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_7
+                .lifecycle_operations
+                .saturating_sub(before.v2_7.lifecycle_operations)
+                >= 4
+        );
+        assert!(
+            after
+                .v2_7
+                .forget_operations
+                .saturating_sub(before.v2_7.forget_operations)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_7
+                .conflict_operations
+                .saturating_sub(before.v2_7.conflict_operations)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_7
+                .report_operations
+                .saturating_sub(before.v2_7.report_operations)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_7
+                .lifecycle_failures
+                .saturating_sub(before.v2_7.lifecycle_failures)
                 >= 1
         );
         assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);

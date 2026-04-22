@@ -38,6 +38,7 @@ impl ParsedMemoryMarkdown {
             title: self.frontmatter.title,
             body: self.body,
             language_code: self.frontmatter.language_code,
+            source_refs: self.frontmatter.source_refs,
             scores,
             visibility: parse_visibility(&self.frontmatter.visibility)?,
             sensitivity: parse_sensitivity(&self.frontmatter.sensitivity)?,
@@ -107,6 +108,7 @@ fn parse_memory_state(raw: &str) -> Result<MemoryState> {
         "deprecated" => Ok(MemoryState::Deprecated),
         "conflicted" => Ok(MemoryState::Conflicted),
         "archived" => Ok(MemoryState::Archived),
+        "forgotten" => Ok(MemoryState::Forgotten),
         "deleted" => Ok(MemoryState::Deleted),
         _ => bail!("unknown memory state: {raw}"),
     }
@@ -310,6 +312,7 @@ mod tests {
             ("deprecated", MemoryState::Deprecated),
             ("conflicted", MemoryState::Conflicted),
             ("archived", MemoryState::Archived),
+            ("forgotten", MemoryState::Forgotten),
             ("deleted", MemoryState::Deleted),
         ];
         for (raw, expected) in state_cases {

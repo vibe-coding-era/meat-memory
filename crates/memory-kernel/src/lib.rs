@@ -3,16 +3,19 @@ use async_trait::async_trait;
 mod lifecycle;
 
 pub use lifecycle::{
-    LifecycleNormalizer, RecallGuard, RecordClassifier, TaskSummary, TaskSummaryService,
+    AuditEvent, AuditLogService, BudgetPacker, EvolutionEvent, EvolutionEventType,
+    EvolutionService, ForgetService, GovernanceEvent, GovernanceEventType, LifecycleNormalizer,
+    PackedRecallRecord, RecallExplainer, RecallExplanation, RecallGuard, RecallPackBudget,
+    RecordClassifier, TaskSummary, TaskSummaryService,
 };
 use memory_assets::{FileSystemAssetStore, PutAssetRequest, StorageClass, StoredAsset};
 use memory_core::MemoryService;
 use memory_domain::{
     AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, AgentContext, AgentContextId,
     Artifact, ArtifactKind, ContextBundle, DocumentConflictState, DocumentSyncState, Entity,
-    KeyScopeKind, KeySourceKind, Memory, MemoryId, MemoryKind, MemorySource, ProjectDocument,
-    Relation, RequestContext, Scope, ScopeId, ScopeType, Sensitivity, SourceId, StorageMode,
-    Visibility, hash_access_key,
+    KeyScopeKind, KeySourceKind, Memory, MemoryId, MemoryKind, MemoryRecord, MemoryRecordStatus,
+    MemorySource, MemoryState, ProjectDocument, Relation, RequestContext, Scope, ScopeId,
+    ScopeType, Sensitivity, SourceId, StorageMode, Visibility, hash_access_key,
 };
 use memory_extract::{
     ExtractionEnvelope, detect_language_code, distill_candidate_memory, extract_entities,
@@ -25,15 +28,15 @@ use memory_models::{
 };
 use memory_observability::{
     operation_span, record_context_operation, record_docs_operation, record_key_operation,
-    record_search_failure, record_search_success, record_source_operation, record_write_failure,
-    record_write_success,
+    record_lifecycle_operation, record_search_failure, record_search_success,
+    record_source_operation, record_write_failure, record_write_success,
 };
 use memory_policy::{
     PolicyDecision, PublishPolicyInput, WritePolicyInput, evaluate_publish_policy,
     evaluate_write_policy, redact_for_shared_scope,
 };
 use memory_store_md::MarkdownStore;
-use memory_store_pg::PgStore;
+use memory_store_pg::{LifecycleAuditEventRecord, PgStore};
 use memory_sync::{
     LocalProjectDocumentSyncPlan, MissingProjectDocument, ProjectDocumentConflictReport,
 };
@@ -153,6 +156,57 @@ pub struct SearchContextRequest {
     pub query: String,
     pub limit: usize,
     pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InspectMemoryLifecycleRequest {
+    pub scope_id: ScopeId,
+    pub memory_id: MemoryId,
+    pub query: Option<String>,
+    pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InspectMemoryLifecycleResult {
+    pub memory: Memory,
+    pub record: MemoryRecord,
+    pub explanation: Option<RecallExplanation>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChangeMemoryLifecycleStatusRequest {
+    pub scope_id: ScopeId,
+    pub memory_id: MemoryId,
+    pub status: MemoryRecordStatus,
+    pub reason: String,
+    pub actor: String,
+    pub context: Option<RequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChangeMemoryLifecycleStatusResult {
+    pub memory: Memory,
+    pub record: MemoryRecord,
+    pub audit_event: AuditEvent,
+    pub wrote_pg: bool,
+    pub wrote_markdown: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryHealthReport {
+    pub scope_id: Option<ScopeId>,
+    pub total: usize,
+    pub active: usize,
+    pub candidate: usize,
+    pub needs_review: usize,
+    pub archived: usize,
+    pub deprecated: usize,
+    pub forgotten: usize,
+    pub deleted: usize,
+    pub restricted: usize,
+    pub stale: usize,
+    pub source_backed: usize,
+    pub generated_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]
@@ -493,6 +547,143 @@ impl Kernel {
         memories.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
         memories.truncate(limit);
         Ok(memories)
+    }
+
+    pub async fn inspect_memory_lifecycle(
+        &self,
+        request: InspectMemoryLifecycleRequest,
+    ) -> Result<InspectMemoryLifecycleResult> {
+        let memory = self
+            .get_memory(request.scope_id.clone(), request.memory_id.clone())
+            .await?
+            .ok_or_else(|| anyhow!("memory not found: {}", request.memory_id.as_str()))?;
+        self.ensure_key_can_access_scope(request.context.as_ref(), &memory.scope_id)?;
+
+        let record = LifecycleNormalizer::normalize_memory(&memory);
+        let explanation = request
+            .query
+            .as_deref()
+            .map(|query| RecallExplainer::explain(&record, query, 1.0));
+
+        Ok(InspectMemoryLifecycleResult {
+            memory,
+            record,
+            explanation,
+        })
+    }
+
+    pub async fn change_memory_lifecycle_status(
+        &self,
+        request: ChangeMemoryLifecycleStatusRequest,
+    ) -> Result<ChangeMemoryLifecycleStatusResult> {
+        let mut memory = self
+            .get_memory(request.scope_id.clone(), request.memory_id.clone())
+            .await?
+            .ok_or_else(|| anyhow!("memory not found: {}", request.memory_id.as_str()))?;
+        self.ensure_key_can_access_scope(request.context.as_ref(), &memory.scope_id)?;
+        if let Some(context) = request.context.as_ref() {
+            self.ensure_context_owns_scope(context, &memory.scope_id)?;
+        }
+
+        let before_record = LifecycleNormalizer::normalize_memory(&memory);
+        memory.state = memory_state_from_record_status(request.status);
+        memory.updated_at = time::OffsetDateTime::now_utc();
+        let (wrote_pg, wrote_markdown) = self.persist_memory(&memory).await?;
+
+        let record = LifecycleNormalizer::normalize_memory(&memory);
+        let audit_event = AuditLogService::record(
+            format!("memory.lifecycle.{}", request.status.as_str()),
+            request.actor,
+            &record,
+            Some(before_record.status),
+            Some(record.status),
+            Some(request.reason),
+        );
+        if let Some(pg_store) = &self.pg_store {
+            let _ = pg_store
+                .insert_lifecycle_audit_event(
+                    &memory.scope_id,
+                    &memory.id,
+                    &audit_event.action,
+                    &audit_event.actor,
+                    audit_event.before_status.map(MemoryRecordStatus::as_str),
+                    audit_event.after_status.map(MemoryRecordStatus::as_str),
+                    audit_event.reason.as_deref(),
+                    audit_event.created_at,
+                )
+                .await?;
+        }
+        record_lifecycle_operation(record.status.as_str(), true);
+
+        Ok(ChangeMemoryLifecycleStatusResult {
+            memory,
+            record,
+            audit_event,
+            wrote_pg,
+            wrote_markdown,
+        })
+    }
+
+    pub async fn memory_health_report(
+        &self,
+        scope_id: Option<ScopeId>,
+        limit: usize,
+    ) -> Result<MemoryHealthReport> {
+        let memories = self.browse_memories(scope_id.clone(), limit).await?;
+        let mut report = MemoryHealthReport {
+            scope_id,
+            total: memories.len(),
+            active: 0,
+            candidate: 0,
+            needs_review: 0,
+            archived: 0,
+            deprecated: 0,
+            forgotten: 0,
+            deleted: 0,
+            restricted: 0,
+            stale: 0,
+            source_backed: 0,
+            generated_at: time::OffsetDateTime::now_utc(),
+        };
+
+        for memory in &memories {
+            let record = LifecycleNormalizer::normalize_memory(memory);
+            match record.status {
+                MemoryRecordStatus::Active => report.active += 1,
+                MemoryRecordStatus::Candidate => report.candidate += 1,
+                MemoryRecordStatus::NeedsReview => report.needs_review += 1,
+                MemoryRecordStatus::Archived => report.archived += 1,
+                MemoryRecordStatus::Deprecated => report.deprecated += 1,
+                MemoryRecordStatus::Forgotten => report.forgotten += 1,
+                MemoryRecordStatus::Deleted => report.deleted += 1,
+            }
+            if matches!(record.sensitivity, Sensitivity::Restricted) {
+                report.restricted += 1;
+            }
+            if record.freshness < 0.3 {
+                report.stale += 1;
+            }
+            if record.source_ref.is_some() {
+                report.source_backed += 1;
+            }
+        }
+
+        record_lifecycle_operation("report", true);
+        Ok(report)
+    }
+
+    pub async fn list_lifecycle_audit_events(
+        &self,
+        scope_id: Option<ScopeId>,
+        memory_id: Option<MemoryId>,
+        limit: usize,
+    ) -> Result<Vec<LifecycleAuditEventRecord>> {
+        let Some(pg_store) = &self.pg_store else {
+            return Ok(Vec::new());
+        };
+        pg_store
+            .list_lifecycle_audit_events(scope_id.as_ref(), memory_id.as_ref(), limit as i64)
+            .await
     }
 
     pub async fn create_access_key(
@@ -1261,6 +1452,7 @@ impl Kernel {
         let mut memory = distill_candidate_memory(&artifact, title_override, memory_kind)?;
         memory.visibility = artifact.visibility;
         memory.sensitivity = artifact.sensitivity;
+        memory.source_refs = artifact.source_refs.clone();
         memory.activate()?;
 
         let mut wrote_pg = false;
@@ -1921,6 +2113,22 @@ impl Kernel {
         pg_store.seed_scope_definition(&scope).await?;
         Ok(())
     }
+
+    async fn persist_memory(&self, memory: &Memory) -> Result<(bool, bool)> {
+        let mut wrote_pg = false;
+        let mut wrote_markdown = false;
+        if let Some(pg_store) = &self.pg_store {
+            self.seed_scope_if_needed(pg_store, &memory.scope_id)
+                .await?;
+            pg_store.upsert_memory(memory).await?;
+            wrote_pg = true;
+        }
+        if let Some(markdown_store) = &self.markdown_store {
+            markdown_store.write_memory_markdown(memory)?;
+            wrote_markdown = true;
+        }
+        Ok((wrote_pg, wrote_markdown))
+    }
 }
 
 #[async_trait]
@@ -2064,6 +2272,18 @@ fn visibility_rank(visibility: Visibility) -> usize {
     }
 }
 
+fn memory_state_from_record_status(status: MemoryRecordStatus) -> MemoryState {
+    match status {
+        MemoryRecordStatus::Candidate => MemoryState::Candidate,
+        MemoryRecordStatus::Active => MemoryState::Active,
+        MemoryRecordStatus::NeedsReview => MemoryState::Conflicted,
+        MemoryRecordStatus::Archived => MemoryState::Archived,
+        MemoryRecordStatus::Deprecated => MemoryState::Deprecated,
+        MemoryRecordStatus::Forgotten => MemoryState::Forgotten,
+        MemoryRecordStatus::Deleted => MemoryState::Deleted,
+    }
+}
+
 fn looks_like_personal_scope(scope_id: &ScopeId) -> bool {
     let scope = scope_id.as_str().to_ascii_lowercase();
     scope.contains("_user_")
@@ -2151,15 +2371,16 @@ fn memory_rank_score(memory: &Memory, query_terms: &[String]) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageArtifactInput, Kernel, RememberImageRequest, RememberTextRequest,
-        SearchContextRequest, artifact_kind_label, build_context_graph, build_image_artifact,
-        graph_expansion_terms, relation_type_label, rerank_memories, visibility_rank,
+        ChangeMemoryLifecycleStatusRequest, ImageArtifactInput, InspectMemoryLifecycleRequest,
+        Kernel, RememberImageRequest, RememberTextRequest, SearchContextRequest,
+        artifact_kind_label, build_context_graph, build_image_artifact, graph_expansion_terms,
+        relation_type_label, rerank_memories, visibility_rank,
     };
     use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
     use memory_core::MemoryService;
     use memory_domain::{
-        AccessKeyId, Artifact, KeyScopeKind, KeySourceKind, MemoryId, RequestContext, Sensitivity,
-        StorageMode, Visibility,
+        AccessKeyId, Artifact, KeyScopeKind, KeySourceKind, MemoryId, MemoryRecordStatus,
+        RequestContext, Sensitivity, StorageMode, Visibility,
     };
     use memory_domain::{ArtifactKind, Memory, MemoryKind, RelationType, ScopeId};
     use memory_models::{
@@ -2338,6 +2559,174 @@ mod tests {
         search.context = Some(context);
         let bundle = kernel.search_context(search).await.unwrap();
         assert_eq!(bundle.memories.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn markdown_search_context_allows_restricted_memory_for_owner_context_only() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let scope_id = ScopeId::from_string("scp_user_restricted_recall");
+        let owner_context = RequestContext {
+            key_id: AccessKeyId::from_string("key_owner"),
+            source_id: None,
+            source_kind: KeySourceKind::Cli,
+            principal_id: "alice".to_string(),
+            owner_scope_id: scope_id.clone(),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::File,
+            is_fully_isolated: false,
+            isolation_group_id: "personal:alice".to_string(),
+        };
+        let mut request = RememberTextRequest::new(
+            scope_id.clone(),
+            "Restricted launch checklist is available only to its owner.",
+        );
+        request.title = Some("Restricted launch checklist".to_string());
+        request.sensitivity = Sensitivity::Restricted;
+        request.context = Some(owner_context.clone());
+
+        let remembered = kernel.remember_text(request).await.unwrap();
+        assert!(!remembered.wrote_pg);
+        assert!(remembered.wrote_markdown);
+
+        let hidden_without_context = kernel
+            .search_context(SearchContextRequest::new(
+                scope_id.clone(),
+                "launch checklist",
+            ))
+            .await
+            .unwrap();
+        assert!(hidden_without_context.memories.is_empty());
+
+        let mut owner_search = SearchContextRequest::new(scope_id.clone(), "launch checklist");
+        owner_search.context = Some(owner_context);
+        let visible_to_owner = kernel.search_context(owner_search).await.unwrap();
+        assert_eq!(visible_to_owner.memories.len(), 1);
+        assert_eq!(visible_to_owner.memories[0].id, remembered.memory.id);
+
+        let other_context = RequestContext {
+            key_id: AccessKeyId::from_string("key_other"),
+            source_id: None,
+            source_kind: KeySourceKind::Cli,
+            principal_id: "bob".to_string(),
+            owner_scope_id: ScopeId::from_string("scp_user_restricted_other"),
+            scope_kind: KeyScopeKind::Personal,
+            storage_mode: StorageMode::File,
+            is_fully_isolated: false,
+            isolation_group_id: "personal:bob".to_string(),
+        };
+        let mut other_search = SearchContextRequest::new(scope_id, "launch checklist");
+        other_search.context = Some(other_context);
+        let hidden_from_other = kernel.search_context(other_search).await.unwrap();
+        assert!(hidden_from_other.memories.is_empty());
+    }
+
+    #[tokio::test]
+    async fn markdown_critical_path_forget_restore_and_report_preserves_source_metadata() {
+        let tempdir = tempdir().unwrap();
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let scope_id = ScopeId::from_string("scp_kernel_critical_path");
+        let mut request = RememberTextRequest::new(
+            scope_id.clone(),
+            "Critical path memory covers remember search lifecycle restore health report.",
+        );
+        request.title = Some("Critical path lifecycle".to_string());
+        request.source_refs = vec!["agent-context://ctx_critical_path".to_string()];
+
+        let remembered = kernel.remember_text(request).await.unwrap();
+        assert!(!remembered.wrote_pg);
+        assert!(remembered.wrote_markdown);
+
+        let initial_bundle = kernel
+            .search_context(SearchContextRequest::new(
+                scope_id.clone(),
+                "critical lifecycle",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(initial_bundle.memories.len(), 1);
+
+        let inspected = kernel
+            .inspect_memory_lifecycle(InspectMemoryLifecycleRequest {
+                scope_id: scope_id.clone(),
+                memory_id: remembered.memory.id.clone(),
+                query: Some("critical lifecycle".to_string()),
+                context: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            inspected.record.source_ref.as_deref(),
+            Some("agent-context://ctx_critical_path")
+        );
+        assert_eq!(
+            inspected.explanation.unwrap().record_id,
+            inspected.record.record_id
+        );
+
+        let forgotten = kernel
+            .change_memory_lifecycle_status(ChangeMemoryLifecycleStatusRequest {
+                scope_id: scope_id.clone(),
+                memory_id: remembered.memory.id.clone(),
+                status: MemoryRecordStatus::Forgotten,
+                reason: "critical path forget test".to_string(),
+                actor: "kernel-test".to_string(),
+                context: None,
+            })
+            .await
+            .unwrap();
+        assert!(!forgotten.wrote_pg);
+        assert!(forgotten.wrote_markdown);
+        assert_eq!(forgotten.record.status, MemoryRecordStatus::Forgotten);
+        assert_eq!(forgotten.audit_event.actor, "kernel-test");
+
+        let hidden_after_forget = kernel
+            .search_context(SearchContextRequest::new(
+                scope_id.clone(),
+                "critical lifecycle",
+            ))
+            .await
+            .unwrap();
+        assert!(hidden_after_forget.memories.is_empty());
+
+        let restored = kernel
+            .change_memory_lifecycle_status(ChangeMemoryLifecycleStatusRequest {
+                scope_id: scope_id.clone(),
+                memory_id: remembered.memory.id.clone(),
+                status: MemoryRecordStatus::Active,
+                reason: "critical path restore test".to_string(),
+                actor: "kernel-test".to_string(),
+                context: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(restored.record.status, MemoryRecordStatus::Active);
+
+        let visible_after_restore = kernel
+            .search_context(SearchContextRequest::new(
+                scope_id.clone(),
+                "critical lifecycle",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(visible_after_restore.memories.len(), 1);
+
+        let report = kernel
+            .memory_health_report(Some(scope_id), 10)
+            .await
+            .unwrap();
+        assert_eq!(report.total, 1);
+        assert_eq!(report.active, 1);
+        assert_eq!(report.forgotten, 0);
+        assert_eq!(report.source_backed, 1);
     }
 
     #[tokio::test]

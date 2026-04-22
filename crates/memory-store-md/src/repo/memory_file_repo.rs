@@ -310,6 +310,7 @@ mod tests {
         )
         .expect("memory should build");
         memory.id = MemoryId::from_string("mem_store");
+        memory.source_refs = vec!["agent-context://ctx_store".to_string()];
         memory.created_at = datetime!(2025-01-02 03:04:05 UTC);
         memory.updated_at = datetime!(2025-01-03 04:05:06 UTC);
         memory
@@ -480,6 +481,10 @@ mod tests {
             .expect("read should work")
             .expect("entry should exist");
         assert_eq!(parsed.body, "首版继续双写，便于回放与排查");
+        assert_eq!(
+            parsed.frontmatter.source_refs,
+            vec!["agent-context://ctx_store"]
+        );
 
         memory.title = "只保留最新正文".to_string();
         memory.body = "更新后的正文".to_string();

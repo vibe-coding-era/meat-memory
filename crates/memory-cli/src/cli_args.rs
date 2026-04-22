@@ -1,0 +1,662 @@
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "memory-cli",
+    about = "Local operator entrypoint for Meat Memory"
+)]
+pub(super) struct Cli {
+    #[command(subcommand)]
+    pub(super) command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub(super) enum Command {
+    Doctor,
+    PrintPlan,
+    Config(ConfigArgs),
+    Mcp(McpArgs),
+    Skills(SkillsArgs),
+    Key(KeyArgs),
+    Source(SourceArgs),
+    Project(ProjectArgs),
+    Context(ContextArgs),
+    Docs(DocsArgs),
+    Lifecycle(LifecycleArgs),
+    Tui(TuiArgs),
+    Serve(ServeArgs),
+    Remember(RememberArgs),
+    RememberImage(RememberImageArgs),
+    Search(SearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ConfigArgs {
+    #[command(subcommand)]
+    pub(super) command: ConfigCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum ConfigCommand {
+    Show(InspectArgs),
+    Check(CheckArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct McpArgs {
+    #[command(subcommand)]
+    pub(super) command: McpCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SkillsArgs {
+    #[command(subcommand)]
+    pub(super) command: SkillsCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct KeyArgs {
+    #[command(subcommand)]
+    pub(super) command: KeyCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SourceArgs {
+    #[command(subcommand)]
+    pub(super) command: SourceCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProjectArgs {
+    #[command(subcommand)]
+    pub(super) command: ProjectCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ContextArgs {
+    #[command(subcommand)]
+    pub(super) command: ContextCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsArgs {
+    #[command(subcommand)]
+    pub(super) command: DocsCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct LifecycleArgs {
+    #[command(subcommand)]
+    pub(super) command: LifecycleCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum KeyCommand {
+    Create(KeyCreateArgs),
+    List(KeyListArgs),
+    Rotate(KeyRotateArgs),
+    Use(KeyUseArgs),
+    Stats(KeyStatsArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum SourceCommand {
+    Create(SourceCreateArgs),
+    List(SourceListArgs),
+    Keys(SourceKeysArgs),
+    KeyCreate(SourceKeyCreateArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum ProjectCommand {
+    Init(ProjectInitArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum ContextCommand {
+    Upsert(ContextUpsertArgs),
+    List(ContextListArgs),
+    Promote(ContextPromoteArgs),
+    Delete(ContextDeleteArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum DocsCommand {
+    Import(DocsImportArgs),
+    List(DocsListArgs),
+    Projection(DocsProjectionArgs),
+    Conflicts(DocsConflictsArgs),
+    Sync(DocsSyncArgs),
+    Status(DocsStatusArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum LifecycleCommand {
+    Inspect(LifecycleInspectArgs),
+    Status(LifecycleStatusArgs),
+    Forget(LifecycleActionArgs),
+    Restore(LifecycleActionArgs),
+    Report(LifecycleReportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct TuiArgs {
+    #[command(subcommand)]
+    pub(super) command: TuiCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum TuiCommand {
+    Init(TuiInitArgs),
+    KeyCreate(KeyCreateArgs),
+    ProjectInit(ProjectInitArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum SkillsCommand {
+    Export(SkillsExportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct KeyCreateArgs {
+    #[arg(long)]
+    pub(super) name: String,
+    #[arg(long, default_value = "cli")]
+    pub(super) source: String,
+    #[arg(long, default_value = "local-user")]
+    pub(super) owner_principal_id: String,
+    #[arg(long)]
+    pub(super) owner_scope_id: Option<String>,
+    #[arg(long, default_value = "personal")]
+    pub(super) scope_kind: String,
+    #[arg(long, default_value = "all")]
+    pub(super) storage: String,
+    #[arg(long)]
+    pub(super) isolated: bool,
+    #[arg(long)]
+    pub(super) raw_key: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct KeyListArgs {
+    #[arg(long, default_value_t = 200)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct KeyUseArgs {
+    #[arg(long)]
+    pub(super) raw_key: String,
+    #[arg(long)]
+    pub(super) output: Option<PathBuf>,
+    #[arg(long)]
+    pub(super) force: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct KeyRotateArgs {
+    #[arg(long)]
+    pub(super) key_id: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct KeyStatsArgs {
+    #[arg(long)]
+    pub(super) key_id: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SourceCreateArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) name: String,
+    #[arg(long, default_value = "custom")]
+    pub(super) source_kind: String,
+    #[arg(long)]
+    pub(super) source_uri: Option<String>,
+    #[arg(long, default_value = "read_only")]
+    pub(super) sync_mode: String,
+    #[arg(long)]
+    pub(super) local_root: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SourceListArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long, default_value_t = 100)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SourceKeysArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long, default_value_t = 100)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SourceKeyCreateArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long)]
+    pub(super) name: String,
+    #[arg(long, default_value = "custom")]
+    pub(super) source: String,
+    #[arg(long, default_value = "personal")]
+    pub(super) scope_kind: String,
+    #[arg(long, default_value = "all")]
+    pub(super) storage: String,
+    #[arg(long)]
+    pub(super) isolated: bool,
+    #[arg(long)]
+    pub(super) raw_key: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProjectInitArgs {
+    #[arg(long)]
+    pub(super) json: bool,
+    #[arg(long)]
+    pub(super) interactive: bool,
+    #[arg(long)]
+    pub(super) existing: bool,
+    #[arg(long)]
+    pub(super) name: Option<String>,
+    #[arg(long, default_value = "local-user")]
+    pub(super) owner_principal_id: String,
+    #[arg(long, visible_alias = "scope-id")]
+    pub(super) owner_scope_id: Option<String>,
+    #[arg(long, default_value = "team")]
+    pub(super) scope_kind: String,
+    #[arg(long, default_value = "all")]
+    pub(super) storage: String,
+    #[arg(long, conflicts_with = "shared")]
+    pub(super) isolated: bool,
+    #[arg(long, conflicts_with = "isolated")]
+    pub(super) shared: bool,
+    #[arg(long, default_value_t = 20)]
+    pub(super) list_limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ContextUpsertArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) session_id: String,
+    #[arg(long)]
+    pub(super) task_id: Option<String>,
+    #[arg(long)]
+    pub(super) title: String,
+    #[arg(long, conflicts_with = "file")]
+    pub(super) body: Option<String>,
+    #[arg(long)]
+    pub(super) file: Option<PathBuf>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) labels: Vec<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ContextListArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) session_id: String,
+    #[arg(long)]
+    pub(super) task_id: Option<String>,
+    #[arg(long, default_value_t = 20)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ContextPromoteArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) context_id: String,
+    #[arg(long)]
+    pub(super) memory_kind: Option<String>,
+    #[arg(long, default_value = "private")]
+    pub(super) visibility: String,
+    #[arg(long, default_value = "internal")]
+    pub(super) sensitivity: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ContextDeleteArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) context_id: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsImportArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) canonical_uri: String,
+    #[arg(long)]
+    pub(super) title: String,
+    #[arg(long, conflicts_with = "file")]
+    pub(super) body: Option<String>,
+    #[arg(long)]
+    pub(super) file: Option<PathBuf>,
+    #[arg(long)]
+    pub(super) local_path: Option<String>,
+    #[arg(long, default_value = "clean")]
+    pub(super) sync_state: String,
+    #[arg(long, default_value = "none")]
+    pub(super) conflict_state: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsListArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long)]
+    pub(super) query: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsProjectionArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long)]
+    pub(super) document_id: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsConflictsArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long, default_value_t = 50)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsSyncArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) local_root: Option<String>,
+    #[arg(long)]
+    pub(super) dry_run: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DocsStatusArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) source_id: String,
+    #[arg(long)]
+    pub(super) local_root: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum McpCommand {
+    Info(InspectArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct InspectArgs {
+    #[arg(long)]
+    pub(super) json: bool,
+    #[arg(long)]
+    pub(super) check_http: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct CheckArgs {
+    #[arg(long)]
+    pub(super) json: bool,
+    #[arg(long)]
+    pub(super) database: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SkillsExportArgs {
+    #[arg(long, value_enum, default_value_t = SkillExportTarget::All)]
+    pub(super) target: SkillExportTarget,
+    #[arg(long)]
+    pub(super) output_dir: Option<PathBuf>,
+    #[arg(long)]
+    pub(super) force: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(super) enum SkillExportTarget {
+    Codex,
+    ClaudeCode,
+    ExecutionAgent,
+    All,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct TuiInitArgs {
+    #[arg(long)]
+    pub(super) json: bool,
+    #[arg(long)]
+    pub(super) interactive: bool,
+    #[arg(long)]
+    pub(super) default_locale: Option<String>,
+    #[arg(long)]
+    pub(super) write_config: Option<PathBuf>,
+    #[arg(long)]
+    pub(super) force: bool,
+    #[arg(long)]
+    pub(super) check_database: bool,
+    #[arg(long, conflicts_with = "disable_mcp")]
+    pub(super) enable_mcp: bool,
+    #[arg(long, conflicts_with = "enable_mcp")]
+    pub(super) disable_mcp: bool,
+    #[arg(long)]
+    pub(super) database_url: Option<String>,
+    #[arg(long)]
+    pub(super) markdown_root: Option<String>,
+    #[arg(long)]
+    pub(super) assets_root: Option<String>,
+    #[arg(long)]
+    pub(super) reasoning_primary: Option<String>,
+    #[arg(long)]
+    pub(super) extraction_primary: Option<String>,
+    #[arg(long)]
+    pub(super) vision_primary: Option<String>,
+    #[arg(long)]
+    pub(super) embedding_primary: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ServeArgs {
+    #[arg(long)]
+    pub(super) bind: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct RememberArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) title: Option<String>,
+    #[arg(long, conflicts_with = "file")]
+    pub(super) body: Option<String>,
+    #[arg(long)]
+    pub(super) file: Option<PathBuf>,
+    #[arg(long, default_value = "message")]
+    pub(super) artifact_kind: String,
+    #[arg(long)]
+    pub(super) memory_kind: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) source_refs: Vec<String>,
+    #[arg(long, default_value = "private")]
+    pub(super) visibility: String,
+    #[arg(long, default_value = "internal")]
+    pub(super) sensitivity: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct RememberImageArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) title: Option<String>,
+    #[arg(long)]
+    pub(super) body: Option<String>,
+    #[arg(long)]
+    pub(super) file: PathBuf,
+    #[arg(long)]
+    pub(super) media_type: Option<String>,
+    #[arg(long)]
+    pub(super) memory_kind: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) source_refs: Vec<String>,
+    #[arg(long, default_value = "private")]
+    pub(super) visibility: String,
+    #[arg(long, default_value = "internal")]
+    pub(super) sensitivity: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct SearchArgs {
+    pub(super) query: String,
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct LifecycleInspectArgs {
+    pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) query: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct LifecycleStatusArgs {
+    pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) status: String,
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) reason: Option<String>,
+    #[arg(long)]
+    pub(super) actor: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct LifecycleActionArgs {
+    pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) reason: Option<String>,
+    #[arg(long)]
+    pub(super) actor: Option<String>,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct LifecycleReportArgs {
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 500)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}

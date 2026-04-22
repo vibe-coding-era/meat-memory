@@ -15,7 +15,9 @@ use memory_models::{
 use std::collections::BTreeSet;
 use std::{
     env,
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     sync::{Arc, Mutex, MutexGuard, OnceLock},
+    time::Duration,
 };
 use tempfile::tempdir;
 use tower::ServiceExt;
@@ -23,6 +25,22 @@ use tower::ServiceExt;
 fn test_database_url() -> String {
     env::var("MEAT_MEMORY_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into())
+}
+
+fn local_pg_test_port_available() -> bool {
+    let authority = test_database_url();
+    let authority = authority
+        .split('@')
+        .nth(1)
+        .map(|tail| tail.split('/').next().unwrap_or("").to_string())
+        .filter(|authority| !authority.is_empty())
+        .unwrap_or_else(|| "127.0.0.1:5433".to_string());
+    let addr = authority
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| addrs.next())
+        .unwrap_or_else(|| "127.0.0.1:5433".parse::<SocketAddr>().unwrap());
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
 }
 
 fn http_test_guard() -> MutexGuard<'static, ()> {
@@ -73,6 +91,9 @@ async fn build_test_app_with_registry(registry: ModelRegistry) -> axum::Router {
 
 #[tokio::test]
 async fn http_create_and_search_flow_returns_persisted_memory() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
@@ -117,6 +138,9 @@ async fn http_create_and_search_flow_returns_persisted_memory() {
 
 #[tokio::test]
 async fn http_key_create_and_authenticated_remember_flow() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let key_response = app
@@ -157,6 +181,9 @@ async fn http_key_create_and_authenticated_remember_flow() {
 
 #[tokio::test]
 async fn http_source_routes_manage_multiple_keys_per_source() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let owner_scope = ScopeId::new();
@@ -281,6 +308,9 @@ async fn http_source_routes_manage_multiple_keys_per_source() {
 
 #[tokio::test]
 async fn http_agent_context_routes_upsert_list_promote_and_delete() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let owner_scope = ScopeId::new();
@@ -422,6 +452,9 @@ async fn http_agent_context_routes_upsert_list_promote_and_delete() {
 
 #[tokio::test]
 async fn http_project_document_sync_scans_imports_and_lists_documents() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let docs_root = tempdir().unwrap();
@@ -600,6 +633,9 @@ async fn http_project_document_sync_scans_imports_and_lists_documents() {
 
 #[tokio::test]
 async fn http_vector_key_flow_writes_pg_only_and_searches_with_key_context() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
@@ -674,6 +710,9 @@ async fn http_vector_key_flow_writes_pg_only_and_searches_with_key_context() {
 
 #[tokio::test]
 async fn http_key_update_rotate_and_stats_routes_work() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let key_response = app
@@ -782,6 +821,9 @@ async fn http_key_update_rotate_and_stats_routes_work() {
 
 #[tokio::test]
 async fn http_root_route_serves_browser_console() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
 
@@ -802,6 +844,9 @@ async fn http_root_route_serves_browser_console() {
 
 #[tokio::test]
 async fn http_create_and_search_flow_supports_chinese_acceptance_corpus() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
@@ -852,6 +897,9 @@ async fn http_create_and_search_flow_supports_chinese_acceptance_corpus() {
 
 #[tokio::test]
 async fn http_rejects_invalid_memory_kind() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
@@ -875,6 +923,9 @@ async fn http_rejects_invalid_memory_kind() {
 
 #[tokio::test]
 async fn http_denies_forbidden_publish_level_write() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
@@ -898,6 +949,9 @@ async fn http_denies_forbidden_publish_level_write() {
 
 #[tokio::test]
 async fn http_create_image_flow_returns_asset_uri() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let scope_id = ScopeId::new();
@@ -937,6 +991,9 @@ async fn http_create_image_flow_returns_asset_uri() {
 
 #[tokio::test]
 async fn http_create_image_flow_returns_llm_failover_notice() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app_with_registry(failover_test_model_registry()).await;
     let scope_id = ScopeId::new();
@@ -969,6 +1026,9 @@ async fn http_create_image_flow_returns_llm_failover_notice() {
 
 #[tokio::test]
 async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let key_response = app
@@ -1037,6 +1097,9 @@ async fn http_promote_memory_endpoint_creates_review_candidate_in_target_scope()
 
 #[tokio::test]
 async fn http_browse_memories_requires_key() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
 
@@ -1054,6 +1117,9 @@ async fn http_browse_memories_requires_key() {
 
 #[tokio::test]
 async fn http_key_listing_requires_key() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
 
@@ -1067,6 +1133,9 @@ async fn http_key_listing_requires_key() {
 
 #[tokio::test]
 async fn http_browse_memories_defaults_to_owner_scope() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let owner_scope = ScopeId::new();
@@ -1133,6 +1202,9 @@ async fn http_browse_memories_defaults_to_owner_scope() {
 
 #[tokio::test]
 async fn http_promote_memory_forbids_scope_mismatch() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
 
@@ -1192,6 +1264,9 @@ async fn http_promote_memory_forbids_scope_mismatch() {
 
 #[tokio::test]
 async fn http_search_rejects_too_long_query() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let long_query = "q".repeat(1_025);
@@ -1213,6 +1288,9 @@ async fn http_search_rejects_too_long_query() {
 
 #[tokio::test]
 async fn http_create_memory_rejects_too_large_body() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let long_body = "a".repeat(16_001);
@@ -1234,6 +1312,9 @@ async fn http_create_memory_rejects_too_large_body() {
 
 #[tokio::test]
 async fn http_create_image_rejects_too_large_payload() {
+    if !local_pg_test_port_available() {
+        return;
+    }
     let _guard = http_test_guard();
     let app = build_test_app().await;
     let oversized = vec![0_u8; 8 * 1024 * 1024 + 1];

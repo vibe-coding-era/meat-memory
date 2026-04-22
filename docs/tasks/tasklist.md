@@ -371,21 +371,23 @@
 | `V2.7-KER-001` | `LifecycleNormalizer` | done | 已新增 `LifecycleNormalizer`，可将三层对象标准化为统一 record |
 | `V2.7-KER-002` | `RecordClassifier` | done | 已新增基于现有字段和关键词的 `RecordClassifier`，补齐 type/source 推断 |
 | `V2.7-KER-003` | `TaskSummaryService` | done | 已新增结构化 `TaskSummaryService`，可从短期记录提取目标、约束、决策、变更、问题和下一步 |
-| `V2.7-KER-004` | `RecallGuard` | done | 已新增 `RecallGuard`，默认过滤 archived/deprecated/needs_review/restricted/expired 记录，并接入 `search_context` |
-| `V2.7-KER-005` | `RecallExplanation` | todo | 返回 why recalled、matched layer/type/scope、score |
-| `V2.7-KER-006` | `BudgetPacker` | todo | 先注入 summary，再按预算补 full content |
-| `V2.7-KER-007` | `EvolutionService` | todo | 标记 supersede、conflict、deprecated、needs_review |
-| `V2.7-KER-008` | `ForgetService` | todo | 实现 soft forget、restore、recall exclusion |
-| `V2.7-KER-009` | `AuditLogService` | todo | 记录 write/update/recall/archive/forget/delete/supersede/conflict |
-| `V2.7-STO-001` | 存储层兼容改造 | todo | 在不破坏旧链路的前提下保存新增 lifecycle 元数据 |
-| `V2.7-API-001` | HTTP lifecycle / governance API | todo | 提供 inspect、status change、forget、audit 查询入口 |
-| `V2.7-MCP-001` | MCP lifecycle tools | todo | 暴露受控治理与召回解释能力 |
-| `V2.7-CLI-001` | CLI lifecycle / governance 命令 | todo | 支持 inspect、archive、forget、restore、report |
-| `V2.7-OBS-001` | Lifecycle metrics | todo | 统计 recall hit/noise、archive/forget/supersede/conflict |
-| `V2.7-RPT-001` | Memory Health Report | todo | 输出热点、过期、冲突、已替代、待审核项 |
-| `V2.7-QA-001` | 单元测试 | done | 已覆盖 schema/normalizer/classifier/summary/guard 的核心单测，并补跑相关 kernel 主链路验证 |
-| `V2.7-QA-002` | 集成测试 | todo | 覆盖跨层 recall、summary、forget、conflict、supersede 主链路 |
-| `V2.7-QA-003` | 验收脚本与报告 | todo | 形成 V2.7 acceptance 入口与 latest report |
+| `V2.7-KER-004` | `RecallGuard` | done | 已新增 `RecallGuard`，默认过滤 archived/deprecated/needs_review/forgotten/expired 记录；`restricted` 仅在未授权时过滤，并接入 `search_context` |
+| `V2.7-KER-005` | `RecallExplanation` | done | 已新增 `RecallExplainer`，返回 why recalled、matched layer/type/scope、score |
+| `V2.7-KER-006` | `BudgetPacker` | done | 已新增预算打包服务，优先使用 summary/content 并按字符预算安全截断 |
+| `V2.7-KER-007` | `EvolutionService` | done | 已新增 supersede/conflict 事件模型，用于标记 deprecated、needs_review 关系 |
+| `V2.7-KER-008` | `ForgetService` | done | 已新增 soft forget、restore，并由 `RecallGuard` 默认排除 forgotten |
+| `V2.7-KER-009` | `AuditLogService` | done | 已新增审计事件模型，覆盖 action、actor、record、status transition、reason |
+| `V2.7-STO-001` | 存储层兼容改造 | done | 已兼容保存 `source_refs`，PG 增加 V2.7 迁移和 lifecycle audit 表，Markdown frontmatter/parser 已回写 |
+| `V2.7-API-001` | HTTP lifecycle / governance API | done | 已提供 inspect、status change、forget、restore、audit 查询、health report 入口 |
+| `V2.7-MCP-001` | MCP lifecycle tools | done | 已暴露 `memory.lifecycle.inspect/status/forget/restore/report` |
+| `V2.7-CLI-001` | CLI lifecycle / governance 命令 | done | 已支持 `lifecycle inspect/status/forget/restore/report` |
+| `V2.7-OBS-001` | Lifecycle metrics | done | 已新增 V2.7 lifecycle metrics，统计 forget/restore/archive/supersede/conflict/report |
+| `V2.7-RPT-001` | Memory Health Report | done | 已输出 total、active、candidate、needs_review、archived、deprecated、forgotten、deleted、restricted、stale、source_backed |
+| `V2.7-QA-001` | 单元测试 | done | 已覆盖 schema/normalizer/classifier/summary/guard/explanation/budget/evolution/forget/audit，并补充中文截断、source_refs、restricted owner 授权回归 |
+| `V2.7-QA-002` | 集成测试 | done | 已覆盖 inspect、source_refs、forget、recall exclusion、restore、health report、audit 主链路 |
+| `V2.7-QA-003` | 验收脚本与报告 | done | 已新增 `docs/scripts/v2_7-acceptance.sh` 与 `docs/reports/v2_7-acceptance-latest.md` |
+| `V2.7-QA-004` | MCP / CLI / HTTP / TUI 接入面一致性复核 | done | 已新增入口一致性 smoke，并补充 `docs/V2.7/V2.7.5-surface-parity.md`，明确一致能力、参数差异、operator-only 边界和后续 P1 缺口 |
+| `V2.7-QA-005` | 商用生产质量门禁 | done | 已新增 `docs/scripts/v2_7-production-gate.sh`、覆盖率阈值检查脚本和 `docs/V2.7/V2.7.6-production-quality-gate.md`，区分本地 no-PG smoke 与发布前 strict gate |
 
 ### V2.7 建议执行顺序
 
@@ -410,6 +412,8 @@
 19. `V2.7-OBS-001`
 20. `V2.7-RPT-001`
 21. `V2.7-QA-003`
+22. `V2.7-QA-004`
+23. `V2.7-QA-005`
 
 ## V3 交付清单
 

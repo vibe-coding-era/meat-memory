@@ -3,8 +3,10 @@ use memory_domain::ScopeId;
 use serde_json::Value;
 use std::{
     env, fs,
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::Path,
     sync::{Mutex, OnceLock},
+    time::Duration,
 };
 use tempfile::tempdir;
 
@@ -13,8 +15,27 @@ fn test_database_url() -> String {
         .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".into())
 }
 
+fn test_database_available() -> bool {
+    let authority = test_database_url();
+    let authority = authority
+        .split('@')
+        .nth(1)
+        .map(|tail| tail.split('/').next().unwrap_or("").to_string())
+        .filter(|authority| !authority.is_empty())
+        .unwrap_or_else(|| "127.0.0.1:5433".to_string());
+    let addr = authority
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| addrs.next())
+        .unwrap_or_else(|| "127.0.0.1:5433".parse::<SocketAddr>().unwrap());
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
 #[test]
 fn cli_remember_and_search_work_with_mock_provider_registry() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
     let scope_id = ScopeId::new();
@@ -58,6 +79,9 @@ fn cli_remember_and_search_work_with_mock_provider_registry() {
 
 #[test]
 fn cli_remember_and_search_support_chinese_acceptance_corpus() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
     let scope_id = ScopeId::new();
@@ -99,6 +123,9 @@ fn cli_remember_and_search_support_chinese_acceptance_corpus() {
 
 #[test]
 fn cli_remember_image_returns_mock_vision_alias_and_searchable_caption() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
     let image_path = tempdir.path().join("login.png");
@@ -147,6 +174,9 @@ fn cli_remember_image_returns_mock_vision_alias_and_searchable_caption() {
 
 #[test]
 fn cli_remember_image_returns_llm_notice_after_failover() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_failover_test_config(tempdir.path());
     let image_path = tempdir.path().join("failover.png");
@@ -180,6 +210,9 @@ fn cli_remember_image_returns_llm_notice_after_failover() {
 
 #[test]
 fn cli_key_create_and_list_work() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
 
@@ -220,6 +253,9 @@ fn cli_key_create_and_list_work() {
 
 #[test]
 fn cli_vector_key_remember_and_search_work() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
     let scope_id = ScopeId::new();
@@ -285,6 +321,9 @@ fn cli_vector_key_remember_and_search_work() {
 
 #[test]
 fn cli_key_rotate_and_stats_work() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
     let scope_id = ScopeId::new();
@@ -345,6 +384,9 @@ fn cli_key_rotate_and_stats_work() {
 
 #[test]
 fn cli_source_context_and_docs_management_work() {
+    if !test_database_available() {
+        return;
+    }
     let tempdir = tempdir().unwrap();
     let config_path = write_test_config(tempdir.path());
     let scope_id = ScopeId::new();

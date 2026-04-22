@@ -146,6 +146,7 @@ impl MemoryRecordStatus {
             MemoryState::Conflicted => Self::NeedsReview,
             MemoryState::Archived => Self::Archived,
             MemoryState::Deprecated => Self::Deprecated,
+            MemoryState::Forgotten => Self::Forgotten,
             MemoryState::Deleted => Self::Deleted,
         }
     }
@@ -158,6 +159,7 @@ pub struct MemoryRecord {
     pub native_kind: MemoryRecordNativeKind,
     pub layer: MemoryLayer,
     pub scope_id: ScopeId,
+    pub owner_scope_id: Option<ScopeId>,
     pub record_type: MemoryRecordType,
     pub title: String,
     pub content: Option<String>,
@@ -193,6 +195,7 @@ impl MemoryRecord {
             native_kind,
             layer,
             scope_id,
+            owner_scope_id: None,
             record_type,
             title: title.into(),
             content: None,

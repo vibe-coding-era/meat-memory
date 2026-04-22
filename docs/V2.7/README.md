@@ -69,6 +69,8 @@ V2.7 的设计必须建立在一个清晰判断上：
 - [`V2.7.2-lifecycle-schema.md`](./V2.7.2-lifecycle-schema.md)：统一记忆模型与生命周期设计
 - [`V2.7.3-recall-governance.md`](./V2.7.3-recall-governance.md)：召回、解释、遗忘、治理设计
 - [`V2.7.4-delivery-plan.md`](./V2.7.4-delivery-plan.md)：实施路线、任务分解、验收指标
+- [`V2.7.5-surface-parity.md`](./V2.7.5-surface-parity.md)：MCP / CLI / HTTP API / TUI 接入面能力与参数一致性对比
+- [`V2.7.6-production-quality-gate.md`](./V2.7.6-production-quality-gate.md)：商用生产门禁、严格验收和覆盖率阈值
 
 ## 6. 总体方案摘要
 

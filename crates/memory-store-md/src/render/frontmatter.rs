@@ -105,7 +105,7 @@ impl MemoryFrontmatter {
             sensitivity: sensitivity_to_str(memory.sensitivity).to_string(),
             created_at: format_timestamp(memory.created_at)?,
             updated_at: format_timestamp(memory.updated_at)?,
-            source_refs: Vec::new(),
+            source_refs: memory.source_refs.clone(),
             evidence: Vec::new(),
             entities: Vec::new(),
             tags: Vec::new(),
@@ -244,6 +244,7 @@ mod tests {
         )
         .expect("memory should build");
         memory.id = memory_domain::MemoryId::from_string("mem_frontmatter");
+        memory.source_refs = vec!["agent-context://ctx_frontmatter".to_string()];
         memory.created_at = datetime!(2025-01-02 03:04:05 UTC);
         memory.updated_at = datetime!(2025-01-03 04:05:06 UTC);
         memory.scores = MemoryScores {
@@ -346,7 +347,10 @@ mod tests {
             assert_eq!(frontmatter.sensitivity, sensitivity_label);
             assert_eq!(frontmatter.created_at, "2025-01-02T03:04:05Z");
             assert_eq!(frontmatter.updated_at, "2025-01-03T04:05:06Z");
-            assert!(frontmatter.source_refs.is_empty());
+            assert_eq!(
+                frontmatter.source_refs,
+                vec!["agent-context://ctx_frontmatter"]
+            );
             assert!(frontmatter.evidence.is_empty());
             assert!(frontmatter.entities.is_empty());
             assert!(frontmatter.tags.is_empty());

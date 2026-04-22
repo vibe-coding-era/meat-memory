@@ -21,6 +21,7 @@ pub enum MemoryState {
     Deprecated,
     Conflicted,
     Archived,
+    Forgotten,
     Deleted,
 }
 
@@ -74,6 +75,7 @@ pub struct Memory {
     pub title: String,
     pub body: String,
     pub language_code: Option<String>,
+    pub source_refs: Vec<String>,
     pub scores: MemoryScores,
     pub visibility: Visibility,
     pub sensitivity: Sensitivity,
@@ -108,6 +110,7 @@ impl Memory {
             title,
             body: body.into(),
             language_code: None,
+            source_refs: Vec::new(),
             scores: MemoryScores::default(),
             visibility: Visibility::Private,
             sensitivity: Sensitivity::Internal,
@@ -169,6 +172,7 @@ impl MemoryState {
             Self::Deprecated => "deprecated",
             Self::Conflicted => "conflicted",
             Self::Archived => "archived",
+            Self::Forgotten => "forgotten",
             Self::Deleted => "deleted",
         }
     }
