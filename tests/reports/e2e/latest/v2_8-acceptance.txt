@@ -1,0 +1,305 @@
+[v2.8] acceptance started
+[v2.8] report: /Users/Rou/dev_projects/meat-memory/tests/reports/e2e/latest/v2_8-acceptance.txt
+[v2.8] surface parity: /Users/Rou/dev_projects/meat-memory/tests/reports/e2e/latest/v2_8-surface-parity.txt
+[v2.8] format check
+[v2.8] workspace interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+[v2.8] V2.8 domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+
+running 44 tests
+test access::tests::access_key_can_belong_to_a_source_instance ... ok
+test access::tests::builds_access_key_context_without_storing_raw_secret ... ok
+test access::tests::hash_rejects_empty_secret ... ok
+test artifact::tests::computes_stable_hash_for_same_content ... ok
+test context::tests::empty_bundle_initializes_without_context_items ... ok
+test distillation::tests::distillation_run_requires_non_empty_input_hash ... ok
+test distillation::tests::global_and_project_profiles_track_scope_rules ... ok
+test distillation::tests::profile_archive_and_activate_roundtrip ... ok
+test distillation::tests::profile_deduplicates_topics_and_memory_kinds ... ok
+test distillation::tests::profile_validates_required_fields ... ok
+test entity::tests::creates_deterministic_normalized_key ... ok
+test episode::tests::only_allows_linear_episode_transitions ... ok
+test identity::tests::binding_confidence_must_stay_within_zero_and_one ... ok
+test identity::tests::binding_kind_and_confirmed_by_render_expected_strings ... ok
+test identity::tests::binding_matches_can_fail_for_different_kind_or_value ... ok
+test identity::tests::binding_rejects_empty_identity_fields ... ok
+test identity::tests::binding_tracks_kind_value_and_confidence ... ok
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+test lifecycle::tests::agent_context_is_short_term_by_default ... ok
+test lifecycle::tests::memory_layer_roundtrips_storage_values ... ok
+test lifecycle::tests::memory_source_defaults_to_read_only_active_source ... ok
+test lifecycle::tests::project_document_tracks_sync_and_conflict_state ... ok
+test lifecycle::tests::rejects_empty_identity_fields ... ok
+test memory::tests::rejects_out_of_range_scores ... ok
+test memory_relation::tests::memory_relation_defaults_and_tracks_source_proposal ... ok
+test memory_relation::tests::memory_relation_validates_confidence ... ok
+test memory_relation::tests::relation_type_and_source_kind_render_expected_strings ... ok
+test proposal::tests::proposal_approve_reject_validate_actor ... ok
+test proposal::tests::proposal_cannot_expire_after_leaving_open_state ... ok
+test proposal::tests::proposal_reject_and_expire_follow_state_rules ... ok
+test proposal::tests::proposal_rejects_empty_reason_and_evidence ... ok
+test proposal::tests::proposal_transitions_from_open_to_approved_to_applied ... ok
+test proposal::tests::proposal_type_and_status_render_expected_strings ... ok
+test record::tests::memory_record_builds_stable_record_id ... ok
+test record::tests::record_status_maps_memory_conflicted_to_needs_review ... ok
+test relation::tests::activates_after_adding_evidence ... ok
+test relation::tests::refuses_to_activate_without_evidence ... ok
+test scope::tests::accepts_linear_scope_tree ... ok
+test scope::tests::owner_builder_and_visibility_overrides_work ... ok
+test scope::tests::rejects_missing_parent_scope_reference ... ok
+test scope::tests::rejects_scope_paths_that_escape_parent_path ... ok
+test scope::tests::rejects_session_scope_without_parent ... ok
+test scope::tests::scope_defaults_reflect_v2_isolation_intent ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[v2.8] V2.8 kernel identity, duplicate, supersede, conflict, rollback, profile, preview rules
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+
+running 54 tests
+test v28::v28_tests::classifier_detects_conflict_candidate_for_opposite_fact ... ok
+test v28::v28_tests::classifier_detects_exact_duplicate_with_same_source ... ok
+test v28::v28_tests::classifier_detects_near_duplicate_by_type_and_title ... ok
+test v28::v28_tests::classifier_detects_reverse_polarity_conflicts ... ok
+test v28::v28_tests::classifier_detects_supersede_candidate_for_new_decision ... ok
+test v28::v28_tests::classifier_detects_true_false_and_chinese_conflicts ... ok
+test v28::v28_tests::classifier_returns_unrelated_for_same_scope_different_title ... ok
+test v28::v28_tests::classifier_returns_unrelated_when_scope_differs ... ok
+test v28::v28_tests::distillation_preview_builds_candidate_from_input_and_profile ... ok
+test v28::v28_tests::distillation_preview_rejects_empty_input_and_evidence ... ok
+test v28::v28_tests::distillation_preview_uses_default_memory_kind_when_profile_has_no_preference ... ok
+test v28::v28_tests::executor_plans_audit_only_for_lifecycle_proposals ... ok
+test v28::v28_tests::executor_plans_supersede_and_conflict_relations ... ok
+test v28::v28_tests::executor_plans_version_actions_for_content_changing_proposals ... ok
+test v28::v28_tests::executor_rejects_non_approved_proposals ... ok
+test v28::v28_tests::executor_requires_subject_and_target_when_needed ... ok
+test v28::v28_tests::orchestrator_creates_required_supersede_proposal ... ok
+test v28::v28_tests::orchestrator_maps_near_duplicate_and_conflict_to_proposals ... ok
+test v28::v28_tests::orchestrator_skips_exact_duplicate_and_unrelated_assessments ... ok
+test v28::v28_tests::profile_service_allows_session_preferences_without_prompt_text ... ok
+test v28::v28_tests::profile_service_composes_system_user_project_and_session_layers ... ok
+test v28::v28_tests::profile_service_deduplicates_session_preferences ... ok
+test v28::v28_tests::profile_service_ignores_archived_and_other_project_profiles ... ok
+test v28::v28_tests::profile_service_uses_latest_active_profile_per_persistent_layer ... ok
+test v28::v28_tests::resolver_asks_confirmation_when_signal_has_no_binding ... ok
+test v28::v28_tests::resolver_derives_project_key_from_repo_remote_or_source_signal ... ok
+test v28::v28_tests::resolver_falls_back_to_scope_without_project_signal ... ok
+test v28::v28_tests::resolver_ignores_bindings_from_other_scopes ... ok
+test v28::v28_tests::resolver_matches_confirmed_repo_root_binding ... ok
+test v28::v28_tests::resolver_matches_remote_source_prefix_and_alias_bindings ... ok
+test v28::v28_tests::review_policy_allows_auto_and_suggested_approval_boundaries ... ok
+test v28::v28_tests::review_policy_allows_system_apply_but_guards_agent_required_apply ... ok
+test v28::v28_tests::review_policy_denies_blocked_approval_and_apply ... ok
+test v28::v28_tests::review_policy_requires_user_authorization_for_required_approval ... ok
+test v28::v28_tests::rollback_plans_new_version_from_old_snapshot ... ok
+test v28::v28_tests::rollback_rejects_empty_inputs ... ok
+test v28::v28_tests::rollback_rejects_missing_or_latest_targets ... ok
+test v28::v28_tests::timeline_emits_rejected_and_applied_proposal_events ... ok
+test v28::v28_tests::timeline_emits_remaining_proposal_decision_statuses_and_tie_breaker ... ok
+test v28::v28_tests::timeline_filters_related_inputs_and_sorts_events_newest_first ... ok
+test v28::v28_tests::timeline_handles_empty_inputs ... ok
+test v28::v28_tests::timeline_includes_target_side_relations_and_proposals ... ok
+test v28_runtime::tests::distillation_preview_runtime_persists_single_profile_source_and_kind_labels ... ok
+test v28_runtime::tests::distillation_preview_runtime_uses_stored_profiles_and_persists_run ... ok
+test v28_runtime::tests::distillation_preview_runtime_works_without_pg ... ok
+test v28_runtime::tests::distillation_profile_runtime_rejects_project_profiles_without_scope ... ok
+test v28_runtime::tests::distillation_profile_runtime_upserts_and_lists_profiles_with_pg ... ok
+test v28_runtime::tests::memory_rollback_runtime_restores_old_snapshot_and_marks_version ... ok
+test v28_runtime::tests::memory_timeline_runtime_aggregates_versions_relations_proposals_and_audit ... ok
+test v28_runtime::tests::memory_timeline_runtime_requires_pg ... ok
+test v28_runtime::tests::memory_versions_runtime_reads_pg_history_latest_first ... ok
+test v28_runtime::tests::proposal_apply_runtime_materializes_relation_version_audit_and_status ... ok
+test v28_runtime::tests::proposal_review_runtime_lists_inspects_approves_and_rejects_pg ... ok
+test v28_runtime::tests::proposal_review_runtime_requires_pg ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.15s
+
+[v2.8] V2.8 observability metrics
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/memory_observability-08fea951c3b208b8)
+
+running 9 tests
+test tests::init_supports_json_then_reports_duplicate_pretty_setup ... ok
+test tests::latency_reservoir_computes_percentiles ... ok
+test tests::latency_reservoir_discards_oldest_samples_when_full ... ok
+test tests::metrics_snapshot_is_serializable_shape ... ok
+test tests::operation_span_uses_expected_metadata ... ok
+test tests::percentile_returns_zero_for_empty_input ... ok
+test tests::rate_computes_fraction_for_non_zero_totals ... ok
+test tests::rate_handles_zero_totals ... ok
+test tests::record_functions_update_metrics_counters ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[v2.8] V2.8 PostgreSQL storage contracts
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+
+running 7 tests
+test pg_impl::lib_tests::serializes_v28_enums_for_storage ... ok
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+test pg_impl::v28_store::tests::distillation_profile_store_roundtrips_global_and_project_profiles ... ok
+test pg_impl::v28_store::tests::distillation_run_store_persists_preview_output ... ok
+test pg_impl::v28_store::tests::parses_distillation_profile_enums_and_rejects_unknown_values ... ok
+test pg_impl::v28_store::tests::parses_proposal_and_relation_enums_and_rejects_unknown_values ... ok
+test pg_impl::v28_store::tests::proposal_relation_and_version_store_support_timeline_queries ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.07s
+
+[v2.8] V2.8 kernel runtime PG flows
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+
+running 12 tests
+test v28_runtime::tests::distillation_preview_runtime_persists_single_profile_source_and_kind_labels ... ok
+test v28_runtime::tests::distillation_preview_runtime_uses_stored_profiles_and_persists_run ... ok
+test v28_runtime::tests::distillation_preview_runtime_works_without_pg ... ok
+test v28_runtime::tests::distillation_profile_runtime_rejects_project_profiles_without_scope ... ok
+test v28_runtime::tests::distillation_profile_runtime_upserts_and_lists_profiles_with_pg ... ok
+test v28_runtime::tests::memory_rollback_runtime_restores_old_snapshot_and_marks_version ... ok
+test v28_runtime::tests::memory_timeline_runtime_aggregates_versions_relations_proposals_and_audit ... ok
+test v28_runtime::tests::memory_timeline_runtime_requires_pg ... ok
+test v28_runtime::tests::memory_versions_runtime_reads_pg_history_latest_first ... ok
+test v28_runtime::tests::proposal_apply_runtime_materializes_relation_version_audit_and_status ... ok
+test v28_runtime::tests::proposal_review_runtime_lists_inspects_approves_and_rejects_pg ... ok
+test v28_runtime::tests::proposal_review_runtime_requires_pg ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 79 filtered out; finished in 0.11s
+
+[v2.8] V2.8 HTTP proposal/timeline/rollback/profile/preview APIs
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/memory_http-20cc27a902930fef)
+
+running 27 tests
+test app::lib_tests::api_error_response_is_json ... ok
+test app::lib_tests::assistant_chat_endpoint_summarizes_matching_memories ... ok
+test app::lib_tests::builds_console_page_and_escapes_metadata ... ok
+test app::lib_tests::converts_memory_to_summary_shape ... ok
+test app::lib_tests::creates_image_through_router ... ok
+test app::lib_tests::creates_image_through_router_with_llm_failover_notice ... ok
+test app::lib_tests::creates_memory_through_router ... ok
+test app::lib_tests::distillation_preview_endpoint_accepts_explicit_scope_and_default_profile ... ok
+test app::lib_tests::distillation_preview_endpoint_uses_session_prompt_and_default_scope ... ok
+test app::lib_tests::distillation_profile_endpoints_roundtrip_and_feed_preview ... ok
+test app::lib_tests::explorer_endpoint_lists_memories_from_markdown_store ... ok
+test app::lib_tests::exposes_health_ready_and_meta_payloads ... ok
+test app::lib_tests::exposes_http_routes ... ok
+test app::lib_tests::exposes_metrics_and_liveness_routes ... ok
+test app::lib_tests::lifecycle_endpoints_inspect_forget_restore_report_and_audit ... ok
+test app::lib_tests::maps_anyhow_errors_to_expected_http_statuses ... ok
+test app::lib_tests::memory_rollback_endpoint_restores_prior_version_from_pg ... ok
+test app::lib_tests::memory_versions_and_timeline_endpoints_require_pg_or_existing_memory ... ok
+test app::lib_tests::memory_versions_and_timeline_endpoints_roundtrip_from_pg ... ok
+test app::lib_tests::parses_supported_enums_and_labels ... ok
+test app::lib_tests::promote_memory_endpoint_creates_review_candidate_in_target_scope ... ok
+test app::lib_tests::proposal_review_endpoints_roundtrip_from_pg ... ok
+test app::lib_tests::rejects_invalid_payloads_and_policy_violations ... ok
+test app::lib_tests::returns_empty_search_result_without_postgres ... ok
+test app::lib_tests::review_policy_endpoint_evaluates_v28_boundaries ... ok
+test app::lib_tests::search_context_uses_default_scope_and_limit_when_omitted ... ok
+test app::lib_tests::serves_browser_console_at_root ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+[v2.8] V2.8 CLI proposal/timeline/rollback/profile/preview commands
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-7baa1cb3a6946b55)
+
+running 49 tests
+test app::main_tests::api_metadata_and_model_registry_validation_work_for_cli ... ok
+test app::main_tests::bootstrap_loaded_config_builds_kernel_and_service_info ... ok
+test app::main_tests::build_kernel_and_cli_router_cover_local_runtime_paths ... ok
+test app::main_tests::build_remember_image_request_maps_fields_and_file_extension ... ok
+test app::main_tests::build_remember_request_maps_fields_and_defaults ... ok
+test app::main_tests::build_search_request_uses_scope_override_and_limit ... ok
+test app::main_tests::cli_command_functions_cover_alternate_rendering_paths ... ok
+test app::main_tests::cli_command_functions_cover_pg_management_paths ... ok
+test app::main_tests::cli_parser_accepts_all_subcommands_and_nested_shapes ... ok
+test app::main_tests::config_and_mcp_renderers_cover_text_json_and_warning_paths ... ok
+test app::main_tests::config_check_and_tui_render_warning_default_key_paths ... ok
+test app::main_tests::ensure_default_key_material_creates_key_file_for_pg_config ... ok
+test app::main_tests::export_skill_bundle_requires_force_for_existing_directory ... ok
+test app::main_tests::export_skill_bundle_writes_expected_files ... ok
+test app::main_tests::exposes_static_messages_for_non_runtime_commands ... ok
+test app::main_tests::infers_and_validates_image_media_type ... ok
+test app::main_tests::interactive_project_init_can_select_existing_boundary ... ok
+test app::main_tests::interactive_project_init_collects_new_project_boundary ... ok
+test app::main_tests::interactive_tui_init_can_be_cancelled ... ok
+test app::main_tests::interactive_tui_init_collects_user_overrides ... ok
+test app::main_tests::lifecycle_helpers_parse_and_render_cli_payloads ... ok
+test app::main_tests::load_body_prefers_inline_text ... ok
+test app::main_tests::load_body_reads_file_and_rejects_empty_file ... ok
+test app::main_tests::load_body_reads_from_supplied_reader ... ok
+test app::main_tests::load_body_rejects_empty_inline_text ... ok
+test app::main_tests::load_body_requires_input_source ... ok
+test app::main_tests::mcp_endpoint_probe_covers_reachable_response_paths ... ok
+test app::main_tests::mcp_http_check_reports_unreachable_endpoint ... ok
+test app::main_tests::non_interactive_project_init_supports_shared_personal_and_existing ... ok
+test app::main_tests::parses_all_cli_enum_variants ... ok
+test app::main_tests::parses_management_enum_variants_and_rejects_unknowns ... ok
+test app::main_tests::project_init_outputs_include_next_scope_and_key_steps ... ok
+test app::main_tests::project_scope_slug_keeps_boundaries_ascii_and_stable ... ok
+test app::main_tests::rejects_unknown_cli_enum_variants ... ok
+test app::main_tests::remember_command_runtime_supports_json_and_text_paths ... ok
+test app::main_tests::remember_image_command_runtime_supports_json_and_text_paths ... ok
+test app::main_tests::renders_image_outputs_with_and_without_vision ... ok
+test app::main_tests::renders_remember_outputs_for_json_and_text ... ok
+test app::main_tests::renders_search_outputs_for_empty_and_non_empty_results ... ok
+test app::main_tests::resolves_bind_and_renders_json_output ... ok
+test app::main_tests::run_with_cli_handles_static_commands_without_bootstrap ... ok
+test app::main_tests::scope_id_defaults_to_service_info_when_missing ... ok
+test app::main_tests::search_command_runtime_supports_json_and_text_paths ... ok
+test app::main_tests::serve_helper_surfaces_bind_errors ... ok
+test app::main_tests::surface_parity_smoke_covers_mcp_cli_and_http_contracts ... ok
+test app::main_tests::tui_init_overrides_generate_valid_config_file ... ok
+test app::main_tests::tui_prompt_and_skill_helpers_cover_edge_paths ... ok
+test app::main_tests::v28_cli_command_functions_cover_pg_paths ... ok
+test app::main_tests::v28_cli_helpers_parse_and_render_payloads ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+[v2.8] V2.8 MCP proposal/timeline/rollback/profile/preview tools
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/memory_mcp-22b2d5bd1fa8b1ba)
+
+running 18 tests
+test app::lib_tests::context_bundle_payload_includes_graph_counts_and_labels ... ok
+test app::lib_tests::dispatch_lifecycle_tools_inspect_forget_restore_and_report ... ok
+test app::lib_tests::dispatch_promote_creates_target_scope_copy ... ok
+test app::lib_tests::dispatch_publish_returns_not_found_when_memory_is_missing ... ok
+test app::lib_tests::dispatch_rejects_unknown_tool ... ok
+test app::lib_tests::dispatch_remember_returns_markdown_write_payload ... ok
+test app::lib_tests::dispatch_search_and_fetch_context_return_empty_bundle_without_pg ... ok
+test app::lib_tests::dispatch_v28_governance_tools_cover_policy_timeline_rollback_profile_and_preview ... ok
+test app::lib_tests::exposes_fetch_context_tool ... ok
+test app::lib_tests::exposes_stdio_and_http_transports ... ok
+test app::lib_tests::parse_arguments_and_kernel_error_mapping_behave_as_expected ... ok
+test app::lib_tests::parse_helpers_cover_all_variants ... ok
+test app::lib_tests::payload_helpers_cover_all_entity_and_relation_labels ... ok
+test app::lib_tests::router_exposes_tool_listing ... ok
+test app::lib_tests::stdio_message_returns_invalid_arguments_envelope_for_bad_json ... ok
+test app::lib_tests::stdio_message_returns_success_envelope_for_remember ... ok
+test app::lib_tests::v28_payload_helpers_render_governance_and_distillation_shapes ... ok
+test app::lib_tests::v28_request_builders_cover_profile_defaults_and_session_override ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/mcp_tools_tests.rs (target/debug/deps/mcp_tools_tests-e7d2921d8faffcf4)
+
+running 8 tests
+test mcp_agent_context_tools_upsert_list_promote_and_delete ... ok
+test mcp_dispatches_promote_and_preserves_scope_lineage ... ok
+test mcp_dispatches_remember_search_fetch_context_and_publish ... ok
+test mcp_http_transport_accepts_tool_calls ... ok
+test mcp_project_document_tools_sync_search_and_list_conflicts ... ok
+test mcp_publish_requires_key_for_sensitive_tool ... ok
+test mcp_stdio_transport_serializes_errors ... ok
+test mcp_supports_chinese_memory_search_and_publish_flow ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+[v2.8] acceptance completed

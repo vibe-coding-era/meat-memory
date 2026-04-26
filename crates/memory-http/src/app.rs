@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::{
@@ -28,6 +28,22 @@ use serde_json::json;
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::error;
+
+#[path = "v28_http.rs"]
+mod v28_http;
+
+use v28_http::{
+    apply_memory_proposal, approve_memory_proposal, evaluate_distillation_preview,
+    evaluate_review_policy, get_memory_proposal, get_memory_timeline, list_distillation_profiles,
+    list_memory_proposals, list_memory_versions, reject_memory_proposal, rollback_memory,
+    upsert_distillation_profile,
+};
+#[cfg(test)]
+pub(crate) use v28_http::{
+    distillation_profile_level_label, distillation_profile_status_label,
+    parse_distillation_profile_level, parse_distillation_profile_status, parse_review_actor_kind,
+    parse_review_level, parse_review_policy_action, review_policy_decision_label,
+};
 
 const MAX_MEMORY_BODY_CHARS: usize = 16_000;
 const MAX_QUERY_CHARS: usize = 1_024;
@@ -55,6 +71,18 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/agent-contexts",
     "/api/v1/agent-contexts/{context_id}",
     "/api/v1/agent-contexts/{context_id}/promote",
+    "/api/v1/proposals",
+    "/api/v1/proposals/{proposal_id}",
+    "/api/v1/proposals/{proposal_id}/approve",
+    "/api/v1/proposals/{proposal_id}/reject",
+    "/api/v1/proposals/{proposal_id}/apply",
+    "/api/v1/proposals/review-policy/evaluate",
+    "/api/v1/memories/{scope_id}/{memory_id}/versions",
+    "/api/v1/memories/{scope_id}/{memory_id}/timeline",
+    "/api/v1/memories/{scope_id}/{memory_id}/rollback",
+    "/api/v1/distillation/profiles",
+    "/api/v1/distillation/profiles/{profile_id}",
+    "/api/v1/distillation/preview",
     "/api/v1/explorer/memories",
     "/api/v1/assistant/chat",
     "/api/v1/keys",
@@ -610,6 +638,48 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route(
             "/api/v1/agent-contexts/{context_id}/promote",
             post(promote_agent_context),
+        )
+        .route("/api/v1/proposals", get(list_memory_proposals))
+        .route("/api/v1/proposals/{proposal_id}", get(get_memory_proposal))
+        .route(
+            "/api/v1/proposals/{proposal_id}/approve",
+            post(approve_memory_proposal),
+        )
+        .route(
+            "/api/v1/proposals/{proposal_id}/reject",
+            post(reject_memory_proposal),
+        )
+        .route(
+            "/api/v1/proposals/{proposal_id}/apply",
+            post(apply_memory_proposal),
+        )
+        .route(
+            "/api/v1/proposals/review-policy/evaluate",
+            post(evaluate_review_policy),
+        )
+        .route(
+            "/api/v1/memories/{scope_id}/{memory_id}/versions",
+            get(list_memory_versions),
+        )
+        .route(
+            "/api/v1/memories/{scope_id}/{memory_id}/timeline",
+            get(get_memory_timeline),
+        )
+        .route(
+            "/api/v1/memories/{scope_id}/{memory_id}/rollback",
+            post(rollback_memory),
+        )
+        .route(
+            "/api/v1/distillation/profiles",
+            get(list_distillation_profiles),
+        )
+        .route(
+            "/api/v1/distillation/profiles/{profile_id}",
+            put(upsert_distillation_profile),
+        )
+        .route(
+            "/api/v1/distillation/preview",
+            post(evaluate_distillation_preview),
         )
         .route("/api/v1/explorer/memories", get(browse_memories))
         .route("/api/v1/assistant/chat", post(chat_with_memory_assistant))
@@ -2412,7 +2482,7 @@ fn api_error_from_anyhow(error: anyhow::Error) -> ApiError {
             message,
         };
     }
-    if message.contains("required") || message.contains("invalid meat memory key") {
+    if message == "meat memory key is required" || message.contains("invalid meat memory key") {
         return ApiError {
             status: StatusCode::UNAUTHORIZED,
             message,
@@ -2423,6 +2493,7 @@ fn api_error_from_anyhow(error: anyhow::Error) -> ApiError {
         || message.contains("empty")
         || message.contains("Invalid")
         || message.contains("exceeds")
+        || message.contains("requires scope_id")
     {
         return ApiError::bad_request(message);
     }

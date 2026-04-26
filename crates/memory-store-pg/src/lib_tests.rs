@@ -1,16 +1,28 @@
 use super::{
     MemoryRecord, PgStore, SEARCH_MEMORY_BY_EMBEDDING_SQL, artifact_kind_to_str,
-    build_embedding_search_query, build_list_query, build_search_query, insert_artifact_sql,
-    insert_memory_evidence_sql, insert_memory_sql, insert_memory_version_sql,
-    list_memory_prefix_sql, memory_from_record, memory_kind_to_str, memory_state_to_str,
-    parse_memory_kind, parse_memory_state, parse_sensitivity, parse_visibility, scope_type_to_str,
-    search_memory_prefix_sql, search_terms, seed_scope_sql, select_memory_sql, sensitivity_to_str,
-    update_memory_evidence_count_sql, upsert_memory_embedding_sql, upsert_memory_sql,
-    upsert_memory_version_sql, visibility_to_str,
+    binding_confirmed_by_to_str, build_embedding_search_query, build_list_query,
+    build_search_query, distillation_profile_level_to_str, distillation_profile_status_to_str,
+    insert_artifact_sql, insert_distillation_run_sql, insert_memory_evidence_sql,
+    insert_memory_relation_sql, insert_memory_sql, insert_memory_version_snapshot_sql,
+    insert_memory_version_sql, list_distillation_profiles_sql, list_memory_prefix_sql,
+    list_memory_proposals_prefix_sql, list_memory_proposals_sql, list_memory_relations_prefix_sql,
+    list_memory_relations_sql, list_memory_versions_sql, list_project_identity_bindings_sql,
+    memory_from_record, memory_kind_to_str, memory_relation_source_kind_to_str,
+    memory_relation_type_to_str, memory_state_to_str, migration_0008_sql, parse_memory_kind,
+    parse_memory_state, parse_sensitivity, parse_visibility, project_binding_kind_to_str,
+    proposal_status_to_str, proposal_type_to_str, review_level_to_str, scope_type_to_str,
+    search_memory_prefix_sql, search_terms, seed_scope_sql, select_distillation_profile_sql,
+    select_memory_proposal_sql, select_memory_sql, sensitivity_to_str,
+    update_memory_evidence_count_sql, update_memory_version_metadata_sql,
+    upsert_distillation_profile_sql, upsert_memory_embedding_sql, upsert_memory_proposal_sql,
+    upsert_memory_sql, upsert_memory_version_sql, upsert_project_identity_binding_sql,
+    visibility_to_str,
 };
 use memory_domain::{
-    Artifact, ArtifactId, ArtifactKind, Memory, MemoryId, MemoryKind, MemoryState, ScopeId,
-    ScopeType, Sensitivity, Visibility,
+    Artifact, ArtifactId, ArtifactKind, BindingConfirmedBy, DistillationProfileLevel,
+    DistillationProfileStatus, Memory, MemoryId, MemoryKind, MemoryRelationSourceKind,
+    MemoryRelationType, MemoryState, ProjectBindingKind, ProposalStatus, ProposalType, ReviewLevel,
+    ScopeId, ScopeType, Sensitivity, Visibility,
 };
 use sqlx::PgPool;
 use time::macros::datetime;
@@ -115,6 +127,106 @@ fn serializes_all_enums_for_storage() {
 }
 
 #[test]
+fn serializes_v28_enums_for_storage() {
+    let binding_cases = [
+        (ProjectBindingKind::RepoRoot, "repo_root"),
+        (ProjectBindingKind::RemoteUrl, "remote_url"),
+        (ProjectBindingKind::SourceRefPrefix, "source_ref_prefix"),
+        (ProjectBindingKind::Alias, "alias"),
+    ];
+    for (kind, expected) in binding_cases {
+        assert_eq!(project_binding_kind_to_str(kind), expected);
+    }
+
+    assert_eq!(
+        binding_confirmed_by_to_str(BindingConfirmedBy::User),
+        "user"
+    );
+    assert_eq!(
+        binding_confirmed_by_to_str(BindingConfirmedBy::System),
+        "system"
+    );
+
+    let proposal_cases = [
+        (ProposalType::Merge, "merge"),
+        (ProposalType::NewVersion, "new_version"),
+        (ProposalType::Supersede, "supersede"),
+        (ProposalType::ConflictMark, "conflict_mark"),
+        (ProposalType::Archive, "archive"),
+        (ProposalType::Forget, "forget"),
+        (ProposalType::Restore, "restore"),
+        (ProposalType::HardDelete, "hard_delete"),
+        (ProposalType::DistillUpsert, "distill_upsert"),
+    ];
+    for (kind, expected) in proposal_cases {
+        assert_eq!(proposal_type_to_str(kind), expected);
+    }
+
+    let proposal_status_cases = [
+        (ProposalStatus::Open, "open"),
+        (ProposalStatus::Approved, "approved"),
+        (ProposalStatus::Rejected, "rejected"),
+        (ProposalStatus::Applied, "applied"),
+        (ProposalStatus::Canceled, "canceled"),
+        (ProposalStatus::Expired, "expired"),
+    ];
+    for (status, expected) in proposal_status_cases {
+        assert_eq!(proposal_status_to_str(status), expected);
+    }
+
+    let review_cases = [
+        (ReviewLevel::Auto, "auto"),
+        (ReviewLevel::Suggested, "suggested"),
+        (ReviewLevel::Required, "required"),
+        (ReviewLevel::Blocked, "blocked"),
+    ];
+    for (level, expected) in review_cases {
+        assert_eq!(review_level_to_str(level), expected);
+    }
+
+    let relation_cases = [
+        (MemoryRelationType::Supersedes, "supersedes"),
+        (MemoryRelationType::ConflictsWith, "conflicts_with"),
+        (MemoryRelationType::DerivedFrom, "derived_from"),
+        (MemoryRelationType::MergedInto, "merged_into"),
+        (MemoryRelationType::RelatedTo, "related_to"),
+    ];
+    for (relation_type, expected) in relation_cases {
+        assert_eq!(memory_relation_type_to_str(relation_type), expected);
+    }
+
+    assert_eq!(
+        memory_relation_source_kind_to_str(MemoryRelationSourceKind::User),
+        "user"
+    );
+    assert_eq!(
+        memory_relation_source_kind_to_str(MemoryRelationSourceKind::Agent),
+        "agent"
+    );
+    assert_eq!(
+        memory_relation_source_kind_to_str(MemoryRelationSourceKind::System),
+        "system"
+    );
+
+    assert_eq!(
+        distillation_profile_level_to_str(DistillationProfileLevel::UserGlobal),
+        "user_global"
+    );
+    assert_eq!(
+        distillation_profile_level_to_str(DistillationProfileLevel::Project),
+        "project"
+    );
+    assert_eq!(
+        distillation_profile_status_to_str(DistillationProfileStatus::Active),
+        "active"
+    );
+    assert_eq!(
+        distillation_profile_status_to_str(DistillationProfileStatus::Archived),
+        "archived"
+    );
+}
+
+#[test]
 fn parses_all_enums_from_storage_and_rejects_unknown_values() {
     let memory_kind_cases = [
         ("fact", MemoryKind::Fact),
@@ -198,6 +310,56 @@ fn sql_helpers_expose_expected_statements() {
     assert!(list_memory_prefix_sql().contains("FROM memories"));
     assert!(search_memory_prefix_sql().contains("WHERE scope_id = "));
     assert!(upsert_memory_embedding_sql().contains("memory_embeddings"));
+}
+
+#[test]
+fn v28_sql_helpers_expose_expected_statements() {
+    let statements = [
+        upsert_project_identity_binding_sql(),
+        list_project_identity_bindings_sql(),
+        upsert_memory_proposal_sql(),
+        select_memory_proposal_sql(),
+        list_memory_proposals_prefix_sql(),
+        list_memory_proposals_sql(),
+        insert_memory_relation_sql(),
+        list_memory_relations_prefix_sql(),
+        list_memory_relations_sql(),
+        list_memory_versions_sql(),
+        insert_memory_version_snapshot_sql(),
+        update_memory_version_metadata_sql(),
+        upsert_distillation_profile_sql(),
+        select_distillation_profile_sql(),
+        list_distillation_profiles_sql(),
+        insert_distillation_run_sql(),
+    ];
+
+    for statement in statements {
+        assert!(!statement.trim().is_empty());
+    }
+
+    assert!(migration_0008_sql().contains("project_identity_bindings"));
+    assert!(migration_0008_sql().contains("memory_proposals"));
+    assert!(migration_0008_sql().contains("memory_relations"));
+    assert!(migration_0008_sql().contains("distillation_profiles"));
+    assert!(migration_0008_sql().contains("distillation_runs"));
+    assert!(migration_0008_sql().contains("ALTER TABLE memory_versions"));
+
+    assert!(upsert_project_identity_binding_sql().contains("ON CONFLICT (id) DO UPDATE"));
+    assert!(list_project_identity_bindings_sql().contains("WHERE owner_scope_id = $1"));
+    assert!(upsert_memory_proposal_sql().contains("target_memory_ids"));
+    assert!(select_memory_proposal_sql().contains("WHERE id = $1"));
+    assert!(list_memory_proposals_prefix_sql().contains("FROM memory_proposals"));
+    assert!(list_memory_proposals_sql().contains("WHERE ($1::text IS NULL"));
+    assert!(insert_memory_relation_sql().contains("INSERT INTO memory_relations"));
+    assert!(list_memory_relations_prefix_sql().contains("from_memory_id = "));
+    assert!(list_memory_relations_sql().contains("($2::text IS NULL"));
+    assert!(list_memory_versions_sql().contains("ORDER BY version DESC"));
+    assert!(insert_memory_version_snapshot_sql().contains("source_proposal_id"));
+    assert!(update_memory_version_metadata_sql().contains("UPDATE memory_versions"));
+    assert!(upsert_distillation_profile_sql().contains("rules_json"));
+    assert!(select_distillation_profile_sql().contains("WHERE id = $1"));
+    assert!(list_distillation_profiles_sql().contains("WHERE ($1::text IS NULL"));
+    assert!(insert_distillation_run_sql().contains("output_json"));
 }
 
 #[test]

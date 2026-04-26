@@ -10,6 +10,8 @@
 - `0004_memory_v2_metadata.sql`：加入 V2 metadata 结构
 - `0005_access_keys.sql`：加入 access key 与访问控制相关结构
 - `0006_memory_v2_4_layers_sources.sql`：加入 V2.4 layer / source 能力
+- `0007_memory_v2_7_lifecycle.sql`：加入 V2.7 记忆生命周期审计事件
+- `0008_memory_v2_8_governance.sql`：加入 V2.8 项目识别、提案、关系、蒸馏与版本治理结构
 
 ## 维护约定
 

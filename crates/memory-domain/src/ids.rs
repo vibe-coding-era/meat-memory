@@ -39,12 +39,18 @@ id_type!(AccessKeyId, "key");
 id_type!(SourceId, "src");
 id_type!(AgentContextId, "ctx");
 id_type!(ProjectDocumentId, "doc");
+id_type!(ProjectIdentityBindingId, "pib");
+id_type!(ProposalId, "prp");
+id_type!(MemoryRelationId, "mrl");
+id_type!(DistillationProfileId, "dpf");
+id_type!(DistillationRunId, "drn");
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessKeyId, AgentContextId, ArtifactId, EntityId, EpisodeId, EvidenceId, MemoryId,
-        ProjectDocumentId, RelationId, ScopeId, SourceId,
+        AccessKeyId, AgentContextId, ArtifactId, DistillationProfileId, DistillationRunId,
+        EntityId, EpisodeId, EvidenceId, MemoryId, MemoryRelationId, ProjectDocumentId,
+        ProjectIdentityBindingId, ProposalId, RelationId, ScopeId, SourceId,
     };
 
     #[test]
@@ -61,6 +67,11 @@ mod tests {
             SourceId::new().as_str().to_string(),
             AgentContextId::new().as_str().to_string(),
             ProjectDocumentId::new().as_str().to_string(),
+            ProjectIdentityBindingId::new().as_str().to_string(),
+            ProposalId::new().as_str().to_string(),
+            MemoryRelationId::new().as_str().to_string(),
+            DistillationProfileId::new().as_str().to_string(),
+            DistillationRunId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -74,6 +85,11 @@ mod tests {
         assert!(cases[8].starts_with("src_"));
         assert!(cases[9].starts_with("ctx_"));
         assert!(cases[10].starts_with("doc_"));
+        assert!(cases[11].starts_with("pib_"));
+        assert!(cases[12].starts_with("prp_"));
+        assert!(cases[13].starts_with("mrl_"));
+        assert!(cases[14].starts_with("dpf_"));
+        assert!(cases[15].starts_with("drn_"));
     }
 
     #[test]
@@ -89,6 +105,11 @@ mod tests {
         let source = SourceId::from_string("src_custom");
         let agent_context = AgentContextId::from_string("ctx_custom");
         let project_document = ProjectDocumentId::from_string("doc_custom");
+        let project_binding = ProjectIdentityBindingId::from_string("pib_custom");
+        let proposal = ProposalId::from_string("prp_custom");
+        let memory_relation = MemoryRelationId::from_string("mrl_custom");
+        let distillation_profile = DistillationProfileId::from_string("dpf_custom");
+        let distillation_run = DistillationRunId::from_string("drn_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -101,6 +122,11 @@ mod tests {
         assert_eq!(source.as_str(), "src_custom");
         assert_eq!(agent_context.as_str(), "ctx_custom");
         assert_eq!(project_document.as_str(), "doc_custom");
+        assert_eq!(project_binding.as_str(), "pib_custom");
+        assert_eq!(proposal.as_str(), "prp_custom");
+        assert_eq!(memory_relation.as_str(), "mrl_custom");
+        assert_eq!(distillation_profile.as_str(), "dpf_custom");
+        assert_eq!(distillation_run.as_str(), "drn_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -113,5 +139,18 @@ mod tests {
         assert!(SourceId::default().as_str().starts_with("src_"));
         assert!(AgentContextId::default().as_str().starts_with("ctx_"));
         assert!(ProjectDocumentId::default().as_str().starts_with("doc_"));
+        assert!(
+            ProjectIdentityBindingId::default()
+                .as_str()
+                .starts_with("pib_")
+        );
+        assert!(ProposalId::default().as_str().starts_with("prp_"));
+        assert!(MemoryRelationId::default().as_str().starts_with("mrl_"));
+        assert!(
+            DistillationProfileId::default()
+                .as_str()
+                .starts_with("dpf_")
+        );
+        assert!(DistillationRunId::default().as_str().starts_with("drn_"));
     }
 }

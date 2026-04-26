@@ -44,6 +44,7 @@ ls tests/reports/perf/latest
 - [`../runbook/v1-acceptance.md`](../runbook/v1-acceptance.md)：V1 验收标准与入口
 - [`../../tests/integration/v1-zh-acceptance.md`](../../tests/integration/v1-zh-acceptance.md)：V1 中文验收语料
 - [`../../tests/integration/v2-bilingual-acceptance.md`](../../tests/integration/v2-bilingual-acceptance.md)：V2 双语验收说明
+- [`../V2.8/V2.8.8-acceptance.md`](../V2.8/V2.8.8-acceptance.md)：V2.8 proposal-first 治理验收入口与场景
 
 ## 报告与分析
 
@@ -58,6 +59,8 @@ ls tests/reports/perf/latest
 - `./docs/scripts/v1-acceptance.sh`
 - `./docs/scripts/v2_1-acceptance.sh`
 - `./docs/scripts/v2_4-acceptance.sh`
+- `./docs/scripts/v2_8-acceptance.sh`
+- `./docs/scripts/v2_8-production-gate.sh`
 - `./docs/scripts/write-test-reports.sh`
 - `./docs/scripts/security-report.sh`
 - `./docs/scripts/v2-perf.sh`

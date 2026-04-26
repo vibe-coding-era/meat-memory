@@ -51,6 +51,7 @@ pub struct MetricsSnapshot {
     pub key: KeyMetricsSnapshot,
     pub v2_4: V24MetricsSnapshot,
     pub v2_7: V27MetricsSnapshot,
+    pub v2_8: V28MetricsSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -88,6 +89,28 @@ pub struct V27MetricsSnapshot {
     pub report_operations: u64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct V28MetricsSnapshot {
+    pub proposal_operations: u64,
+    pub proposal_failures: u64,
+    pub proposal_observations: u64,
+    pub proposal_backlog: u64,
+    pub proposal_approved: u64,
+    pub proposal_rejected: u64,
+    pub proposal_applied: u64,
+    pub proposal_conflicts: u64,
+    pub proposal_approval_rate: f64,
+    pub proposal_conflict_rate: f64,
+    pub rollback_operations: u64,
+    pub rollback_successes: u64,
+    pub rollback_failures: u64,
+    pub distillation_previews: u64,
+    pub distillation_preview_failures: u64,
+    pub distillation_preview_candidates: u64,
+    pub distillation_preview_hits: u64,
+    pub distillation_preview_hit_rate: f64,
+}
+
 #[derive(Debug)]
 struct ObservabilityRegistry {
     search_total: AtomicU64,
@@ -123,6 +146,21 @@ struct ObservabilityRegistry {
     lifecycle_supersedes: AtomicU64,
     lifecycle_conflicts: AtomicU64,
     lifecycle_reports: AtomicU64,
+    v28_proposal_operations: AtomicU64,
+    v28_proposal_failures: AtomicU64,
+    v28_proposal_observations: AtomicU64,
+    v28_proposal_backlog: AtomicU64,
+    v28_proposal_approved: AtomicU64,
+    v28_proposal_rejected: AtomicU64,
+    v28_proposal_applied: AtomicU64,
+    v28_proposal_conflicts: AtomicU64,
+    v28_rollback_operations: AtomicU64,
+    v28_rollback_successes: AtomicU64,
+    v28_rollback_failures: AtomicU64,
+    v28_distillation_previews: AtomicU64,
+    v28_distillation_preview_failures: AtomicU64,
+    v28_distillation_preview_candidates: AtomicU64,
+    v28_distillation_preview_hits: AtomicU64,
     search_latency: Mutex<LatencyReservoir>,
     write_latency: Mutex<LatencyReservoir>,
 }
@@ -163,6 +201,21 @@ impl Default for ObservabilityRegistry {
             lifecycle_supersedes: AtomicU64::new(0),
             lifecycle_conflicts: AtomicU64::new(0),
             lifecycle_reports: AtomicU64::new(0),
+            v28_proposal_operations: AtomicU64::new(0),
+            v28_proposal_failures: AtomicU64::new(0),
+            v28_proposal_observations: AtomicU64::new(0),
+            v28_proposal_backlog: AtomicU64::new(0),
+            v28_proposal_approved: AtomicU64::new(0),
+            v28_proposal_rejected: AtomicU64::new(0),
+            v28_proposal_applied: AtomicU64::new(0),
+            v28_proposal_conflicts: AtomicU64::new(0),
+            v28_rollback_operations: AtomicU64::new(0),
+            v28_rollback_successes: AtomicU64::new(0),
+            v28_rollback_failures: AtomicU64::new(0),
+            v28_distillation_previews: AtomicU64::new(0),
+            v28_distillation_preview_failures: AtomicU64::new(0),
+            v28_distillation_preview_candidates: AtomicU64::new(0),
+            v28_distillation_preview_hits: AtomicU64::new(0),
             search_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
             write_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
         }
@@ -394,10 +447,108 @@ pub fn record_lifecycle_operation(action: &str, success: bool) {
     }
 }
 
+pub fn record_v28_proposal_observation(
+    proposal_count: usize,
+    open_count: usize,
+    conflict_count: usize,
+) {
+    let registry = registry();
+    registry
+        .v28_proposal_observations
+        .fetch_add(to_u64(proposal_count), Ordering::Relaxed);
+    registry
+        .v28_proposal_backlog
+        .store(to_u64(open_count), Ordering::Relaxed);
+    registry
+        .v28_proposal_conflicts
+        .fetch_add(to_u64(conflict_count), Ordering::Relaxed);
+}
+
+pub fn record_v28_proposal_decision(action: &str, success: bool) {
+    let registry = registry();
+    registry
+        .v28_proposal_operations
+        .fetch_add(1, Ordering::Relaxed);
+    if !success {
+        registry
+            .v28_proposal_failures
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+
+    match action {
+        "approved" | "approve" => {
+            registry
+                .v28_proposal_approved
+                .fetch_add(1, Ordering::Relaxed);
+            decrement_atomic_saturating(&registry.v28_proposal_backlog);
+        }
+        "rejected" | "reject" => {
+            registry
+                .v28_proposal_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            decrement_atomic_saturating(&registry.v28_proposal_backlog);
+        }
+        "applied" | "apply" => {
+            registry
+                .v28_proposal_applied
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+}
+
+pub fn record_v28_rollback(success: bool) {
+    let registry = registry();
+    registry
+        .v28_rollback_operations
+        .fetch_add(1, Ordering::Relaxed);
+    if success {
+        registry
+            .v28_rollback_successes
+            .fetch_add(1, Ordering::Relaxed);
+    } else {
+        registry
+            .v28_rollback_failures
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn record_v28_distillation_preview(success: bool, candidate_count: usize) {
+    let registry = registry();
+    registry
+        .v28_distillation_previews
+        .fetch_add(1, Ordering::Relaxed);
+    if !success {
+        registry
+            .v28_distillation_preview_failures
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+
+    let candidate_count = to_u64(candidate_count);
+    registry
+        .v28_distillation_preview_candidates
+        .fetch_add(candidate_count, Ordering::Relaxed);
+    if candidate_count > 0 {
+        registry
+            .v28_distillation_preview_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 pub fn metrics_snapshot() -> MetricsSnapshot {
     let registry = registry();
     let hit_queries = registry.search_hits.load(Ordering::Relaxed);
     let successful_queries = registry.search_success.load(Ordering::Relaxed);
+    let proposal_approved = registry.v28_proposal_approved.load(Ordering::Relaxed);
+    let proposal_rejected = registry.v28_proposal_rejected.load(Ordering::Relaxed);
+    let proposal_observations = registry.v28_proposal_observations.load(Ordering::Relaxed);
+    let proposal_conflicts = registry.v28_proposal_conflicts.load(Ordering::Relaxed);
+    let distillation_previews = registry.v28_distillation_previews.load(Ordering::Relaxed);
+    let distillation_preview_hits = registry
+        .v28_distillation_preview_hits
+        .load(Ordering::Relaxed);
 
     MetricsSnapshot {
         search: SearchMetricsSnapshot {
@@ -446,6 +597,30 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
             conflict_operations: registry.lifecycle_conflicts.load(Ordering::Relaxed),
             report_operations: registry.lifecycle_reports.load(Ordering::Relaxed),
         },
+        v2_8: V28MetricsSnapshot {
+            proposal_operations: registry.v28_proposal_operations.load(Ordering::Relaxed),
+            proposal_failures: registry.v28_proposal_failures.load(Ordering::Relaxed),
+            proposal_observations,
+            proposal_backlog: registry.v28_proposal_backlog.load(Ordering::Relaxed),
+            proposal_approved,
+            proposal_rejected,
+            proposal_applied: registry.v28_proposal_applied.load(Ordering::Relaxed),
+            proposal_conflicts,
+            proposal_approval_rate: rate(proposal_approved, proposal_approved + proposal_rejected),
+            proposal_conflict_rate: rate(proposal_conflicts, proposal_observations),
+            rollback_operations: registry.v28_rollback_operations.load(Ordering::Relaxed),
+            rollback_successes: registry.v28_rollback_successes.load(Ordering::Relaxed),
+            rollback_failures: registry.v28_rollback_failures.load(Ordering::Relaxed),
+            distillation_previews,
+            distillation_preview_failures: registry
+                .v28_distillation_preview_failures
+                .load(Ordering::Relaxed),
+            distillation_preview_candidates: registry
+                .v28_distillation_preview_candidates
+                .load(Ordering::Relaxed),
+            distillation_preview_hits,
+            distillation_preview_hit_rate: rate(distillation_preview_hits, distillation_previews),
+        },
     }
 }
 
@@ -456,6 +631,16 @@ fn registry() -> &'static ObservabilityRegistry {
 
 fn record_latency(store: &Mutex<LatencyReservoir>, latency: Duration) {
     store.lock().unwrap().record(latency);
+}
+
+fn to_u64(value: usize) -> u64 {
+    value.min(u64::MAX as usize) as u64
+}
+
+fn decrement_atomic_saturating(counter: &AtomicU64) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        current.checked_sub(1)
+    });
 }
 
 fn percentile(sorted: &[u64], quantile: f64) -> u64 {
@@ -479,7 +664,9 @@ mod tests {
         LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
         record_context_operation, record_docs_operation, record_key_operation,
         record_lifecycle_operation, record_search_failure, record_search_success,
-        record_source_operation, record_write_failure, record_write_success,
+        record_source_operation, record_v28_distillation_preview, record_v28_proposal_decision,
+        record_v28_proposal_observation, record_v28_rollback, record_write_failure,
+        record_write_success,
     };
     use std::time::Duration;
 
@@ -559,6 +746,17 @@ mod tests {
         record_lifecycle_operation("needs_review", true);
         record_lifecycle_operation("report", true);
         record_lifecycle_operation("archive", false);
+        record_v28_proposal_observation(5, 3, 2);
+        record_v28_proposal_decision("approved", true);
+        record_v28_proposal_decision("rejected", true);
+        record_v28_proposal_decision("applied", true);
+        record_v28_proposal_decision("noop", true);
+        record_v28_proposal_decision("approved", false);
+        record_v28_rollback(true);
+        record_v28_rollback(false);
+        record_v28_distillation_preview(true, 2);
+        record_v28_distillation_preview(true, 0);
+        record_v28_distillation_preview(false, 0);
 
         let after = metrics_snapshot();
 
@@ -702,6 +900,87 @@ mod tests {
                 .saturating_sub(before.v2_7.lifecycle_failures)
                 >= 1
         );
+        assert!(
+            after
+                .v2_8
+                .proposal_observations
+                .saturating_sub(before.v2_8.proposal_observations)
+                >= 5
+        );
+        assert!(after.v2_8.proposal_backlog <= 3);
+        assert!(
+            after
+                .v2_8
+                .proposal_conflicts
+                .saturating_sub(before.v2_8.proposal_conflicts)
+                >= 2
+        );
+        assert!(
+            after
+                .v2_8
+                .proposal_approved
+                .saturating_sub(before.v2_8.proposal_approved)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_8
+                .proposal_rejected
+                .saturating_sub(before.v2_8.proposal_rejected)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_8
+                .proposal_applied
+                .saturating_sub(before.v2_8.proposal_applied)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_8
+                .proposal_failures
+                .saturating_sub(before.v2_8.proposal_failures)
+                >= 1
+        );
+        assert!(after.v2_8.proposal_approval_rate > 0.0);
+        assert!(after.v2_8.proposal_conflict_rate > 0.0);
+        assert!(
+            after
+                .v2_8
+                .rollback_successes
+                .saturating_sub(before.v2_8.rollback_successes)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_8
+                .rollback_failures
+                .saturating_sub(before.v2_8.rollback_failures)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_8
+                .distillation_previews
+                .saturating_sub(before.v2_8.distillation_previews)
+                >= 3
+        );
+        assert!(
+            after
+                .v2_8
+                .distillation_preview_hits
+                .saturating_sub(before.v2_8.distillation_preview_hits)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_8
+                .distillation_preview_candidates
+                .saturating_sub(before.v2_8.distillation_preview_candidates)
+                >= 2
+        );
+        assert!(after.v2_8.distillation_preview_hit_rate > 0.0);
         assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);
         assert!(
             after
@@ -719,5 +998,7 @@ mod tests {
         let snapshot = metrics_snapshot();
         assert!(snapshot.search.total_queries >= snapshot.search.successful_queries);
         assert!(snapshot.write.total_requests >= snapshot.write.successful_requests);
+        assert!(snapshot.v2_8.proposal_observations >= snapshot.v2_8.proposal_conflicts);
+        assert!(snapshot.v2_8.distillation_previews >= snapshot.v2_8.distillation_preview_hits);
     }
 }

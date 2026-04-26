@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 mod lifecycle;
+mod v28;
+mod v28_runtime;
 
 pub use lifecycle::{
     AuditEvent, AuditLogService, BudgetPacker, EvolutionEvent, EvolutionEventType,
@@ -43,6 +45,25 @@ use memory_sync::{
 use std::time::Instant;
 use std::{fs, path::PathBuf};
 use tracing::{Instrument, info, warn};
+pub use v28::{
+    ComposedDistillationProfile, DistillationCandidate, DistillationPreview,
+    DistillationPreviewError, DistillationPreviewService, DistillationProfileService,
+    DistillationPromptSegment, DistillationSessionOverride, MemoryRelationship, MemoryTimeline,
+    ProjectIdentityInput, ProjectIdentityResolution, ProjectIdentityResolutionStatus,
+    ProjectIdentityResolver, ProposalAuditAction, ProposalExecutionError, ProposalExecutionPlan,
+    ProposalExecutor, ProposalOrchestrator, ProposalVersionAction, RelationshipAssessment,
+    RelationshipClassifier, ReviewActorKind, ReviewPolicyAction, ReviewPolicyDecision,
+    ReviewPolicyEvaluation, ReviewPolicyInput, ReviewPolicyService, RollbackError, RollbackPlan,
+    RollbackService, TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineQueryService,
+    TimelineVersion,
+};
+pub use v28_runtime::{
+    ApplyMemoryProposalRequest, ApproveMemoryProposalRequest, GetMemoryProposalRequest,
+    GetMemoryTimelineRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
+    ListMemoryVersionsRequest, PreviewDistillationRequest, PreviewDistillationResult,
+    RejectMemoryProposalRequest, RollbackMemoryRequest, RollbackMemoryResult,
+    UpsertDistillationProfileRequest,
+};
 
 #[derive(Debug, Clone)]
 pub struct RememberTextRequest {

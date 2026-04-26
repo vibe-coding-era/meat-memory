@@ -6,7 +6,7 @@
 
 - `unit/`：`cargo test --workspace --lib --bins` 这类工作区单测输出
 - `integration/`：跨 crate、数据库和服务集成输出
-- `e2e/`：CLI、初始化、skill 导出、V2.4 文档与上下文链路验收输出
+- `e2e/`：CLI、初始化、skill 导出、V2.4 文档与上下文链路、V2.8 治理闭环验收输出
 - `perf/`：性能烟测与延迟快照
 - `security/`：安全专项报告
 

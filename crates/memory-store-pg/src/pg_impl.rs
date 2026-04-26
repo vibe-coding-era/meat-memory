@@ -1,13 +1,30 @@
+pub(crate) use crate::v28_sql::migration_0008_sql;
+#[cfg(test)]
+pub(crate) use crate::v28_sql::{
+    binding_confirmed_by_to_str, distillation_profile_level_to_str,
+    distillation_profile_status_to_str, insert_distillation_run_sql, insert_memory_relation_sql,
+    insert_memory_version_snapshot_sql, list_distillation_profiles_sql,
+    list_memory_proposals_prefix_sql, list_memory_proposals_sql, list_memory_relations_prefix_sql,
+    list_memory_relations_sql, list_memory_versions_sql, list_project_identity_bindings_sql,
+    memory_relation_source_kind_to_str, memory_relation_type_to_str, project_binding_kind_to_str,
+    proposal_status_to_str, proposal_type_to_str, review_level_to_str,
+    select_distillation_profile_sql, select_memory_proposal_sql,
+    update_memory_version_metadata_sql, upsert_distillation_profile_sql,
+    upsert_memory_proposal_sql, upsert_project_identity_binding_sql,
+};
 use anyhow::Result;
 use memory_domain::{
     AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, AgentContext, AgentContextId,
     Artifact, ArtifactId, ArtifactKind, DocumentConflictState, DocumentSyncState, KeyScopeKind,
     KeySourceKind, KeyUsageBreakdown, Memory, MemoryId, MemoryKind, MemoryScores, MemorySource,
-    MemoryState, ProjectDocument, ProjectDocumentId, Scope, ScopeId, ScopeType, Sensitivity,
-    SourceId, SourceStatus, SourceSyncMode, StorageMode, Visibility,
+    MemoryState, ProjectDocument, ProjectDocumentId, ProposalId, Scope, ScopeId, ScopeType,
+    Sensitivity, SourceId, SourceStatus, SourceSyncMode, StorageMode, Visibility,
 };
 use sqlx::{Executor, PgPool, Postgres, QueryBuilder, Row};
 use time::OffsetDateTime;
+
+#[path = "v28_store.rs"]
+mod v28_store;
 
 const MIGRATION_0001: &str = include_str!("../../../migrations/0001_init_scopes.sql");
 const MIGRATION_0002: &str = include_str!("../../../migrations/0002_init_content.sql");
@@ -224,6 +241,19 @@ pub struct LifecycleAuditEventRecord {
     pub created_at: OffsetDateTime,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryVersionRecord {
+    pub memory_id: MemoryId,
+    pub version: i32,
+    pub title: String,
+    pub body: String,
+    pub change_kind: String,
+    pub actor: String,
+    pub reason: Option<String>,
+    pub source_proposal_id: Option<ProposalId>,
+    pub created_at: OffsetDateTime,
+}
+
 #[derive(Debug, Clone)]
 struct MemoryRecord {
     id: String,
@@ -346,6 +376,7 @@ impl PgStore {
         tx.execute(sqlx::raw_sql(MIGRATION_0005)).await?;
         tx.execute(sqlx::raw_sql(MIGRATION_0006)).await?;
         tx.execute(sqlx::raw_sql(MIGRATION_0007)).await?;
+        tx.execute(sqlx::raw_sql(migration_0008_sql())).await?;
         tx.commit().await?;
         Ok(())
     }

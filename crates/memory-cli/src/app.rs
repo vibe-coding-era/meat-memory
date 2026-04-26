@@ -3,19 +3,27 @@ use clap::Parser;
 use memory_config::AppConfig;
 use memory_core::{ServiceInfo, log_startup, startup_banner};
 use memory_domain::{
-    AccessKeyId, AgentContextId, ArtifactKind, ContextBundle, DocumentConflictState,
-    DocumentSyncState, KeyScopeKind, KeySourceKind, MemoryId, MemoryKind, MemoryRecordStatus,
-    MemorySource, RequestContext, ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode,
-    Visibility,
+    AccessKeyId, AgentContextId, ArtifactKind, ContextBundle, DistillationProfile,
+    DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus,
+    DocumentConflictState, DocumentSyncState, KeyScopeKind, KeySourceKind, MemoryId, MemoryKind,
+    MemoryProposal, MemoryRecordStatus, MemoryRelation, MemorySource, ProposalId, RequestContext,
+    ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode, Visibility,
 };
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{
-    ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
-    ChangeMemoryLifecycleStatusResult, CreateAccessKeyRequest, ImportProjectDocumentRequest,
-    InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
-    ListProjectDocumentsRequest, PromoteAgentContextRequest, RememberImageRequest,
-    RememberImageResult, RememberTextRequest, RememberTextResult, SearchContextRequest,
-    UpsertAgentContextRequest,
+    ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
+    ChangeMemoryLifecycleStatusRequest, ChangeMemoryLifecycleStatusResult,
+    ComposedDistillationProfile, CreateAccessKeyRequest, DistillationCandidate,
+    DistillationPromptSegment, DistillationSessionOverride, GetMemoryProposalRequest,
+    GetMemoryTimelineRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest,
+    InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
+    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
+    ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
+    PreviewDistillationResult, PromoteAgentContextRequest, RejectMemoryProposalRequest,
+    RememberImageRequest, RememberImageResult, RememberTextRequest, RememberTextResult,
+    ReviewActorKind, RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest,
+    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
+    UpsertAgentContextRequest, UpsertDistillationProfileRequest,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -62,6 +70,12 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::Context(args) => context_command(args).await,
         Command::Docs(args) => docs_command(args).await,
         Command::Lifecycle(args) => lifecycle_command(args).await,
+        Command::Proposals(args) => proposal_command(args).await,
+        Command::Versions(args) => versions_command(args).await,
+        Command::Timeline(args) => timeline_command(args).await,
+        Command::Rollback(args) => rollback_command(args).await,
+        Command::Profiles(args) => profiles_command(args).await,
+        Command::Distill(args) => distill_command(args).await,
         Command::Tui(args) => tui_command(args).await,
         Command::Serve(args) => serve_command(args).await,
         Command::Remember(args) => remember_command(args).await,
@@ -712,6 +726,291 @@ async fn lifecycle_command(args: LifecycleArgs) -> Result<()> {
                 println!("Active: {}", payload.active);
                 println!("Needs review: {}", payload.needs_review);
                 println!("Forgotten: {}", payload.forgotten);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn proposal_command(args: ProposalArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    match args.command {
+        ProposalCommand::List(list) => {
+            let proposals = kernel
+                .list_memory_proposals(ListMemoryProposalsRequest {
+                    scope_id: list.scope_id.map(ScopeId::from_string),
+                    limit: list.limit,
+                })
+                .await?;
+            if list.json {
+                print_json(json!({
+                    "proposals": proposals.iter().map(memory_proposal_json).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Memory proposals");
+                for proposal in proposals {
+                    println!(
+                        "- {} type={} status={} review={}",
+                        proposal.id.as_str(),
+                        proposal.proposal_type.as_str(),
+                        proposal.status.as_str(),
+                        proposal.review_level.as_str()
+                    );
+                }
+            }
+        }
+        ProposalCommand::Inspect(inspect) => {
+            let proposal = kernel
+                .get_memory_proposal(GetMemoryProposalRequest {
+                    proposal_id: ProposalId::from_string(inspect.proposal_id),
+                })
+                .await?
+                .context("memory proposal not found")?;
+            if inspect.json {
+                print_json(memory_proposal_json(&proposal))?;
+            } else {
+                print_proposal_summary(&proposal);
+            }
+        }
+        ProposalCommand::Approve(approve) => {
+            let proposal = kernel
+                .approve_memory_proposal(ApproveMemoryProposalRequest {
+                    proposal_id: ProposalId::from_string(approve.proposal_id),
+                    actor: approve.actor,
+                    actor_kind: parse_review_actor_kind(&approve.actor_kind)?,
+                    has_user_authorization: approve.user_authorized,
+                })
+                .await?
+                .context("memory proposal not found")?;
+            if approve.json {
+                print_json(memory_proposal_json(&proposal))?;
+            } else {
+                println!("Approved proposal {}", proposal.id.as_str());
+            }
+        }
+        ProposalCommand::Reject(reject) => {
+            let proposal = kernel
+                .reject_memory_proposal(RejectMemoryProposalRequest {
+                    proposal_id: ProposalId::from_string(reject.proposal_id),
+                    actor: reject.actor,
+                })
+                .await?
+                .context("memory proposal not found")?;
+            if reject.json {
+                print_json(memory_proposal_json(&proposal))?;
+            } else {
+                println!("Rejected proposal {}", proposal.id.as_str());
+            }
+        }
+        ProposalCommand::Apply(apply) => {
+            let proposal = kernel
+                .apply_memory_proposal(ApplyMemoryProposalRequest {
+                    proposal_id: ProposalId::from_string(apply.proposal_id),
+                    actor: apply.actor,
+                    actor_kind: parse_review_actor_kind(&apply.actor_kind)?,
+                    has_user_authorization: apply.user_authorized,
+                })
+                .await?
+                .context("memory proposal not found")?;
+            if apply.json {
+                print_json(memory_proposal_json(&proposal))?;
+            } else {
+                println!("Applied proposal {}", proposal.id.as_str());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn versions_command(args: VersionsArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let scope_id = scope_id_or_default(args.scope_id, &service_info);
+    let versions = kernel
+        .list_memory_versions(ListMemoryVersionsRequest {
+            scope_id: scope_id.clone(),
+            memory_id: MemoryId::from_string(args.memory_id),
+            limit: args.limit,
+        })
+        .await?;
+    if args.json {
+        print_json(json!({
+            "scope_id": scope_id.as_str(),
+            "versions": versions.iter().map(memory_version_json).collect::<Vec<_>>(),
+        }))?;
+    } else {
+        println!("Memory versions in scope {}", scope_id.as_str());
+        for version in versions {
+            println!(
+                "- v{} memory={} change={} actor={}",
+                version.version,
+                version.memory_id.as_str(),
+                version.change_kind,
+                version.actor
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn timeline_command(args: TimelineArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let scope_id = scope_id_or_default(args.scope_id, &service_info);
+    let timeline = kernel
+        .get_memory_timeline(GetMemoryTimelineRequest {
+            scope_id: scope_id.clone(),
+            memory_id: MemoryId::from_string(args.memory_id),
+            limit: args.limit,
+        })
+        .await?;
+    if args.json {
+        print_json(json!({
+            "scope_id": scope_id.as_str(),
+            "timeline": timeline.as_ref().map(memory_timeline_json),
+        }))?;
+    } else if let Some(timeline) = timeline {
+        println!("Memory timeline {}", timeline.memory_id.as_str());
+        for event in timeline.events {
+            println!(
+                "- {} {}",
+                timeline_event_kind_label(event.kind),
+                event.action
+            );
+        }
+    } else {
+        println!("Memory timeline not found in scope {}", scope_id.as_str());
+    }
+
+    Ok(())
+}
+
+async fn rollback_command(args: RollbackArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let result = kernel
+        .rollback_memory(RollbackMemoryRequest {
+            scope_id: scope_id_or_default(args.scope_id, &service_info),
+            memory_id: MemoryId::from_string(args.memory_id),
+            target_version: args.target_version,
+            actor: args.actor,
+            reason: args.reason,
+        })
+        .await?;
+    if args.json {
+        print_json(rollback_memory_json(&result))?;
+    } else {
+        println!(
+            "Rolled back {} to v{} as new v{}",
+            result.plan.memory_id.as_str(),
+            result.plan.target_version,
+            result.plan.new_version
+        );
+    }
+
+    Ok(())
+}
+
+async fn profiles_command(args: ProfilesArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    match args.command {
+        ProfilesCommand::List(list) => {
+            let profiles = kernel
+                .list_distillation_profiles(ListDistillationProfilesRequest {
+                    scope_id: list.scope_id.map(ScopeId::from_string),
+                    limit: list.limit,
+                })
+                .await?;
+            if list.json {
+                print_json(json!({
+                    "profiles": profiles.iter().map(distillation_profile_json).collect::<Vec<_>>(),
+                }))?;
+            } else {
+                println!("Distillation profiles");
+                for profile in profiles {
+                    println!(
+                        "- {} {} level={} status={}",
+                        profile.id.as_str(),
+                        profile.name,
+                        distillation_profile_level_label(profile.profile_level),
+                        distillation_profile_status_label(profile.status)
+                    );
+                }
+            }
+        }
+        ProfilesCommand::Upsert(upsert) => {
+            let wants_json = upsert.json;
+            let profile = kernel
+                .upsert_distillation_profile(profile_upsert_request(upsert)?)
+                .await?;
+            if wants_json {
+                print_json(distillation_profile_json(&profile))?;
+            } else {
+                println!("Upserted profile {}", profile.id.as_str());
+            }
+        }
+        ProfilesCommand::Archive(archive) => {
+            let profile_id = DistillationProfileId::from_string(archive.profile_id);
+            let existing = kernel
+                .list_distillation_profiles(ListDistillationProfilesRequest {
+                    scope_id: None,
+                    limit: 500,
+                })
+                .await?
+                .into_iter()
+                .find(|profile| profile.id == profile_id)
+                .context("distillation profile not found")?;
+            let profile = kernel
+                .upsert_distillation_profile(UpsertDistillationProfileRequest {
+                    profile_id,
+                    scope_id: existing.scope_id,
+                    profile_level: existing.profile_level,
+                    status: DistillationProfileStatus::Archived,
+                    name: existing.name,
+                    prompt_text: existing.prompt_text,
+                    focus_topics: existing.focus_topics,
+                    prefer_memory_kinds: existing.prefer_memory_kinds,
+                    created_by: archive.actor,
+                })
+                .await?;
+            if archive.json {
+                print_json(distillation_profile_json(&profile))?;
+            } else {
+                println!("Archived profile {}", profile.id.as_str());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn distill_command(args: DistillArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    match args.command {
+        DistillCommand::Preview(preview) => {
+            let input = load_distillation_input(&preview)?;
+            let result = kernel
+                .preview_distillation(PreviewDistillationRequest {
+                    scope_id: scope_id_or_default(preview.scope_id.clone(), &service_info),
+                    input,
+                    evidence_refs: preview.evidence_refs.clone(),
+                    session_override: build_distillation_session_override(&preview)?,
+                })
+                .await?;
+            if preview.json {
+                print_json(distillation_preview_result_json(&result))?;
+            } else {
+                println!(
+                    "Distillation preview {} candidate(s)",
+                    result.preview.candidates.len()
+                );
+                for candidate in result.preview.candidates {
+                    println!(
+                        "- {} [{}]",
+                        candidate.title,
+                        memory_kind_label(candidate.memory_kind)
+                    );
+                }
             }
         }
     }
@@ -3009,6 +3308,337 @@ fn lifecycle_status_json(result: &ChangeMemoryLifecycleStatusResult) -> serde_js
         "wrote_pg": result.wrote_pg,
         "wrote_markdown": result.wrote_markdown,
     })
+}
+
+fn profile_upsert_request(args: ProfileUpsertArgs) -> Result<UpsertDistillationProfileRequest> {
+    Ok(UpsertDistillationProfileRequest {
+        profile_id: args
+            .profile_id
+            .map(DistillationProfileId::from_string)
+            .unwrap_or_default(),
+        scope_id: args.scope_id.map(ScopeId::from_string),
+        profile_level: parse_distillation_profile_level(&args.level)?,
+        status: parse_distillation_profile_status(&args.status)?,
+        name: args.name,
+        prompt_text: args.prompt_text,
+        focus_topics: args.focus_topics,
+        prefer_memory_kinds: args
+            .prefer_memory_kinds
+            .iter()
+            .map(|value| parse_memory_kind(value))
+            .collect::<Result<Vec<_>>>()?,
+        created_by: args.created_by,
+    })
+}
+
+fn build_distillation_session_override(
+    args: &DistillPreviewArgs,
+) -> Result<Option<DistillationSessionOverride>> {
+    if args.prompt_text.is_none()
+        && args.focus_topics.is_empty()
+        && args.prefer_memory_kinds.is_empty()
+    {
+        return Ok(None);
+    }
+
+    let mut session_override =
+        DistillationSessionOverride::new(args.prompt_text.clone().unwrap_or_default());
+    for topic in &args.focus_topics {
+        session_override = session_override.add_focus_topic(topic.clone());
+    }
+    for memory_kind in &args.prefer_memory_kinds {
+        session_override = session_override.prefer_memory_kind(parse_memory_kind(memory_kind)?);
+    }
+    Ok(Some(session_override))
+}
+
+fn load_distillation_input(args: &DistillPreviewArgs) -> Result<String> {
+    if let Some(input) = args.input.as_ref() {
+        if input.trim().is_empty() {
+            bail!("--input must not be empty");
+        }
+        return Ok(input.clone());
+    }
+
+    if let Some(path) = args.file.as_ref() {
+        let raw = fs::read_to_string(path).with_context(|| {
+            format!("failed to read distillation input file {}", path.display())
+        })?;
+        if raw.trim().is_empty() {
+            bail!("--file content must not be empty");
+        }
+        return Ok(raw);
+    }
+
+    let mut buffer = String::new();
+    io::stdin().read_to_string(&mut buffer)?;
+    if buffer.trim().is_empty() {
+        bail!("distill preview requires --input, --file, or non-empty stdin");
+    }
+    Ok(buffer)
+}
+
+fn memory_proposal_json(proposal: &MemoryProposal) -> serde_json::Value {
+    json!({
+        "proposal_id": proposal.id.as_str(),
+        "scope_id": proposal.scope_id.as_str(),
+        "proposal_type": proposal.proposal_type.as_str(),
+        "status": proposal.status.as_str(),
+        "review_level": proposal.review_level.as_str(),
+        "subject_memory_id": proposal.subject_memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+        "target_memory_ids": proposal
+            .target_memory_ids
+            .iter()
+            .map(|memory_id| memory_id.as_str())
+            .collect::<Vec<_>>(),
+        "reason": proposal.reason,
+        "evidence": proposal.evidence,
+        "decided_by": proposal.decided_by,
+        "decided_at": proposal.decided_at,
+        "applied_at": proposal.applied_at,
+        "created_at": proposal.created_at,
+        "updated_at": proposal.updated_at,
+    })
+}
+
+fn memory_version_json(version: &TimelineVersion) -> serde_json::Value {
+    json!({
+        "memory_id": version.memory_id.as_str(),
+        "version": version.version,
+        "title": version.title,
+        "body": version.body,
+        "change_kind": version.change_kind,
+        "actor": version.actor,
+        "reason": version.reason,
+        "source_proposal_id": version.source_proposal_id.as_ref().map(|proposal_id| proposal_id.as_str()),
+        "created_at": version.created_at,
+    })
+}
+
+fn memory_relation_json(relation: &MemoryRelation) -> serde_json::Value {
+    json!({
+        "relation_id": relation.id.as_str(),
+        "scope_id": relation.scope_id.as_str(),
+        "from_memory_id": relation.from_memory_id.as_str(),
+        "to_memory_id": relation.to_memory_id.as_str(),
+        "relation_type": relation.relation_type.as_str(),
+        "confidence": relation.confidence,
+        "source_kind": relation.source_kind.as_str(),
+        "source_proposal_id": relation.source_proposal_id.as_ref().map(|proposal_id| proposal_id.as_str()),
+        "created_at": relation.created_at,
+    })
+}
+
+fn timeline_audit_event_json(event: &TimelineAuditEvent) -> serde_json::Value {
+    json!({
+        "memory_id": event.memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+        "action": event.action,
+        "actor": event.actor,
+        "reason": event.reason,
+        "created_at": event.created_at,
+    })
+}
+
+fn timeline_event_json(event: &TimelineEvent) -> serde_json::Value {
+    json!({
+        "kind": timeline_event_kind_label(event.kind),
+        "action": event.action,
+        "occurred_at": event.occurred_at,
+        "memory_id": event.memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+        "proposal_id": event.proposal_id.as_ref().map(|proposal_id| proposal_id.as_str()),
+        "relation_id": event.relation_id.as_ref().map(|relation_id| relation_id.as_str()),
+        "version": event.version,
+    })
+}
+
+fn memory_timeline_json(timeline: &MemoryTimeline) -> serde_json::Value {
+    json!({
+        "memory_id": timeline.memory_id.as_str(),
+        "versions": timeline.versions.iter().map(memory_version_json).collect::<Vec<_>>(),
+        "relations": timeline.relations.iter().map(memory_relation_json).collect::<Vec<_>>(),
+        "audit_events": timeline
+            .audit_events
+            .iter()
+            .map(timeline_audit_event_json)
+            .collect::<Vec<_>>(),
+        "proposals": timeline.proposals.iter().map(memory_proposal_json).collect::<Vec<_>>(),
+        "events": timeline.events.iter().map(timeline_event_json).collect::<Vec<_>>(),
+    })
+}
+
+fn rollback_memory_json(result: &RollbackMemoryResult) -> serde_json::Value {
+    json!({
+        "memory_id": result.plan.memory_id.as_str(),
+        "target_version": result.plan.target_version,
+        "new_version": result.plan.new_version,
+        "title": result.plan.title,
+        "body": result.plan.body,
+        "change_kind": result.plan.change_kind,
+        "actor": result.plan.actor,
+        "reason": result.plan.reason,
+        "current_title": result.memory.title,
+        "current_body": result.memory.body,
+    })
+}
+
+fn distillation_profile_json(profile: &DistillationProfile) -> serde_json::Value {
+    json!({
+        "profile_id": profile.id.as_str(),
+        "scope_id": profile.scope_id.as_ref().map(|scope_id| scope_id.as_str()),
+        "profile_level": distillation_profile_level_label(profile.profile_level),
+        "status": distillation_profile_status_label(profile.status),
+        "name": profile.name,
+        "prompt_text": profile.prompt_text,
+        "focus_topics": profile.focus_topics,
+        "prefer_memory_kinds": profile
+            .prefer_memory_kinds
+            .iter()
+            .copied()
+            .map(memory_kind_label)
+            .collect::<Vec<_>>(),
+        "created_by": profile.created_by,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+    })
+}
+
+fn distillation_preview_result_json(result: &PreviewDistillationResult) -> serde_json::Value {
+    json!({
+        "run": {
+            "run_id": result.preview.run.id.as_str(),
+            "scope_id": result.preview.run.scope_id.as_str(),
+            "input_hash": result.preview.run.input_hash,
+            "preview": result.preview.run.preview,
+            "created_at": result.preview.run.created_at,
+        },
+        "profile": composed_distillation_profile_json(&result.profile),
+        "candidates": result
+            .preview
+            .candidates
+            .iter()
+            .map(distillation_candidate_json)
+            .collect::<Vec<_>>(),
+        "discarded": result.preview.discarded,
+        "warnings": result.preview.warnings,
+        "stored_in_pg": result.stored_in_pg,
+    })
+}
+
+fn composed_distillation_profile_json(profile: &ComposedDistillationProfile) -> serde_json::Value {
+    json!({
+        "scope_id": profile.scope_id.as_str(),
+        "prompt_segments": profile
+            .prompt_segments
+            .iter()
+            .map(distillation_prompt_segment_json)
+            .collect::<Vec<_>>(),
+        "focus_topics": profile.focus_topics,
+        "prefer_memory_kinds": profile
+            .prefer_memory_kinds
+            .iter()
+            .copied()
+            .map(memory_kind_label)
+            .collect::<Vec<_>>(),
+        "source_profile_ids": profile
+            .source_profile_ids
+            .iter()
+            .map(|profile_id| profile_id.as_str())
+            .collect::<Vec<_>>(),
+        "safety_rules": profile.safety_rules,
+    })
+}
+
+fn distillation_prompt_segment_json(segment: &DistillationPromptSegment) -> serde_json::Value {
+    json!({
+        "layer": segment.layer,
+        "text": segment.text,
+    })
+}
+
+fn distillation_candidate_json(candidate: &DistillationCandidate) -> serde_json::Value {
+    json!({
+        "title": candidate.title,
+        "memory_kind": memory_kind_label(candidate.memory_kind),
+        "body": candidate.body,
+        "confidence": candidate.confidence,
+        "why_keep": candidate.why_keep,
+        "evidence_refs": candidate.evidence_refs,
+    })
+}
+
+fn print_proposal_summary(proposal: &MemoryProposal) {
+    println!("Proposal {}", proposal.id.as_str());
+    println!("Type: {}", proposal.proposal_type.as_str());
+    println!("Status: {}", proposal.status.as_str());
+    println!("Review: {}", proposal.review_level.as_str());
+    println!("Reason: {}", proposal.reason);
+    if !proposal.evidence.is_empty() {
+        println!("Evidence:");
+        for evidence in &proposal.evidence {
+            println!("- {evidence}");
+        }
+    }
+}
+
+fn parse_review_actor_kind(raw: &str) -> Result<ReviewActorKind> {
+    Ok(match raw {
+        "user" => ReviewActorKind::User,
+        "agent" => ReviewActorKind::Agent,
+        "system" => ReviewActorKind::System,
+        other => bail!("unsupported review actor kind: {other}"),
+    })
+}
+
+fn parse_distillation_profile_level(raw: &str) -> Result<DistillationProfileLevel> {
+    Ok(match raw {
+        "user_global" | "global" => DistillationProfileLevel::UserGlobal,
+        "project" => DistillationProfileLevel::Project,
+        other => bail!("unsupported distillation profile level: {other}"),
+    })
+}
+
+fn parse_distillation_profile_status(raw: &str) -> Result<DistillationProfileStatus> {
+    Ok(match raw {
+        "active" => DistillationProfileStatus::Active,
+        "archived" => DistillationProfileStatus::Archived,
+        other => bail!("unsupported distillation profile status: {other}"),
+    })
+}
+
+fn distillation_profile_level_label(level: DistillationProfileLevel) -> &'static str {
+    match level {
+        DistillationProfileLevel::UserGlobal => "user_global",
+        DistillationProfileLevel::Project => "project",
+    }
+}
+
+fn distillation_profile_status_label(status: DistillationProfileStatus) -> &'static str {
+    match status {
+        DistillationProfileStatus::Active => "active",
+        DistillationProfileStatus::Archived => "archived",
+    }
+}
+
+fn timeline_event_kind_label(kind: TimelineEventKind) -> &'static str {
+    match kind {
+        TimelineEventKind::Version => "version",
+        TimelineEventKind::Proposal => "proposal",
+        TimelineEventKind::Relation => "relation",
+        TimelineEventKind::Audit => "audit",
+    }
+}
+
+fn memory_kind_label(kind: MemoryKind) -> &'static str {
+    match kind {
+        MemoryKind::Fact => "fact",
+        MemoryKind::Preference => "preference",
+        MemoryKind::Decision => "decision",
+        MemoryKind::Procedure => "procedure",
+        MemoryKind::Constraint => "constraint",
+        MemoryKind::Risk => "risk",
+        MemoryKind::Summary => "summary",
+        MemoryKind::Insight => "insight",
+    }
 }
 
 fn remember_result_json(result: &RememberTextResult) -> serde_json::Value {

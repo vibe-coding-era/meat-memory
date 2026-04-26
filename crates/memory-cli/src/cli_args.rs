@@ -24,6 +24,12 @@ pub(super) enum Command {
     Context(ContextArgs),
     Docs(DocsArgs),
     Lifecycle(LifecycleArgs),
+    Proposals(ProposalArgs),
+    Versions(VersionsArgs),
+    Timeline(TimelineArgs),
+    Rollback(RollbackArgs),
+    Profiles(ProfilesArgs),
+    Distill(DistillArgs),
     Tui(TuiArgs),
     Serve(ServeArgs),
     Remember(RememberArgs),
@@ -91,6 +97,24 @@ pub(super) struct LifecycleArgs {
     pub(super) command: LifecycleCommand,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProposalArgs {
+    #[command(subcommand)]
+    pub(super) command: ProposalCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProfilesArgs {
+    #[command(subcommand)]
+    pub(super) command: ProfilesCommand,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DistillArgs {
+    #[command(subcommand)]
+    pub(super) command: DistillCommand,
+}
+
 #[derive(Debug, Clone, Subcommand)]
 pub(super) enum KeyCommand {
     Create(KeyCreateArgs),
@@ -138,6 +162,27 @@ pub(super) enum LifecycleCommand {
     Forget(LifecycleActionArgs),
     Restore(LifecycleActionArgs),
     Report(LifecycleReportArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum ProposalCommand {
+    List(ProposalListArgs),
+    Inspect(ProposalInspectArgs),
+    Approve(ProposalDecisionArgs),
+    Reject(ProposalRejectArgs),
+    Apply(ProposalDecisionArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum ProfilesCommand {
+    List(ProfilesListArgs),
+    Upsert(ProfileUpsertArgs),
+    Archive(ProfileArchiveArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum DistillCommand {
+    Preview(DistillPreviewArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -657,6 +702,145 @@ pub(super) struct LifecycleReportArgs {
     pub(super) scope_id: Option<String>,
     #[arg(long, default_value_t = 500)]
     pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProposalListArgs {
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProposalInspectArgs {
+    pub(super) proposal_id: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProposalDecisionArgs {
+    pub(super) proposal_id: String,
+    #[arg(long, default_value = "local-user")]
+    pub(super) actor: String,
+    #[arg(long, default_value = "user")]
+    pub(super) actor_kind: String,
+    #[arg(long)]
+    pub(super) user_authorized: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProposalRejectArgs {
+    pub(super) proposal_id: String,
+    #[arg(long, default_value = "local-user")]
+    pub(super) actor: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct VersionsArgs {
+    pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct TimelineArgs {
+    pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct RollbackArgs {
+    pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) target_version: i32,
+    #[arg(long, default_value = "local-user")]
+    pub(super) actor: String,
+    #[arg(long)]
+    pub(super) reason: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProfilesListArgs {
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProfileUpsertArgs {
+    #[arg(long)]
+    pub(super) profile_id: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value = "project")]
+    pub(super) level: String,
+    #[arg(long, default_value = "active")]
+    pub(super) status: String,
+    #[arg(long)]
+    pub(super) name: String,
+    #[arg(long)]
+    pub(super) prompt_text: String,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) focus_topics: Vec<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) prefer_memory_kinds: Vec<String>,
+    #[arg(long, default_value = "local-user")]
+    pub(super) created_by: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct ProfileArchiveArgs {
+    pub(super) profile_id: String,
+    #[arg(long, default_value = "local-user")]
+    pub(super) actor: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct DistillPreviewArgs {
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, conflicts_with = "file")]
+    pub(super) input: Option<String>,
+    #[arg(long)]
+    pub(super) file: Option<PathBuf>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) evidence_refs: Vec<String>,
+    #[arg(long)]
+    pub(super) prompt_text: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) focus_topics: Vec<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub(super) prefer_memory_kinds: Vec<String>,
     #[arg(long)]
     pub(super) json: bool,
 }

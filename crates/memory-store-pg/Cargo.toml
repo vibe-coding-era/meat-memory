@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 memory-domain = { path = "../memory-domain" }
+serde_json.workspace = true
 sqlx.workspace = true
 time.workspace = true
 ulid.workspace = true

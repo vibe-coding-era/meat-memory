@@ -1,21 +1,26 @@
 use super::{
-    Cli, api_metadata, bootstrap_loaded_config, bootstrap_runtime, build_cli_router, build_kernel,
-    build_non_interactive_project_init_request, build_remember_image_request,
-    build_remember_request, build_search_request, check_mcp_http_endpoint, config_check_json,
-    config_check_lines, config_check_report, config_command, config_summary_json,
-    config_summary_lines, context_command, detect_image_media_type, docs_command,
-    ensure_default_key_material, export_skill_bundle, generated_project_scope_id, key_command,
-    lifecycle_command, lifecycle_inspect_json, lifecycle_status_json, load_body,
-    load_body_from_reader, mcp_command, mcp_info_json, mcp_info_lines, parse_artifact_kind,
+    Cli, api_metadata, bootstrap_loaded_config, bootstrap_runtime, build_cli_router,
+    build_distillation_session_override, build_kernel, build_non_interactive_project_init_request,
+    build_remember_image_request, build_remember_request, build_search_request,
+    check_mcp_http_endpoint, config_check_json, config_check_lines, config_check_report,
+    config_command, config_summary_json, config_summary_lines, context_command,
+    detect_image_media_type, distill_command, distillation_preview_result_json,
+    distillation_profile_json, docs_command, ensure_default_key_material, export_skill_bundle,
+    generated_project_scope_id, key_command, lifecycle_command, lifecycle_inspect_json,
+    lifecycle_status_json, load_body, load_body_from_reader, mcp_command, mcp_info_json,
+    mcp_info_lines, memory_proposal_json, memory_timeline_json, memory_version_json,
+    parse_artifact_kind, parse_distillation_profile_level, parse_distillation_profile_status,
     parse_document_conflict_state, parse_document_sync_state, parse_key_scope, parse_key_source,
-    parse_memory_kind, parse_record_status, parse_sensitivity, parse_source_sync_mode,
-    parse_storage_mode, parse_visibility, project_command, project_init_result_json,
-    project_init_result_lines, project_scope_slug, remember_command, remember_command_with_runtime,
+    parse_memory_kind, parse_record_status, parse_review_actor_kind, parse_sensitivity,
+    parse_source_sync_mode, parse_storage_mode, parse_visibility, profiles_command,
+    project_command, project_init_result_json, project_init_result_lines, project_scope_slug,
+    proposal_command, remember_command, remember_command_with_runtime,
     remember_image_command_with_runtime, remember_image_result_json, remember_image_result_lines,
-    remember_result_json, remember_result_lines, render_json, resolve_bind, run_with_cli,
-    scope_id_or_default, search_bundle_json, search_bundle_lines, search_command,
-    search_command_with_runtime, serve_command_with_runtime, skills_command, source_command,
-    static_command_message, tui_command, tui_init_json, tui_init_lines, validate_model_registry,
+    remember_result_json, remember_result_lines, render_json, resolve_bind, rollback_command,
+    rollback_memory_json, run_with_cli, scope_id_or_default, search_bundle_json,
+    search_bundle_lines, search_command, search_command_with_runtime, serve_command_with_runtime,
+    skills_command, source_command, static_command_message, timeline_command, tui_command,
+    tui_init_json, tui_init_lines, validate_model_registry, versions_command,
     write_tui_config_if_requested,
 };
 use axum::{body::Body, http::Request};
@@ -24,14 +29,20 @@ use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
 use memory_config::AppConfig;
 use memory_core::ServiceInfo;
 use memory_domain::{
-    AccessKey, AccessKeyId, Artifact, ArtifactKind, ContextBundle, KeyScopeKind, KeySourceKind,
-    Memory, MemoryKind, MemoryRecordStatus, MemoryState, ScopeId, Sensitivity, SourceSyncMode,
-    StorageMode, Visibility,
+    AccessKey, AccessKeyId, Artifact, ArtifactKind, ContextBundle, DistillationProfile,
+    DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus, KeyScopeKind,
+    KeySourceKind, Memory, MemoryId, MemoryKind, MemoryProposal, MemoryRecordStatus,
+    MemoryRelation, MemoryRelationSourceKind, MemoryRelationType, MemoryState, ProposalId,
+    ProposalStatus, ProposalType, ReviewLevel, ScopeId, Sensitivity, SourceSyncMode, StorageMode,
+    Visibility,
 };
 use memory_domain::{DocumentConflictState, DocumentSyncState};
 use memory_kernel::{
-    AuditLogService, ChangeMemoryLifecycleStatusResult, InspectMemoryLifecycleResult,
-    LifecycleNormalizer, RecallExplainer, RememberImageResult, RememberTextResult,
+    AuditLogService, ChangeMemoryLifecycleStatusResult, ComposedDistillationProfile,
+    DistillationPreviewService, DistillationPromptSegment, InspectMemoryLifecycleResult,
+    LifecycleNormalizer, MemoryTimeline, PreviewDistillationResult, RecallExplainer,
+    RememberImageResult, RememberTextResult, ReviewActorKind, RollbackMemoryResult, RollbackPlan,
+    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -911,6 +922,143 @@ fn cli_parser_accepts_all_subcommands_and_nested_shapes() {
         ],
         &[
             "memory-cli",
+            "proposals",
+            "list",
+            "--scope-id",
+            "scp_parser",
+            "--limit",
+            "5",
+            "--json",
+        ],
+        &["memory-cli", "proposals", "inspect", "prp_parser", "--json"],
+        &[
+            "memory-cli",
+            "proposals",
+            "approve",
+            "prp_parser",
+            "--actor",
+            "alice",
+            "--actor-kind",
+            "user",
+            "--user-authorized",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "proposals",
+            "reject",
+            "prp_parser",
+            "--actor",
+            "alice",
+        ],
+        &[
+            "memory-cli",
+            "proposals",
+            "apply",
+            "prp_parser",
+            "--actor",
+            "system",
+            "--actor-kind",
+            "system",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "versions",
+            "mem_parser",
+            "--scope-id",
+            "scp_parser",
+            "--limit",
+            "5",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "timeline",
+            "mem_parser",
+            "--scope-id",
+            "scp_parser",
+            "--limit",
+            "5",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "rollback",
+            "mem_parser",
+            "--scope-id",
+            "scp_parser",
+            "--target-version",
+            "1",
+            "--actor",
+            "alice",
+            "--reason",
+            "parser rollback",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "profiles",
+            "list",
+            "--scope-id",
+            "scp_parser",
+            "--limit",
+            "5",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "profiles",
+            "upsert",
+            "--profile-id",
+            "dpf_parser",
+            "--scope-id",
+            "scp_parser",
+            "--level",
+            "project",
+            "--status",
+            "active",
+            "--name",
+            "Parser profile",
+            "--prompt-text",
+            "Keep decisions",
+            "--focus-topics",
+            "governance,rollback",
+            "--prefer-memory-kinds",
+            "decision,summary",
+            "--created-by",
+            "alice",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "profiles",
+            "archive",
+            "dpf_parser",
+            "--actor",
+            "alice",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "distill",
+            "preview",
+            "--scope-id",
+            "scp_parser",
+            "--input",
+            "Keep proposal-first governance decisions.",
+            "--evidence-refs",
+            "chat://1,doc://2",
+            "--prompt-text",
+            "Prefer governance decisions",
+            "--focus-topics",
+            "proposal",
+            "--prefer-memory-kinds",
+            "decision",
+            "--json",
+        ],
+        &[
+            "memory-cli",
             "tui",
             "init",
             "--json",
@@ -1296,6 +1444,221 @@ fn lifecycle_helpers_parse_and_render_cli_payloads() {
     assert_eq!(status_payload["record_status"], "forgotten");
     assert_eq!(status_payload["audit"]["after_status"], "forgotten");
     assert_eq!(status_payload["wrote_markdown"], true);
+}
+
+#[test]
+fn v28_cli_helpers_parse_and_render_payloads() {
+    assert_eq!(
+        parse_review_actor_kind("user").unwrap(),
+        ReviewActorKind::User
+    );
+    assert_eq!(
+        parse_review_actor_kind("agent").unwrap(),
+        ReviewActorKind::Agent
+    );
+    assert_eq!(
+        parse_review_actor_kind("system").unwrap(),
+        ReviewActorKind::System
+    );
+    assert!(parse_review_actor_kind("bot").is_err());
+    assert_eq!(
+        parse_distillation_profile_level("user_global").unwrap(),
+        DistillationProfileLevel::UserGlobal
+    );
+    assert_eq!(
+        parse_distillation_profile_level("global").unwrap(),
+        DistillationProfileLevel::UserGlobal
+    );
+    assert_eq!(
+        parse_distillation_profile_level("project").unwrap(),
+        DistillationProfileLevel::Project
+    );
+    assert!(parse_distillation_profile_level("workspace").is_err());
+    assert_eq!(
+        parse_distillation_profile_status("active").unwrap(),
+        DistillationProfileStatus::Active
+    );
+    assert_eq!(
+        parse_distillation_profile_status("archived").unwrap(),
+        DistillationProfileStatus::Archived
+    );
+    assert!(parse_distillation_profile_status("deleted").is_err());
+
+    let scope_id = ScopeId::from_string("scp_cli_v28");
+    let memory_id = MemoryId::from_string("mem_cli_v28");
+    let proposal_id = ProposalId::from_string("prp_cli_v28");
+    let mut proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Merge,
+        ReviewLevel::Suggested,
+        "near duplicate should be reviewed",
+    )
+    .unwrap()
+    .with_subject_memory(memory_id.clone());
+    proposal.id = proposal_id.clone();
+    proposal.add_target_memory(MemoryId::from_string("mem_target_v28"));
+    proposal
+        .add_evidence("same normalized title".to_string())
+        .unwrap();
+    proposal.approve("alice").unwrap();
+    let proposal_payload = memory_proposal_json(&proposal);
+    assert_eq!(proposal_payload["proposal_id"], "prp_cli_v28");
+    assert_eq!(proposal_payload["status"], "approved");
+    assert_eq!(proposal_payload["target_memory_ids"][0], "mem_target_v28");
+
+    let version = TimelineVersion {
+        memory_id: memory_id.clone(),
+        version: 2,
+        title: "New title".to_string(),
+        body: "New body".to_string(),
+        change_kind: "edit".to_string(),
+        actor: "alice".to_string(),
+        reason: Some("edited by test".to_string()),
+        source_proposal_id: Some(proposal_id.clone()),
+        created_at: datetime!(2025-02-03 04:05:06 UTC),
+    };
+    let version_payload = memory_version_json(&version);
+    assert_eq!(version_payload["version"], 2);
+    assert_eq!(version_payload["source_proposal_id"], "prp_cli_v28");
+
+    let relation = MemoryRelation::new(
+        scope_id.clone(),
+        memory_id.clone(),
+        MemoryId::from_string("mem_old_v28"),
+        MemoryRelationType::Supersedes,
+        MemoryRelationSourceKind::System,
+    )
+    .with_source_proposal_id(proposal_id.clone());
+    let audit = TimelineAuditEvent {
+        memory_id: Some(memory_id.clone()),
+        action: "memory.rollback".to_string(),
+        actor: "alice".to_string(),
+        reason: Some("restore old body".to_string()),
+        created_at: datetime!(2025-02-03 05:05:06 UTC),
+    };
+    let event = TimelineEvent {
+        kind: TimelineEventKind::Version,
+        action: "version.edit".to_string(),
+        occurred_at: datetime!(2025-02-03 04:05:06 UTC),
+        memory_id: Some(memory_id.clone()),
+        proposal_id: Some(proposal_id.clone()),
+        relation_id: None,
+        version: Some(2),
+    };
+    let timeline_payload = memory_timeline_json(&MemoryTimeline {
+        memory_id: memory_id.clone(),
+        versions: vec![version],
+        relations: vec![relation],
+        audit_events: vec![audit],
+        proposals: vec![proposal],
+        events: vec![event],
+    });
+    assert_eq!(timeline_payload["memory_id"], "mem_cli_v28");
+    assert_eq!(timeline_payload["versions"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        timeline_payload["relations"][0]["relation_type"],
+        "supersedes"
+    );
+    assert_eq!(
+        timeline_payload["audit_events"][0]["action"],
+        "memory.rollback"
+    );
+    assert_eq!(timeline_payload["events"][0]["kind"], "version");
+
+    let rollback_payload = rollback_memory_json(&RollbackMemoryResult {
+        plan: RollbackPlan {
+            memory_id: memory_id.clone(),
+            target_version: 1,
+            new_version: 3,
+            title: "Old title".to_string(),
+            body: "Old body".to_string(),
+            change_kind: "rollback",
+            actor: "alice".to_string(),
+            reason: "restore old body".to_string(),
+        },
+        memory: sample_memory(),
+    });
+    assert_eq!(rollback_payload["target_version"], 1);
+    assert_eq!(rollback_payload["new_version"], 3);
+    assert_eq!(rollback_payload["change_kind"], "rollback");
+
+    let mut profile = DistillationProfile::new_project(
+        scope_id.clone(),
+        "Governance profile",
+        "Keep proposal-first decisions",
+        "alice",
+    )
+    .unwrap()
+    .add_focus_topic("proposal")
+    .unwrap()
+    .prefer_memory_kind(MemoryKind::Decision);
+    profile.id = DistillationProfileId::from_string("dpf_cli_v28");
+    let profile_payload = distillation_profile_json(&profile);
+    assert_eq!(profile_payload["profile_id"], "dpf_cli_v28");
+    assert_eq!(profile_payload["profile_level"], "project");
+    assert_eq!(profile_payload["focus_topics"][0], "proposal");
+    assert_eq!(profile_payload["prefer_memory_kinds"][0], "decision");
+
+    let override_args = super::DistillPreviewArgs {
+        scope_id: Some(scope_id.as_str().to_string()),
+        input: Some("Prefer rollback safety.".to_string()),
+        file: None,
+        evidence_refs: vec!["chat://1".to_string()],
+        prompt_text: Some("Prefer governance summaries".to_string()),
+        focus_topics: vec!["rollback".to_string()],
+        prefer_memory_kinds: vec!["summary".to_string()],
+        json: true,
+    };
+    let session_override = build_distillation_session_override(&override_args)
+        .unwrap()
+        .unwrap();
+    assert_eq!(session_override.focus_topics, vec!["rollback".to_string()]);
+    assert_eq!(
+        session_override.prefer_memory_kinds,
+        vec![MemoryKind::Summary]
+    );
+    let no_override_args = super::DistillPreviewArgs {
+        scope_id: Some(scope_id.as_str().to_string()),
+        input: Some("No override".to_string()),
+        file: None,
+        evidence_refs: vec!["chat://1".to_string()],
+        prompt_text: None,
+        focus_topics: Vec::new(),
+        prefer_memory_kinds: Vec::new(),
+        json: true,
+    };
+    assert!(
+        build_distillation_session_override(&no_override_args)
+            .unwrap()
+            .is_none()
+    );
+
+    let composed = ComposedDistillationProfile {
+        scope_id: scope_id.clone(),
+        prompt_segments: vec![DistillationPromptSegment {
+            layer: "system_base",
+            text: "Preserve evidence".to_string(),
+        }],
+        focus_topics: vec!["rollback".to_string()],
+        prefer_memory_kinds: vec![MemoryKind::Summary],
+        source_profile_ids: vec![DistillationProfileId::from_string("dpf_cli_v28")],
+        safety_rules: vec!["must preserve evidence references"],
+    };
+    let preview = DistillationPreviewService::preview(
+        scope_id,
+        "Prefer rollback safety.",
+        &["chat://1".to_string()],
+        &composed,
+    )
+    .unwrap();
+    let preview_payload = distillation_preview_result_json(&PreviewDistillationResult {
+        preview,
+        profile: composed,
+        stored_in_pg: false,
+    });
+    assert_eq!(preview_payload["stored_in_pg"], false);
+    assert_eq!(preview_payload["candidates"][0]["memory_kind"], "summary");
+    assert_eq!(preview_payload["profile"]["focus_topics"][0], "rollback");
 }
 
 #[test]
@@ -2725,6 +3088,393 @@ async fn cli_command_functions_cover_pg_management_paths() {
     .unwrap();
 
     assert_eq!(service_info.name, "meat-memory");
+}
+
+#[tokio::test]
+async fn v28_cli_command_functions_cover_pg_paths() {
+    let _lock = lock_cli_env().await;
+    let tempdir = tempdir().unwrap();
+    let config_path = write_runtime_config(tempdir.path(), true, true);
+    let _env = EnvVarGuard::set_path("MEAT_MEMORY_CONFIG", &config_path);
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let (config, kernel, _) = match bootstrap_runtime().await {
+        Ok(runtime) => runtime,
+        Err(error) if error.to_string().contains("pool timed out") => return,
+        Err(error) => panic!("bootstrap_runtime failed: {error:?}"),
+    };
+    let scope_id = ScopeId::new();
+    let store = memory_store_pg::PgStore::connect(&config.postgres.database_url)
+        .await
+        .unwrap();
+    store
+        .seed_scope(
+            &scope_id,
+            scope_id.as_str(),
+            &format!("default/scopes/{}", scope_id.as_str()),
+        )
+        .await
+        .unwrap();
+
+    let mut memory = Memory::new(
+        scope_id.clone(),
+        MemoryKind::Decision,
+        "V2.8 CLI original",
+        "Original body",
+    )
+    .unwrap();
+    memory.activate().unwrap();
+    store.insert_memory(&memory).await.unwrap();
+    memory.title = "V2.8 CLI edited".to_string();
+    memory.body = "Edited body".to_string();
+    store.upsert_memory(&memory).await.unwrap();
+
+    let mut apply_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Merge,
+        ReviewLevel::Suggested,
+        "CLI should apply approved merge proposal",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    apply_proposal.id = ProposalId::from_string(format!("prp_cli_apply_{}", scope_id.as_str()));
+    apply_proposal
+        .add_evidence("command function coverage".to_string())
+        .unwrap();
+    store.upsert_memory_proposal(&apply_proposal).await.unwrap();
+
+    let mut reject_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::ConflictMark,
+        ReviewLevel::Required,
+        "CLI should reject conflicting fact proposal",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    reject_proposal.id = ProposalId::from_string(format!("prp_cli_reject_{}", scope_id.as_str()));
+    store
+        .upsert_memory_proposal(&reject_proposal)
+        .await
+        .unwrap();
+
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::List(super::ProposalListArgs {
+            scope_id: Some(scope_id.as_str().to_string()),
+            limit: 10,
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::List(super::ProposalListArgs {
+            scope_id: Some(scope_id.as_str().to_string()),
+            limit: 10,
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Inspect(super::ProposalInspectArgs {
+            proposal_id: apply_proposal.id.as_str().to_string(),
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Inspect(super::ProposalInspectArgs {
+            proposal_id: apply_proposal.id.as_str().to_string(),
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Approve(super::ProposalDecisionArgs {
+            proposal_id: apply_proposal.id.as_str().to_string(),
+            actor: "alice".to_string(),
+            actor_kind: "user".to_string(),
+            user_authorized: true,
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Apply(super::ProposalDecisionArgs {
+            proposal_id: apply_proposal.id.as_str().to_string(),
+            actor: "system".to_string(),
+            actor_kind: "system".to_string(),
+            user_authorized: false,
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Reject(super::ProposalRejectArgs {
+            proposal_id: reject_proposal.id.as_str().to_string(),
+            actor: "alice".to_string(),
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    let applied = kernel
+        .get_memory_proposal(memory_kernel::GetMemoryProposalRequest {
+            proposal_id: apply_proposal.id.clone(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(applied.status, ProposalStatus::Applied);
+
+    let mut approve_text_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Merge,
+        ReviewLevel::Suggested,
+        "CLI should approve text proposal",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    approve_text_proposal.id =
+        ProposalId::from_string(format!("prp_cli_approve_text_{}", scope_id.as_str()));
+    store
+        .upsert_memory_proposal(&approve_text_proposal)
+        .await
+        .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Approve(super::ProposalDecisionArgs {
+            proposal_id: approve_text_proposal.id.as_str().to_string(),
+            actor: "alice".to_string(),
+            actor_kind: "user".to_string(),
+            user_authorized: false,
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+
+    let mut apply_json_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Merge,
+        ReviewLevel::Suggested,
+        "CLI should apply json proposal",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    apply_json_proposal.id =
+        ProposalId::from_string(format!("prp_cli_apply_json_{}", scope_id.as_str()));
+    apply_json_proposal.approve("alice").unwrap();
+    store
+        .upsert_memory_proposal(&apply_json_proposal)
+        .await
+        .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Apply(super::ProposalDecisionArgs {
+            proposal_id: apply_json_proposal.id.as_str().to_string(),
+            actor: "system".to_string(),
+            actor_kind: "system".to_string(),
+            user_authorized: false,
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+
+    let mut reject_text_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::ConflictMark,
+        ReviewLevel::Required,
+        "CLI should reject text proposal",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    reject_text_proposal.id =
+        ProposalId::from_string(format!("prp_cli_reject_text_{}", scope_id.as_str()));
+    store
+        .upsert_memory_proposal(&reject_text_proposal)
+        .await
+        .unwrap();
+    proposal_command(super::ProposalArgs {
+        command: super::ProposalCommand::Reject(super::ProposalRejectArgs {
+            proposal_id: reject_text_proposal.id.as_str().to_string(),
+            actor: "alice".to_string(),
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+
+    versions_command(super::VersionsArgs {
+        memory_id: memory.id.as_str().to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        limit: 10,
+        json: true,
+    })
+    .await
+    .unwrap();
+    timeline_command(super::TimelineArgs {
+        memory_id: memory.id.as_str().to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        limit: 10,
+        json: false,
+    })
+    .await
+    .unwrap();
+    timeline_command(super::TimelineArgs {
+        memory_id: memory.id.as_str().to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        limit: 10,
+        json: true,
+    })
+    .await
+    .unwrap();
+    timeline_command(super::TimelineArgs {
+        memory_id: "mem_cli_v28_missing".to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        limit: 10,
+        json: false,
+    })
+    .await
+    .unwrap();
+    rollback_command(super::RollbackArgs {
+        memory_id: memory.id.as_str().to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        target_version: 1,
+        actor: "alice".to_string(),
+        reason: "restore original CLI body".to_string(),
+        json: true,
+    })
+    .await
+    .unwrap();
+    let restored = kernel
+        .get_memory(scope_id.clone(), memory.id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.title, "V2.8 CLI original");
+
+    rollback_command(super::RollbackArgs {
+        memory_id: memory.id.as_str().to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        target_version: 2,
+        actor: "alice".to_string(),
+        reason: "restore edited CLI body".to_string(),
+        json: false,
+    })
+    .await
+    .unwrap();
+
+    versions_command(super::VersionsArgs {
+        memory_id: memory.id.as_str().to_string(),
+        scope_id: Some(scope_id.as_str().to_string()),
+        limit: 10,
+        json: false,
+    })
+    .await
+    .unwrap();
+
+    profiles_command(super::ProfilesArgs {
+        command: super::ProfilesCommand::Upsert(super::ProfileUpsertArgs {
+            profile_id: Some(format!("dpf_cli_{}", scope_id.as_str())),
+            scope_id: Some(scope_id.as_str().to_string()),
+            level: "project".to_string(),
+            status: "active".to_string(),
+            name: "V2.8 CLI profile".to_string(),
+            prompt_text: "Prefer rollback and proposal governance".to_string(),
+            focus_topics: vec!["proposal".to_string()],
+            prefer_memory_kinds: vec!["decision".to_string()],
+            created_by: "alice".to_string(),
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    profiles_command(super::ProfilesArgs {
+        command: super::ProfilesCommand::Upsert(super::ProfileUpsertArgs {
+            profile_id: Some(format!("dpf_cli_text_{}", scope_id.as_str())),
+            scope_id: Some(scope_id.as_str().to_string()),
+            level: "project".to_string(),
+            status: "active".to_string(),
+            name: "V2.8 CLI text profile".to_string(),
+            prompt_text: "Prefer text branch coverage".to_string(),
+            focus_topics: vec!["timeline".to_string()],
+            prefer_memory_kinds: vec!["summary".to_string()],
+            created_by: "alice".to_string(),
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+    profiles_command(super::ProfilesArgs {
+        command: super::ProfilesCommand::List(super::ProfilesListArgs {
+            scope_id: Some(scope_id.as_str().to_string()),
+            limit: 10,
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+    profiles_command(super::ProfilesArgs {
+        command: super::ProfilesCommand::List(super::ProfilesListArgs {
+            scope_id: Some(scope_id.as_str().to_string()),
+            limit: 10,
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    profiles_command(super::ProfilesArgs {
+        command: super::ProfilesCommand::Archive(super::ProfileArchiveArgs {
+            profile_id: format!("dpf_cli_{}", scope_id.as_str()),
+            actor: "alice".to_string(),
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    profiles_command(super::ProfilesArgs {
+        command: super::ProfilesCommand::Archive(super::ProfileArchiveArgs {
+            profile_id: format!("dpf_cli_text_{}", scope_id.as_str()),
+            actor: "alice".to_string(),
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
+
+    distill_command(super::DistillArgs {
+        command: super::DistillCommand::Preview(super::DistillPreviewArgs {
+            scope_id: Some(scope_id.as_str().to_string()),
+            input: Some("V2.8 CLI keeps proposal-first governance.".to_string()),
+            file: None,
+            evidence_refs: vec!["cli://v28".to_string()],
+            prompt_text: Some("Prefer decision memories".to_string()),
+            focus_topics: vec!["proposal".to_string()],
+            prefer_memory_kinds: vec!["decision".to_string()],
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    distill_command(super::DistillArgs {
+        command: super::DistillCommand::Preview(super::DistillPreviewArgs {
+            scope_id: Some(scope_id.as_str().to_string()),
+            input: Some("V2.8 CLI text preview keeps summaries.".to_string()),
+            file: None,
+            evidence_refs: vec!["cli://v28-text".to_string()],
+            prompt_text: None,
+            focus_topics: Vec::new(),
+            prefer_memory_kinds: Vec::new(),
+            json: false,
+        }),
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

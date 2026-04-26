@@ -93,7 +93,9 @@
 ./docs/scripts/v2_1-acceptance.sh
 ./docs/scripts/v2_4-acceptance.sh
 ./docs/scripts/v2_7-acceptance.sh
+./docs/scripts/v2_8-acceptance.sh
 ./docs/scripts/v2_7-production-gate.sh
+./docs/scripts/v2_8-production-gate.sh
 ```
 
 分别适用于：
@@ -102,7 +104,9 @@
 - `v2_1-acceptance.sh`：CLI / MCP / TUI / skill 验收
 - `v2_4-acceptance.sh`：source / docs / context / metrics 验收
 - `v2_7-acceptance.sh`：lifecycle / governance / explainability / health report 验收
+- `v2_8-acceptance.sh`：proposal / timeline / rollback / profile / distillation 验收；`V2_8_ACCEPTANCE_STRICT=1` 时要求 PG-backed 主链路
 - `v2_7-production-gate.sh`：V2.7 商用生产门禁，覆盖格式、接口、P1 回归、存储、接入面、安全和严格 PG 验收
+- `v2_8-production-gate.sh`：V2.8 发布门禁，覆盖格式、接口、V2.8 核心套件、接入面、安全和 strict acceptance
 
 ### 6. 生成测试报告
 
@@ -163,7 +167,9 @@
 - `v1-acceptance.sh`：V1 验收
 - `v2_1-acceptance.sh`：V2.1 配置 / MCP / TUI / skill 验收
 - `v2_4-acceptance.sh`：V2.4 context / docs / source 验收
+- `v2_8-acceptance.sh`：V2.8 proposal / timeline / rollback / profile / distillation 验收
 - `v2_7-production-gate.sh`：V2.7 生产门禁
+- `v2_8-production-gate.sh`：V2.8 发布门禁
 - `v2-perf.sh`：性能烟测
 - `security-report.sh`：安全专项报告
 - `write-test-reports.sh`：统一刷新测试报告

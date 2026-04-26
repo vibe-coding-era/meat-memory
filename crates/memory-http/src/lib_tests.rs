@@ -1,7 +1,11 @@
 use super::{
     ApiError, ApiFeatureFlags, ApiMetadata, HttpAppState, api_error_from_anyhow,
-    build_console_page, build_router, escape_html, has_route, memory_kind_label, memory_to_summary,
-    parse_artifact_kind, parse_memory_kind, parse_sensitivity, parse_visibility,
+    build_console_page, build_router, distillation_profile_level_label,
+    distillation_profile_status_label, escape_html, has_route, memory_kind_label,
+    memory_to_summary, parse_artifact_kind, parse_distillation_profile_level,
+    parse_distillation_profile_status, parse_memory_kind, parse_review_actor_kind,
+    parse_review_level, parse_review_policy_action, parse_sensitivity, parse_visibility,
+    review_policy_decision_label,
 };
 use anyhow::anyhow;
 use axum::{
@@ -11,13 +15,16 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use memory_domain::{
-    ArtifactKind, Memory, MemoryKind, MemoryState, ScopeId, Sensitivity, Visibility,
+    ArtifactKind, DistillationProfileLevel, DistillationProfileStatus, Memory, MemoryKind,
+    MemoryProposal, MemoryRelation, MemoryRelationSourceKind, MemoryRelationType, MemoryState,
+    ProposalStatus, ProposalType, ReviewLevel, ScopeId, Sensitivity, Visibility,
 };
-use memory_kernel::Kernel;
+use memory_kernel::{Kernel, ReviewActorKind, ReviewPolicyAction, ReviewPolicyDecision};
 use memory_models::{
     CapabilityRoute, DeploymentTarget, ModelCapability, ModelDescriptor, ModelRegistry, Provider,
     ProviderDescriptor,
 };
+use memory_store_pg::PgStore as TestPgStore;
 use std::collections::BTreeSet;
 use std::env;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -50,6 +57,34 @@ fn local_pg_test_port_available() -> bool {
         .and_then(|mut addrs| addrs.next())
         .unwrap_or_else(|| "127.0.0.1:5433".parse::<SocketAddr>().unwrap());
     TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+async fn test_pg_store() -> TestPgStore {
+    let store = TestPgStore::connect(&test_database_url()).await.unwrap();
+    store.migrate().await.unwrap();
+    store
+}
+
+async fn seed_active_memory(
+    store: &TestPgStore,
+    scope_id: &ScopeId,
+    title: &str,
+    body: &str,
+    kind: MemoryKind,
+) -> Memory {
+    store
+        .seed_scope(
+            scope_id,
+            scope_id.as_str(),
+            &format!("default/scopes/{}", scope_id.as_str()),
+        )
+        .await
+        .unwrap();
+
+    let mut memory = Memory::new(scope_id.clone(), kind, title, body).unwrap();
+    memory.activate().unwrap();
+    store.insert_memory(&memory).await.unwrap();
+    memory
 }
 
 fn test_state(tempdir: &std::path::Path) -> HttpAppState {
@@ -191,6 +226,24 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
+    assert!(has_route("/api/v1/proposals"));
+    assert!(has_route("/api/v1/proposals/{proposal_id}"));
+    assert!(has_route("/api/v1/proposals/{proposal_id}/approve"));
+    assert!(has_route("/api/v1/proposals/{proposal_id}/reject"));
+    assert!(has_route("/api/v1/proposals/{proposal_id}/apply"));
+    assert!(has_route("/api/v1/proposals/review-policy/evaluate"));
+    assert!(has_route(
+        "/api/v1/memories/{scope_id}/{memory_id}/versions"
+    ));
+    assert!(has_route(
+        "/api/v1/memories/{scope_id}/{memory_id}/timeline"
+    ));
+    assert!(has_route(
+        "/api/v1/memories/{scope_id}/{memory_id}/rollback"
+    ));
+    assert!(has_route("/api/v1/distillation/profiles"));
+    assert!(has_route("/api/v1/distillation/profiles/{profile_id}"));
+    assert!(has_route("/api/v1/distillation/preview"));
     assert!(has_route("/api/v1/explorer/memories"));
     assert!(has_route("/api/v1/assistant/chat"));
     assert!(has_route("/api/v1/keys/{key_id}"));
@@ -680,6 +733,728 @@ async fn search_context_uses_default_scope_and_limit_when_omitted() {
 }
 
 #[tokio::test]
+async fn review_policy_endpoint_evaluates_v28_boundaries() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let cases = [
+        (
+            r#"{"review_level":"auto","action":"approve","actor_kind":"system"}"#,
+            "allow",
+            "auto proposal may be approved automatically",
+        ),
+        (
+            r#"{"review_level":"required","action":"approve","actor_kind":"agent"}"#,
+            "require_user_approval",
+            "required proposal needs explicit user approval",
+        ),
+        (
+            r#"{"review_level":"blocked","action":"apply","actor_kind":"user","has_user_authorization":true}"#,
+            "deny",
+            "blocked proposal cannot be applied",
+        ),
+    ];
+
+    for (body, decision, reason) in cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/v1/proposals/review-policy/evaluate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let payload = response_json(response).await;
+        assert_eq!(payload["decision"], decision);
+        assert_eq!(payload["reason"], reason);
+    }
+}
+
+#[tokio::test]
+async fn distillation_preview_endpoint_uses_session_prompt_and_default_scope() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/distillation/preview")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"input":"V2.8 should keep review decisions with evidence.","evidence_refs":["agent-context://ctx_1"],"prompt_text":"Prefer durable review decisions.","focus_topics":["review"],"prefer_memory_kinds":["decision"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let payload = response_json(response).await;
+    assert_eq!(payload["run"]["scope_id"], "scp_http_default");
+    assert_eq!(payload["run"]["preview"], true);
+    assert!(
+        payload["run"]["run_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("drn_")
+    );
+    assert!(
+        payload["run"]["input_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("len:")
+    );
+    assert_eq!(payload["profile"]["focus_topics"][0], "review");
+    assert_eq!(payload["profile"]["prefer_memory_kinds"][0], "decision");
+    assert_eq!(
+        payload["profile"]["prompt_segments"][1]["layer"],
+        "session_override"
+    );
+    assert_eq!(
+        payload["profile"]["prompt_segments"][1]["text"],
+        "Prefer durable review decisions."
+    );
+    assert_eq!(payload["candidates"][0]["memory_kind"], "decision");
+    assert_eq!(
+        payload["candidates"][0]["evidence_refs"][0],
+        "agent-context://ctx_1"
+    );
+    assert_eq!(payload["discarded"], serde_json::json!([]));
+    assert!(payload["warnings"][0].as_str().unwrap().contains("preview"));
+}
+
+#[tokio::test]
+async fn distillation_preview_endpoint_accepts_explicit_scope_and_default_profile() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/distillation/preview")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"scope_id":"scp_v28","input":"Remember this stable fact.","evidence_refs":["agent-context://ctx_2"]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let payload = response_json(response).await;
+    assert_eq!(payload["run"]["scope_id"], "scp_v28");
+    assert_eq!(
+        payload["profile"]["prompt_segments"][0]["layer"],
+        "system_base"
+    );
+    assert_eq!(payload["profile"]["focus_topics"], serde_json::json!([]));
+    assert_eq!(
+        payload["profile"]["prefer_memory_kinds"],
+        serde_json::json!([])
+    );
+    assert_eq!(payload["candidates"][0]["memory_kind"], "summary");
+    assert_eq!(
+        payload["candidates"][0]["why_keep"],
+        "profile-guided preview candidate"
+    );
+}
+
+#[tokio::test]
+async fn distillation_profile_endpoints_roundtrip_and_feed_preview() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state_with_pg(tempdir.path()).await);
+    let project_scope_id = ScopeId::new();
+    let global_profile_id = memory_domain::DistillationProfileId::new();
+    let project_profile_id = memory_domain::DistillationProfileId::new();
+
+    let global = app
+        .clone()
+        .oneshot(
+            Request::put(format!(
+                "/api/v1/distillation/profiles/{}",
+                global_profile_id.as_str()
+            ))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"profile_level":"user_global","status":"active","name":"HTTP global","prompt_text":"Keep governance guidance.","focus_topics":["governance"],"prefer_memory_kinds":[],"created_by":"user"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(global.status(), axum::http::StatusCode::OK);
+    let global_payload = response_json(global).await;
+    assert_eq!(global_payload["profile_id"], global_profile_id.as_str());
+    assert_eq!(global_payload["profile_level"], "user_global");
+
+    let project = app
+        .clone()
+        .oneshot(
+            Request::put(format!(
+                "/api/v1/distillation/profiles/{}",
+                project_profile_id.as_str()
+            ))
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","profile_level":"project","status":"active","name":"HTTP project","prompt_text":"Prefer rollout constraints.","focus_topics":["rollout"],"prefer_memory_kinds":["constraint"],"created_by":"user"}}"#,
+                    project_scope_id.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(project.status(), axum::http::StatusCode::OK);
+    let project_payload = response_json(project).await;
+    assert_eq!(project_payload["scope_id"], project_scope_id.as_str());
+    assert_eq!(project_payload["prefer_memory_kinds"][0], "constraint");
+
+    let scoped = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/distillation/profiles?scope_id={}",
+                project_scope_id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(scoped.status(), axum::http::StatusCode::OK);
+    let scoped_payload = response_json(scoped).await;
+    assert_eq!(scoped_payload.as_array().unwrap().len(), 1);
+    assert_eq!(scoped_payload[0]["profile_id"], project_profile_id.as_str());
+
+    let preview = app
+        .oneshot(
+            Request::post("/api/v1/distillation/preview")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","input":"Keep rollback evidence visible.","evidence_refs":["agent-context://ctx_http"]}}"#,
+                    project_scope_id.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.status(), axum::http::StatusCode::OK);
+    let preview_payload = response_json(preview).await;
+    assert_eq!(
+        preview_payload["profile"]["prompt_segments"][1]["layer"],
+        "user_global"
+    );
+    assert_eq!(
+        preview_payload["profile"]["prompt_segments"][2]["layer"],
+        "project"
+    );
+    assert_eq!(
+        preview_payload["candidates"][0]["memory_kind"],
+        "constraint"
+    );
+}
+
+#[tokio::test]
+async fn memory_rollback_endpoint_restores_prior_version_from_pg() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state_with_pg(tempdir.path()).await);
+    let store = test_pg_store().await;
+    let scope_id = ScopeId::new();
+    let mut memory = seed_active_memory(
+        &store,
+        &scope_id,
+        "Rollback HTTP v1",
+        "Rollback HTTP original body.",
+        MemoryKind::Decision,
+    )
+    .await;
+    memory.title = "Rollback HTTP v2".to_string();
+    memory.body = "Rollback HTTP updated body.".to_string();
+    memory.updated_at = time::OffsetDateTime::now_utc();
+    store.upsert_memory(&memory).await.unwrap();
+
+    let rollback = app
+        .clone()
+        .oneshot(
+            Request::post(format!(
+                "/api/v1/memories/{}/{}/rollback",
+                scope_id.as_str(),
+                memory.id.as_str()
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"target_version":1,"actor":"user","reason":"restore original wording"}"#,
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rollback.status(), axum::http::StatusCode::OK);
+    let rollback_payload = response_json(rollback).await;
+    assert_eq!(rollback_payload["target_version"], 1);
+    assert_eq!(rollback_payload["new_version"], 3);
+    assert_eq!(rollback_payload["change_kind"], "rollback");
+    assert_eq!(rollback_payload["title"], "Rollback HTTP v1");
+
+    let restored = store
+        .get_memory(&scope_id, &memory.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.title, "Rollback HTTP v1");
+    assert_eq!(restored.body, "Rollback HTTP original body.");
+
+    let versions = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/memories/{}/{}/versions",
+                scope_id.as_str(),
+                memory.id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(versions.status(), axum::http::StatusCode::OK);
+    let versions_payload = response_json(versions).await;
+    assert_eq!(versions_payload[0]["version"], 3);
+    assert_eq!(versions_payload[0]["change_kind"], "rollback");
+    assert_eq!(versions_payload[0]["reason"], "restore original wording");
+}
+
+#[tokio::test]
+async fn proposal_review_endpoints_roundtrip_from_pg() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state_with_pg(tempdir.path()).await);
+    let store = test_pg_store().await;
+    let scope_id = ScopeId::new();
+    store
+        .seed_scope(
+            &scope_id,
+            scope_id.as_str(),
+            &format!("default/scopes/{}", scope_id.as_str()),
+        )
+        .await
+        .unwrap();
+    let subject = seed_active_memory(
+        &store,
+        &scope_id,
+        "HTTP proposal subject",
+        "Newer proposal subject body.",
+        MemoryKind::Decision,
+    )
+    .await;
+    let target = seed_active_memory(
+        &store,
+        &scope_id,
+        "HTTP proposal target",
+        "Older proposal target body.",
+        MemoryKind::Decision,
+    )
+    .await;
+
+    let mut approve_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Supersede,
+        ReviewLevel::Required,
+        "http proposal requires user approval",
+    )
+    .unwrap()
+    .with_subject_memory(subject.id.clone());
+    approve_proposal.add_target_memory(target.id.clone());
+    approve_proposal
+        .add_evidence("required change should not be agent-approved silently".to_string())
+        .unwrap();
+    store
+        .upsert_memory_proposal(&approve_proposal)
+        .await
+        .unwrap();
+    let reject_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::ConflictMark,
+        ReviewLevel::Suggested,
+        "http proposal should be rejected",
+    )
+    .unwrap();
+    store
+        .upsert_memory_proposal(&reject_proposal)
+        .await
+        .unwrap();
+
+    let listed = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/proposals?scope_id={}&limit=10",
+                scope_id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), axum::http::StatusCode::OK);
+    let listed_payload = response_json(listed).await;
+    let listed_ids = listed_payload
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|proposal| proposal["proposal_id"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert!(listed_ids.contains(approve_proposal.id.as_str()));
+    assert!(listed_ids.contains(reject_proposal.id.as_str()));
+
+    let inspected = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/proposals/{}",
+                approve_proposal.id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(inspected.status(), axum::http::StatusCode::OK);
+    let inspected_payload = response_json(inspected).await;
+    assert_eq!(inspected_payload["status"], "open");
+    assert_eq!(inspected_payload["review_level"], "required");
+
+    let forbidden = app
+        .clone()
+        .oneshot(
+            Request::post(format!(
+                "/api/v1/proposals/{}/approve",
+                approve_proposal.id.as_str()
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"actor":"agent","actor_kind":"agent","has_user_authorization":false}"#,
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), axum::http::StatusCode::FORBIDDEN);
+
+    let approved = app
+        .clone()
+        .oneshot(
+            Request::post(format!(
+                "/api/v1/proposals/{}/approve",
+                approve_proposal.id.as_str()
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"actor":"user","actor_kind":"user","has_user_authorization":false}"#,
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(approved.status(), axum::http::StatusCode::OK);
+    let approved_payload = response_json(approved).await;
+    assert_eq!(approved_payload["status"], "approved");
+    assert_eq!(approved_payload["decided_by"], "user");
+
+    let applied = app
+        .clone()
+        .oneshot(
+            Request::post(format!(
+                "/api/v1/proposals/{}/apply",
+                approve_proposal.id.as_str()
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"actor":"system","actor_kind":"system","has_user_authorization":false}"#,
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied.status(), axum::http::StatusCode::OK);
+    let applied_payload = response_json(applied).await;
+    assert_eq!(applied_payload["status"], "applied");
+
+    let timeline = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/memories/{}/{}/timeline",
+                scope_id.as_str(),
+                subject.id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(timeline.status(), axum::http::StatusCode::OK);
+    let timeline_payload = response_json(timeline).await;
+    assert_eq!(timeline_payload["relations"].as_array().unwrap().len(), 1);
+    assert!(
+        timeline_payload["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["action"] == "proposal.applied")
+    );
+
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::post(format!(
+                "/api/v1/proposals/{}/reject",
+                reject_proposal.id.as_str()
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"actor":"user"}"#))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), axum::http::StatusCode::OK);
+    let rejected_payload = response_json(rejected).await;
+    assert_eq!(rejected_payload["status"], "rejected");
+
+    let missing = app
+        .oneshot(
+            Request::get("/api/v1/proposals/prp_missing")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), axum::http::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn memory_versions_and_timeline_endpoints_roundtrip_from_pg() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state_with_pg(tempdir.path()).await);
+    let store = test_pg_store().await;
+    let scope_id = ScopeId::new();
+    let mut subject = seed_active_memory(
+        &store,
+        &scope_id,
+        "HTTP timeline subject",
+        "Initial HTTP timeline body.",
+        MemoryKind::Decision,
+    )
+    .await;
+    let target = seed_active_memory(
+        &store,
+        &scope_id,
+        "HTTP timeline target",
+        "Legacy HTTP timeline body.",
+        MemoryKind::Decision,
+    )
+    .await;
+
+    subject.title = "HTTP timeline subject v2".to_string();
+    subject.body = "Updated HTTP timeline body.".to_string();
+    subject.updated_at = time::OffsetDateTime::now_utc();
+    store.upsert_memory(&subject).await.unwrap();
+
+    let mut proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Supersede,
+        ReviewLevel::Required,
+        "http timeline supersede proposal",
+    )
+    .unwrap()
+    .with_subject_memory(subject.id.clone());
+    proposal.add_target_memory(target.id.clone());
+    proposal
+        .add_evidence("same scope with newer rollback guidance".to_string())
+        .unwrap();
+    proposal.approve("user").unwrap();
+    store.upsert_memory_proposal(&proposal).await.unwrap();
+    sqlx::query(
+        "UPDATE memory_versions SET source_proposal_id = $1 WHERE memory_id = $2 AND version = 2",
+    )
+    .bind(proposal.id.as_str())
+    .bind(subject.id.as_str())
+    .execute(store.pool())
+    .await
+    .unwrap();
+
+    let relation = MemoryRelation::new(
+        scope_id.clone(),
+        subject.id.clone(),
+        target.id.clone(),
+        MemoryRelationType::Supersedes,
+        MemoryRelationSourceKind::System,
+    )
+    .with_source_proposal_id(proposal.id.clone());
+    store.insert_memory_relation(&relation).await.unwrap();
+    store
+        .insert_lifecycle_audit_event(
+            &scope_id,
+            &subject.id,
+            "memory.status.changed",
+            "system",
+            Some("active"),
+            Some("deprecated"),
+            Some("superseded in http timeline test"),
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+
+    let versions = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/memories/{}/{}/versions",
+                scope_id.as_str(),
+                subject.id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(versions.status(), axum::http::StatusCode::OK);
+    let versions_payload = response_json(versions).await;
+    assert_eq!(versions_payload.as_array().unwrap().len(), 2);
+    assert_eq!(versions_payload[0]["version"], 2);
+    assert_eq!(versions_payload[0]["title"], "HTTP timeline subject v2");
+    assert_eq!(
+        versions_payload[0]["source_proposal_id"],
+        proposal.id.as_str()
+    );
+    assert_eq!(versions_payload[1]["version"], 1);
+
+    let timeline = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/memories/{}/{}/timeline",
+                scope_id.as_str(),
+                subject.id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(timeline.status(), axum::http::StatusCode::OK);
+    let timeline_payload = response_json(timeline).await;
+    assert_eq!(timeline_payload["memory_id"], subject.id.as_str());
+    assert_eq!(timeline_payload["versions"].as_array().unwrap().len(), 2);
+    assert_eq!(timeline_payload["relations"].as_array().unwrap().len(), 1);
+    assert_eq!(timeline_payload["proposals"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        timeline_payload["audit_events"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(timeline_payload["proposals"][0]["status"], "approved");
+    assert_eq!(
+        timeline_payload["proposals"][0]["status"],
+        ProposalStatus::Approved.as_str()
+    );
+    assert!(
+        timeline_payload["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["action"] == "proposal.approved")
+    );
+    assert!(
+        timeline_payload["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["action"] == "relation.supersedes")
+    );
+    assert!(
+        timeline_payload["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["action"] == "audit.memory.status.changed")
+    );
+}
+
+#[tokio::test]
+async fn memory_versions_and_timeline_endpoints_require_pg_or_existing_memory() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let scope_id = ScopeId::new();
+
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"scope_id":"{}","title":"Local only memory","body":"Stored in markdown only."}}"#,
+                    scope_id.as_str()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), axum::http::StatusCode::CREATED);
+    let created_payload = response_json(created).await;
+    let memory_id = created_payload["memory_id"].as_str().unwrap();
+
+    let versions = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/memories/{}/{}/versions",
+                scope_id.as_str(),
+                memory_id
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        versions.status(),
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+    );
+    assert_eq!(
+        response_json(versions).await["error"],
+        "internal server error"
+    );
+
+    let missing_timeline = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/memories/{}/mem_missing/timeline",
+                scope_id.as_str()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_timeline.status(), axum::http::StatusCode::NOT_FOUND);
+    assert_eq!(
+        response_json(missing_timeline).await["error"],
+        "memory not found"
+    );
+}
+
+#[tokio::test]
 async fn rejects_invalid_payloads_and_policy_violations() {
     let tempdir = tempdir().unwrap();
     let app = build_router(test_state(tempdir.path()));
@@ -720,13 +1495,73 @@ async fn rejects_invalid_payloads_and_policy_violations() {
             axum::http::StatusCode::BAD_REQUEST,
             "invalid image_base64 payload",
         ),
+        (
+            "/api/v1/proposals/review-policy/evaluate",
+            r#"{"review_level":"unknown","action":"approve","actor_kind":"agent"}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unsupported review_level: unknown",
+        ),
+        (
+            "/api/v1/proposals/review-policy/evaluate",
+            r#"{"review_level":"auto","action":"publish","actor_kind":"agent"}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unsupported review_policy_action: publish",
+        ),
+        (
+            "/api/v1/proposals/review-policy/evaluate",
+            r#"{"review_level":"auto","action":"approve","actor_kind":"robot"}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unsupported review_actor_kind: robot",
+        ),
+        (
+            "/api/v1/distillation/preview",
+            r#"{"input":" ","evidence_refs":["agent-context://ctx_1"]}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "distillation input cannot be empty",
+        ),
+        (
+            "/api/v1/distillation/preview",
+            r#"{"input":"Keep this decision.","evidence_refs":[]}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "distillation evidence_refs cannot be empty",
+        ),
+        (
+            "/api/v1/distillation/preview",
+            r#"{"input":"Keep this decision.","evidence_refs":["agent-context://ctx_1"],"prefer_memory_kinds":["bogus"]}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unsupported memory_kind: bogus",
+        ),
+        (
+            "/api/v1/distillation/profiles/dpf_invalid",
+            r#"{"profile_level":"workspace","name":"Invalid","prompt_text":"prompt","created_by":"user"}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unsupported distillation_profile_level: workspace",
+        ),
+        (
+            "/api/v1/distillation/profiles/dpf_invalid",
+            r#"{"profile_level":"user_global","status":"draft","name":"Invalid","prompt_text":"prompt","created_by":"user"}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unsupported distillation_profile_status: draft",
+        ),
+        (
+            "/api/v1/distillation/profiles/dpf_invalid",
+            r#"{"profile_level":"project","name":"Invalid","prompt_text":"prompt","created_by":"user"}"#,
+            axum::http::StatusCode::BAD_REQUEST,
+            "project profile requires scope_id",
+        ),
     ];
 
     for (path, body, status, message) in cases {
         let response = app
             .clone()
             .oneshot(
-                Request::post(path)
+                Request::builder()
+                    .method(if path.contains("/distillation/profiles/") {
+                        "PUT"
+                    } else {
+                        "POST"
+                    })
+                    .uri(path)
                     .header("content-type", "application/json")
                     .body(Body::from(body))
                     .unwrap(),
@@ -734,9 +1569,16 @@ async fn rejects_invalid_payloads_and_policy_violations() {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), status);
+        assert_eq!(
+            response.status(),
+            status,
+            "unexpected status for path={path} body={body}"
+        );
         let payload = response_json(response).await;
-        assert_eq!(payload["error"], message);
+        assert_eq!(
+            payload["error"], message,
+            "unexpected error for path={path}"
+        );
     }
 }
 
@@ -776,6 +1618,41 @@ fn parses_supported_enums_and_labels() {
         ("private", Sensitivity::Private),
         ("restricted", Sensitivity::Restricted),
     ];
+    let review_levels = [
+        ("auto", ReviewLevel::Auto),
+        ("suggested", ReviewLevel::Suggested),
+        ("required", ReviewLevel::Required),
+        ("blocked", ReviewLevel::Blocked),
+    ];
+    let review_policy_actions = [
+        ("approve", ReviewPolicyAction::Approve),
+        ("apply", ReviewPolicyAction::Apply),
+    ];
+    let distillation_profile_levels = [
+        (
+            "user_global",
+            DistillationProfileLevel::UserGlobal,
+            "user_global",
+        ),
+        ("project", DistillationProfileLevel::Project, "project"),
+    ];
+    let distillation_profile_statuses = [
+        ("active", DistillationProfileStatus::Active, "active"),
+        ("archived", DistillationProfileStatus::Archived, "archived"),
+    ];
+    let review_actor_kinds = [
+        ("user", ReviewActorKind::User),
+        ("agent", ReviewActorKind::Agent),
+        ("system", ReviewActorKind::System),
+    ];
+    let review_policy_decisions = [
+        (ReviewPolicyDecision::Allow, "allow"),
+        (
+            ReviewPolicyDecision::RequireUserApproval,
+            "require_user_approval",
+        ),
+        (ReviewPolicyDecision::Deny, "deny"),
+    ];
 
     assert_eq!(parse_artifact_kind(None).unwrap(), ArtifactKind::Message);
     assert_eq!(parse_visibility(None).unwrap(), Visibility::Private);
@@ -794,6 +1671,26 @@ fn parses_supported_enums_and_labels() {
     for (raw, expected) in sensitivity_levels {
         assert_eq!(parse_sensitivity(Some(raw)).unwrap(), expected);
     }
+    for (raw, expected) in review_levels {
+        assert_eq!(parse_review_level(raw).unwrap(), expected);
+    }
+    for (raw, expected) in review_policy_actions {
+        assert_eq!(parse_review_policy_action(raw).unwrap(), expected);
+    }
+    for (raw, expected, label) in distillation_profile_levels {
+        assert_eq!(parse_distillation_profile_level(raw).unwrap(), expected);
+        assert_eq!(distillation_profile_level_label(expected), label);
+    }
+    for (raw, expected, label) in distillation_profile_statuses {
+        assert_eq!(parse_distillation_profile_status(raw).unwrap(), expected);
+        assert_eq!(distillation_profile_status_label(expected), label);
+    }
+    for (raw, expected) in review_actor_kinds {
+        assert_eq!(parse_review_actor_kind(raw).unwrap(), expected);
+    }
+    for (decision, label) in review_policy_decisions {
+        assert_eq!(review_policy_decision_label(decision), label);
+    }
 }
 
 #[test]
@@ -803,6 +1700,7 @@ fn maps_anyhow_errors_to_expected_http_statuses() {
     let unknown = api_error_from_anyhow(anyhow!("unknown provider"));
     let empty = api_error_from_anyhow(anyhow!("empty request body"));
     let invalid = api_error_from_anyhow(anyhow!("Invalid media type"));
+    let missing_scope = api_error_from_anyhow(anyhow!("project profile requires scope_id"));
     let scope_forbidden = api_error_from_anyhow(anyhow!(
         "scope access forbidden for current meat memory key"
     ));
@@ -814,6 +1712,8 @@ fn maps_anyhow_errors_to_expected_http_statuses() {
     assert_eq!(unknown.status, axum::http::StatusCode::BAD_REQUEST);
     assert_eq!(empty.status, axum::http::StatusCode::BAD_REQUEST);
     assert_eq!(invalid.status, axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(missing_scope.status, axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(missing_scope.message, "project profile requires scope_id");
     assert_eq!(scope_forbidden.status, axum::http::StatusCode::FORBIDDEN);
     assert_eq!(
         scope_forbidden.message,

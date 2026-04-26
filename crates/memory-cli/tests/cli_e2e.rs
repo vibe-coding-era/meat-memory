@@ -1,5 +1,7 @@
 use assert_cmd::Command;
-use memory_domain::ScopeId;
+use memory_domain::{
+    Memory, MemoryKind, MemoryProposal, ProposalId, ProposalType, ReviewLevel, ScopeId,
+};
 use serde_json::Value;
 use std::{
     env, fs,
@@ -679,6 +681,219 @@ fn cli_source_context_and_docs_management_work() {
     );
     assert_eq!(sync["dry_run"], false);
     assert_eq!(sync["imported"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn cli_v28_governance_commands_work() {
+    if !test_database_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let config_path = write_test_config(tempdir.path());
+    let scope_id = ScopeId::new();
+    let (memory_id, proposal_id) = seed_v28_governance_fixture(&scope_id);
+
+    let proposals = run_cli(
+        &config_path,
+        &[
+            "proposals",
+            "list",
+            "--scope-id",
+            scope_id.as_str(),
+            "--limit",
+            "10",
+            "--json",
+        ],
+    );
+    assert!(
+        proposals["proposals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|proposal| proposal["proposal_id"] == proposal_id)
+    );
+
+    let approved = run_cli(
+        &config_path,
+        &[
+            "proposals",
+            "approve",
+            &proposal_id,
+            "--actor",
+            "alice",
+            "--actor-kind",
+            "user",
+            "--json",
+        ],
+    );
+    assert_eq!(approved["status"], "approved");
+
+    let applied = run_cli(
+        &config_path,
+        &[
+            "proposals",
+            "apply",
+            &proposal_id,
+            "--actor",
+            "system",
+            "--actor-kind",
+            "system",
+            "--json",
+        ],
+    );
+    assert_eq!(applied["status"], "applied");
+
+    let versions = run_cli(
+        &config_path,
+        &[
+            "versions",
+            &memory_id,
+            "--scope-id",
+            scope_id.as_str(),
+            "--limit",
+            "10",
+            "--json",
+        ],
+    );
+    assert!(versions["versions"].as_array().unwrap().len() >= 3);
+
+    let timeline = run_cli(
+        &config_path,
+        &[
+            "timeline",
+            &memory_id,
+            "--scope-id",
+            scope_id.as_str(),
+            "--limit",
+            "10",
+            "--json",
+        ],
+    );
+    assert_eq!(timeline["timeline"]["memory_id"], memory_id);
+    assert!(
+        timeline["timeline"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "proposal")
+    );
+
+    let rollback = run_cli(
+        &config_path,
+        &[
+            "rollback",
+            &memory_id,
+            "--scope-id",
+            scope_id.as_str(),
+            "--target-version",
+            "1",
+            "--actor",
+            "alice",
+            "--reason",
+            "restore e2e original",
+            "--json",
+        ],
+    );
+    assert_eq!(rollback["target_version"], 1);
+    assert_eq!(rollback["current_title"], "V2.8 E2E original");
+
+    let profile_id = format!("dpf_e2e_{}", scope_id.as_str());
+    let profile = run_cli(
+        &config_path,
+        &[
+            "profiles",
+            "upsert",
+            "--profile-id",
+            &profile_id,
+            "--scope-id",
+            scope_id.as_str(),
+            "--level",
+            "project",
+            "--name",
+            "V2.8 E2E profile",
+            "--prompt-text",
+            "Prefer proposal governance",
+            "--focus-topics",
+            "proposal",
+            "--prefer-memory-kinds",
+            "decision",
+            "--created-by",
+            "alice",
+            "--json",
+        ],
+    );
+    assert_eq!(profile["profile_id"], profile_id);
+    assert_eq!(profile["prefer_memory_kinds"][0], "decision");
+
+    let preview = run_cli(
+        &config_path,
+        &[
+            "distill",
+            "preview",
+            "--scope-id",
+            scope_id.as_str(),
+            "--input",
+            "V2.8 E2E keeps proposal-first governance.",
+            "--evidence-refs",
+            "cli://v28-e2e",
+            "--prompt-text",
+            "Prefer decision memories",
+            "--prefer-memory-kinds",
+            "decision",
+            "--json",
+        ],
+    );
+    assert_eq!(preview["candidates"][0]["memory_kind"], "decision");
+    assert_eq!(preview["stored_in_pg"], true);
+}
+
+fn seed_v28_governance_fixture(scope_id: &ScopeId) -> (String, String) {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let store = memory_store_pg::PgStore::connect(&test_database_url())
+            .await
+            .unwrap();
+        store.migrate().await.unwrap();
+        store
+            .seed_scope(
+                scope_id,
+                scope_id.as_str(),
+                &format!("default/scopes/{}", scope_id.as_str()),
+            )
+            .await
+            .unwrap();
+
+        let mut memory = Memory::new(
+            scope_id.clone(),
+            MemoryKind::Decision,
+            "V2.8 E2E original",
+            "Original e2e body",
+        )
+        .unwrap();
+        memory.activate().unwrap();
+        store.insert_memory(&memory).await.unwrap();
+        memory.title = "V2.8 E2E edited".to_string();
+        memory.body = "Edited e2e body".to_string();
+        store.upsert_memory(&memory).await.unwrap();
+
+        let mut proposal = MemoryProposal::new(
+            scope_id.clone(),
+            ProposalType::Merge,
+            ReviewLevel::Suggested,
+            "E2E apply approved proposal",
+        )
+        .unwrap()
+        .with_subject_memory(memory.id.clone());
+        proposal.id = ProposalId::from_string(format!("prp_e2e_{}", scope_id.as_str()));
+        proposal
+            .add_evidence("seeded by CLI e2e".to_string())
+            .unwrap();
+        store.upsert_memory_proposal(&proposal).await.unwrap();
+
+        (
+            memory.id.as_str().to_string(),
+            proposal.id.as_str().to_string(),
+        )
+    })
 }
 
 fn run_cli(config_path: &Path, args: &[&str]) -> Value {

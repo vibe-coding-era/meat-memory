@@ -1,16 +1,29 @@
 use super::{
-    McpServer, McpTransport, TOOL_SPECS, ToolCallRequest, build_router, context_bundle_payload,
-    entity_type_label, map_kernel_error, memory_kind_label, parse_arguments, parse_artifact_kind,
-    parse_memory_kind, parse_scope_type, parse_sensitivity, parse_visibility, relation_state_label,
-    relation_type_label, sensitivity_label, tool_supported, visibility_label,
+    DistillPreviewToolArgs, McpServer, McpTransport, ProfileUpsertToolArgs, TOOL_SPECS,
+    ToolCallRequest, build_distillation_session_override, build_router, context_bundle_payload,
+    distillation_preview_payload, distillation_profile_payload, entity_type_label,
+    map_kernel_error, memory_kind_label, memory_proposal_payload, memory_timeline_payload,
+    memory_version_payload, parse_arguments, parse_artifact_kind, parse_distillation_profile_level,
+    parse_distillation_profile_status, parse_memory_kind, parse_review_actor_kind,
+    parse_scope_type, parse_sensitivity, parse_visibility, profile_upsert_request,
+    relation_state_label, relation_type_label, rollback_payload, sensitivity_label, tool_supported,
+    visibility_label,
 };
 use axum::{body::Body, http::Request};
 use memory_domain::{
-    ArtifactKind, ContextBundle, Entity, EntityType, KeyScopeKind, KeySourceKind, Memory,
-    MemoryKind, Relation, RelationState, RelationType, ScopeId, ScopeType, Sensitivity,
+    ArtifactKind, ContextBundle, DistillationProfile, DistillationProfileId,
+    DistillationProfileLevel, DistillationProfileStatus, Entity, EntityType, KeyScopeKind,
+    KeySourceKind, Memory, MemoryId, MemoryKind, MemoryProposal, MemoryRelation,
+    MemoryRelationSourceKind, MemoryRelationType, ProposalId, ProposalStatus, ProposalType,
+    Relation, RelationState, RelationType, ReviewLevel, ScopeId, ScopeType, Sensitivity,
     StorageMode, Visibility,
 };
-use memory_kernel::{CreateAccessKeyRequest, Kernel};
+use memory_kernel::{
+    ComposedDistillationProfile, CreateAccessKeyRequest, DistillationPreviewService,
+    DistillationPromptSegment, Kernel, PreviewDistillationResult, ReviewActorKind,
+    RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent, TimelineEventKind,
+    TimelineVersion,
+};
 use serde::Deserialize;
 use std::env;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -139,12 +152,23 @@ fn exposes_fetch_context_tool() {
     assert!(tool_supported("memory.docs.sync"));
     assert!(tool_supported("memory.docs.search"));
     assert!(tool_supported("memory.docs.conflicts"));
+    assert!(tool_supported("memory.proposals.list"));
+    assert!(tool_supported("memory.proposals.inspect"));
+    assert!(tool_supported("memory.proposals.approve"));
+    assert!(tool_supported("memory.proposals.reject"));
+    assert!(tool_supported("memory.proposals.apply"));
+    assert!(tool_supported("memory.versions.list"));
+    assert!(tool_supported("memory.timeline.get"));
+    assert!(tool_supported("memory.version.rollback"));
+    assert!(tool_supported("memory.profile.list"));
+    assert!(tool_supported("memory.profile.upsert"));
+    assert!(tool_supported("memory.distill.preview"));
     assert!(tool_supported("memory.lifecycle.inspect"));
     assert!(tool_supported("memory.lifecycle.status"));
     assert!(tool_supported("memory.lifecycle.forget"));
     assert!(tool_supported("memory.lifecycle.restore"));
     assert!(tool_supported("memory.lifecycle.report"));
-    assert_eq!(TOOL_SPECS.len(), 17);
+    assert_eq!(TOOL_SPECS.len(), 28);
 }
 
 #[test]
@@ -406,6 +430,299 @@ async fn dispatch_lifecycle_tools_inspect_forget_restore_and_report() {
     assert_eq!(report.data["active"], 1);
 }
 
+#[tokio::test]
+async fn dispatch_v28_governance_tools_cover_policy_timeline_rollback_profile_and_preview() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let (server, kernel) = test_server_with_pg(tempdir.path()).await;
+    let scope_id = ScopeId::new();
+    let raw_key = create_test_key(&kernel, scope_id.as_str()).await;
+    let store = memory_store_pg::PgStore::connect(&test_database_url())
+        .await
+        .unwrap();
+    store
+        .seed_scope(
+            &scope_id,
+            scope_id.as_str(),
+            &format!("default/scopes/{}", scope_id.as_str()),
+        )
+        .await
+        .unwrap();
+
+    let mut memory = Memory::new(
+        scope_id.clone(),
+        MemoryKind::Decision,
+        "MCP V2.8 original",
+        "Original body",
+    )
+    .unwrap();
+    memory.activate().unwrap();
+    store.insert_memory(&memory).await.unwrap();
+    memory.title = "MCP V2.8 edited".to_string();
+    memory.body = "Edited body".to_string();
+    store.upsert_memory(&memory).await.unwrap();
+
+    let mut proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Merge,
+        ReviewLevel::Required,
+        "MCP required proposal must honor user authorization",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    proposal.id = ProposalId::from_string(format!("prp_mcp_v28_{}", scope_id.as_str()));
+    proposal
+        .add_evidence("seeded MCP V2.8 proposal".to_string())
+        .unwrap();
+    store.upsert_memory_proposal(&proposal).await.unwrap();
+
+    let listed = server
+        .dispatch(ToolCallRequest {
+            name: "memory.proposals.list".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "limit": 10
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(listed.tool, "memory.proposals.list");
+    assert_eq!(listed.data["proposal_count"], 1);
+
+    let inspected = server
+        .dispatch(ToolCallRequest {
+            name: "memory.proposals.inspect".to_string(),
+            arguments: serde_json::json!({
+                "proposal_id": proposal.id.as_str()
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(inspected.data["proposal"]["review_level"], "required");
+
+    let denied = server
+        .dispatch(ToolCallRequest {
+            name: "memory.proposals.approve".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "proposal_id": proposal.id.as_str(),
+                "actor_kind": "agent"
+            }),
+        })
+        .await
+        .expect_err("agent approval without explicit user authorization should fail");
+    assert_eq!(denied.status, axum::http::StatusCode::FORBIDDEN);
+
+    let mut reject_proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Archive,
+        ReviewLevel::Suggested,
+        "MCP reject proposal covers user review decline",
+    )
+    .unwrap()
+    .with_subject_memory(memory.id.clone());
+    reject_proposal.id =
+        ProposalId::from_string(format!("prp_mcp_v28_reject_{}", scope_id.as_str()));
+    store
+        .upsert_memory_proposal(&reject_proposal)
+        .await
+        .unwrap();
+    let rejected = server
+        .dispatch(ToolCallRequest {
+            name: "memory.proposals.reject".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "proposal_id": reject_proposal.id.as_str(),
+                "actor": "mcp-reviewer"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(rejected.data["proposal"]["status"], "rejected");
+    assert_eq!(rejected.data["proposal"]["decided_by"], "mcp-reviewer");
+
+    let approved = server
+        .dispatch(ToolCallRequest {
+            name: "memory.proposals.approve".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "proposal_id": proposal.id.as_str(),
+                "actor_kind": "agent",
+                "user_authorized": true
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(approved.data["proposal"]["status"], "approved");
+
+    let applied = server
+        .dispatch(ToolCallRequest {
+            name: "memory.proposals.apply".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "proposal_id": proposal.id.as_str(),
+                "actor_kind": "agent",
+                "user_authorized": true
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(applied.data["proposal"]["status"], "applied");
+
+    let versions = server
+        .dispatch(ToolCallRequest {
+            name: "memory.versions.list".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "memory_id": memory.id.as_str(),
+                "limit": 10
+            }),
+        })
+        .await
+        .unwrap();
+    assert!(versions.data["versions"].as_array().unwrap().len() >= 3);
+
+    let timeline = server
+        .dispatch(ToolCallRequest {
+            name: "memory.timeline.get".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "memory_id": memory.id.as_str(),
+                "limit": 10
+            }),
+        })
+        .await
+        .unwrap();
+    assert!(
+        timeline.data["timeline"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "proposal")
+    );
+
+    let rollback = server
+        .dispatch(ToolCallRequest {
+            name: "memory.version.rollback".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "scope_id": scope_id.as_str(),
+                "memory_id": memory.id.as_str(),
+                "target_version": 1,
+                "reason": "restore MCP original"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(rollback.data["target_version"], 1);
+    assert_eq!(rollback.data["current_title"], "MCP V2.8 original");
+
+    let other_scope_id = ScopeId::new();
+    let rollback_forbidden = server
+        .dispatch(ToolCallRequest {
+            name: "memory.version.rollback".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "scope_id": other_scope_id.as_str(),
+                "memory_id": memory.id.as_str(),
+                "target_version": 1,
+                "reason": "cross-scope rollback should fail"
+            }),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(rollback_forbidden.status, axum::http::StatusCode::FORBIDDEN);
+
+    let profile_id = format!("dpf_mcp_v28_{}", scope_id.as_str());
+    let profile = server
+        .dispatch(ToolCallRequest {
+            name: "memory.profile.upsert".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "profile_id": profile_id,
+                "scope_id": scope_id.as_str(),
+                "profile_level": "project",
+                "name": "MCP V2.8 profile",
+                "prompt_text": "Prefer proposal governance",
+                "focus_topics": ["proposal"],
+                "prefer_memory_kinds": ["decision"]
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(profile.data["profile"]["profile_level"], "project");
+    assert_eq!(
+        profile.data["profile"]["prefer_memory_kinds"][0],
+        "decision"
+    );
+
+    let global_profile = server
+        .dispatch(ToolCallRequest {
+            name: "memory.profile.upsert".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "profile_level": "global",
+                "name": "MCP V2.8 global profile",
+                "prompt_text": "Prefer stable user guidance"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        global_profile.data["profile"]["profile_level"],
+        "user_global"
+    );
+    assert_eq!(
+        global_profile.data["profile"]["scope_id"],
+        serde_json::Value::Null
+    );
+
+    let profile_forbidden = server
+        .dispatch(ToolCallRequest {
+            name: "memory.profile.upsert".to_string(),
+            arguments: serde_json::json!({
+                "key": raw_key,
+                "scope_id": other_scope_id.as_str(),
+                "profile_level": "project",
+                "name": "Cross scope profile",
+                "prompt_text": "Should be rejected"
+            }),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(profile_forbidden.status, axum::http::StatusCode::FORBIDDEN);
+
+    let profiles = server
+        .dispatch(ToolCallRequest {
+            name: "memory.profile.list".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "limit": 10
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(profiles.data["profile_count"], 1);
+
+    let preview = server
+        .dispatch(ToolCallRequest {
+            name: "memory.distill.preview".to_string(),
+            arguments: serde_json::json!({
+                "scope_id": scope_id.as_str(),
+                "input": "MCP V2.8 keeps proposal-first governance.",
+                "evidence_refs": ["mcp://v28"],
+                "prompt_text": "Prefer decision memories",
+                "prefer_memory_kinds": ["decision"]
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(preview.data["candidates"][0]["memory_kind"], "decision");
+    assert_eq!(preview.data["stored_in_pg"], true);
+}
+
 #[derive(Debug, Deserialize, PartialEq)]
 struct ParseFixture {
     value: usize,
@@ -482,6 +799,127 @@ fn parse_helpers_cover_all_variants() {
         assert_eq!(sensitivity_label(expected), raw);
     }
     assert!(parse_sensitivity("unknown").is_err());
+
+    let actor_kind_cases = [
+        ("user", ReviewActorKind::User),
+        ("agent", ReviewActorKind::Agent),
+        ("system", ReviewActorKind::System),
+    ];
+    for (raw, expected) in actor_kind_cases {
+        assert_eq!(parse_review_actor_kind(raw).unwrap(), expected);
+    }
+    assert!(parse_review_actor_kind("bot").is_err());
+
+    assert_eq!(
+        parse_distillation_profile_level("user_global").unwrap(),
+        DistillationProfileLevel::UserGlobal
+    );
+    assert_eq!(
+        parse_distillation_profile_level("global").unwrap(),
+        DistillationProfileLevel::UserGlobal
+    );
+    assert_eq!(
+        parse_distillation_profile_level("project").unwrap(),
+        DistillationProfileLevel::Project
+    );
+    assert!(parse_distillation_profile_level("workspace").is_err());
+
+    assert_eq!(
+        parse_distillation_profile_status("active").unwrap(),
+        DistillationProfileStatus::Active
+    );
+    assert_eq!(
+        parse_distillation_profile_status("archived").unwrap(),
+        DistillationProfileStatus::Archived
+    );
+    assert!(parse_distillation_profile_status("deleted").is_err());
+}
+
+#[test]
+fn v28_request_builders_cover_profile_defaults_and_session_override() {
+    let default_scope_id = ScopeId::from_string("scp_mcp_v28_builder");
+    let project_request = profile_upsert_request(
+        ProfileUpsertToolArgs {
+            profile_id: Some("dpf_mcp_v28_project_builder".to_string()),
+            scope_id: None,
+            profile_level: Some("project".to_string()),
+            level: None,
+            status: Some("archived".to_string()),
+            name: "Project profile".to_string(),
+            prompt_text: "Keep decisions".to_string(),
+            focus_topics: vec!["proposal".to_string()],
+            prefer_memory_kinds: vec!["decision".to_string()],
+            created_by: None,
+            key: None,
+        },
+        "mcp-default-actor".to_string(),
+        default_scope_id.clone(),
+    )
+    .unwrap();
+    assert_eq!(project_request.scope_id, Some(default_scope_id.clone()));
+    assert_eq!(project_request.status, DistillationProfileStatus::Archived);
+    assert_eq!(project_request.created_by, "mcp-default-actor");
+    assert_eq!(
+        project_request.prefer_memory_kinds,
+        vec![MemoryKind::Decision]
+    );
+
+    let global_request = profile_upsert_request(
+        ProfileUpsertToolArgs {
+            profile_id: None,
+            scope_id: None,
+            profile_level: None,
+            level: Some("global".to_string()),
+            status: None,
+            name: "Global profile".to_string(),
+            prompt_text: "Keep stable preferences".to_string(),
+            focus_topics: Vec::new(),
+            prefer_memory_kinds: Vec::new(),
+            created_by: Some("human".to_string()),
+            key: None,
+        },
+        "mcp-default-actor".to_string(),
+        default_scope_id,
+    )
+    .unwrap();
+    assert_eq!(
+        global_request.profile_level,
+        DistillationProfileLevel::UserGlobal
+    );
+    assert_eq!(global_request.scope_id, None);
+    assert_eq!(global_request.status, DistillationProfileStatus::Active);
+    assert_eq!(global_request.created_by, "human");
+
+    let no_override = build_distillation_session_override(&DistillPreviewToolArgs {
+        scope_id: None,
+        input: "Keep this".to_string(),
+        evidence_refs: vec!["mcp://builder".to_string()],
+        prompt_text: None,
+        focus_topics: Vec::new(),
+        prefer_memory_kinds: Vec::new(),
+    })
+    .unwrap();
+    assert!(no_override.is_none());
+
+    let override_profile = build_distillation_session_override(&DistillPreviewToolArgs {
+        scope_id: None,
+        input: "Keep this".to_string(),
+        evidence_refs: vec!["mcp://builder".to_string()],
+        prompt_text: Some("Prefer explicit review boundaries".to_string()),
+        focus_topics: vec!["review".to_string()],
+        prefer_memory_kinds: vec!["constraint".to_string()],
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        override_profile.prompt_text,
+        "Prefer explicit review boundaries"
+    );
+    assert_eq!(override_profile.focus_topics, vec!["review"]);
+    assert_eq!(
+        override_profile.prefer_memory_kinds,
+        vec![MemoryKind::Constraint]
+    );
 }
 
 #[test]
@@ -568,6 +1006,150 @@ fn context_bundle_payload_includes_graph_counts_and_labels() {
     assert_eq!(payload["entities"][0]["entity_type"], "project");
     assert_eq!(payload["relations"][0]["relation_type"], "depends_on");
     assert_eq!(payload["relations"][0]["state"], "active");
+}
+
+#[test]
+fn v28_payload_helpers_render_governance_and_distillation_shapes() {
+    let scope_id = ScopeId::from_string("scp_mcp_v28_payload");
+    let memory_id = MemoryId::from_string("mem_mcp_v28_payload");
+    let proposal_id = ProposalId::from_string("prp_mcp_v28_payload");
+    let mut proposal = MemoryProposal::new(
+        scope_id.clone(),
+        ProposalType::Merge,
+        ReviewLevel::Suggested,
+        "near duplicate should be reviewed",
+    )
+    .unwrap()
+    .with_subject_memory(memory_id.clone());
+    proposal.id = proposal_id.clone();
+    proposal.status = ProposalStatus::Approved;
+    proposal.add_target_memory(MemoryId::from_string("mem_mcp_target"));
+    proposal
+        .add_evidence("same normalized title".to_string())
+        .unwrap();
+    let proposal_payload = memory_proposal_payload(&proposal);
+    assert_eq!(proposal_payload["proposal_id"], "prp_mcp_v28_payload");
+    assert_eq!(proposal_payload["status"], "approved");
+    assert_eq!(proposal_payload["target_memory_ids"][0], "mem_mcp_target");
+
+    let version = TimelineVersion {
+        memory_id: memory_id.clone(),
+        version: 2,
+        title: "New title".to_string(),
+        body: "New body".to_string(),
+        change_kind: "edit".to_string(),
+        actor: "agent".to_string(),
+        reason: Some("payload test".to_string()),
+        source_proposal_id: Some(proposal_id.clone()),
+        created_at: time::macros::datetime!(2025-03-04 05:06:07 UTC),
+    };
+    let version_payload = memory_version_payload(&version);
+    assert_eq!(version_payload["version"], 2);
+    assert_eq!(version_payload["source_proposal_id"], "prp_mcp_v28_payload");
+
+    let relation = MemoryRelation::new(
+        scope_id.clone(),
+        memory_id.clone(),
+        MemoryId::from_string("mem_old"),
+        MemoryRelationType::Supersedes,
+        MemoryRelationSourceKind::Agent,
+    )
+    .with_source_proposal_id(proposal_id.clone());
+    let audit = TimelineAuditEvent {
+        memory_id: Some(memory_id.clone()),
+        action: "memory.rollback".to_string(),
+        actor: "agent".to_string(),
+        reason: Some("payload rollback".to_string()),
+        created_at: time::macros::datetime!(2025-03-04 06:06:07 UTC),
+    };
+    let event = TimelineEvent {
+        kind: TimelineEventKind::Proposal,
+        action: "proposal.approved".to_string(),
+        occurred_at: time::macros::datetime!(2025-03-04 05:06:07 UTC),
+        memory_id: Some(memory_id.clone()),
+        proposal_id: Some(proposal_id),
+        relation_id: None,
+        version: None,
+    };
+    let timeline_payload = memory_timeline_payload(&memory_kernel::MemoryTimeline {
+        memory_id: memory_id.clone(),
+        versions: vec![version],
+        relations: vec![relation],
+        audit_events: vec![audit],
+        proposals: vec![proposal],
+        events: vec![event],
+    });
+    assert_eq!(timeline_payload["memory_id"], "mem_mcp_v28_payload");
+    assert_eq!(
+        timeline_payload["relations"][0]["relation_type"],
+        "supersedes"
+    );
+    assert_eq!(timeline_payload["events"][0]["kind"], "proposal");
+
+    let rollback = rollback_payload(&RollbackMemoryResult {
+        plan: RollbackPlan {
+            memory_id: memory_id.clone(),
+            target_version: 1,
+            new_version: 3,
+            title: "Old title".to_string(),
+            body: "Old body".to_string(),
+            change_kind: "rollback",
+            actor: "agent".to_string(),
+            reason: "payload rollback".to_string(),
+        },
+        memory: Memory::new(
+            scope_id.clone(),
+            MemoryKind::Decision,
+            "Old title",
+            "Old body",
+        )
+        .unwrap(),
+    });
+    assert_eq!(rollback["new_version"], 3);
+    assert_eq!(rollback["change_kind"], "rollback");
+
+    let mut profile = DistillationProfile::new_project(
+        scope_id.clone(),
+        "Governance profile",
+        "Keep proposal-first decisions",
+        "agent",
+    )
+    .unwrap()
+    .add_focus_topic("proposal")
+    .unwrap()
+    .prefer_memory_kind(MemoryKind::Decision);
+    profile.id = DistillationProfileId::from_string("dpf_mcp_v28_payload");
+    let profile_payload = distillation_profile_payload(&profile);
+    assert_eq!(profile_payload["profile_id"], "dpf_mcp_v28_payload");
+    assert_eq!(profile_payload["profile_level"], "project");
+    assert_eq!(profile_payload["prefer_memory_kinds"][0], "decision");
+
+    let composed = ComposedDistillationProfile {
+        scope_id: scope_id.clone(),
+        prompt_segments: vec![DistillationPromptSegment {
+            layer: "system_base",
+            text: "Preserve evidence".to_string(),
+        }],
+        focus_topics: vec!["proposal".to_string()],
+        prefer_memory_kinds: vec![MemoryKind::Decision],
+        source_profile_ids: vec![DistillationProfileId::from_string("dpf_mcp_v28_payload")],
+        safety_rules: vec!["must preserve evidence references"],
+    };
+    let preview = DistillationPreviewService::preview(
+        scope_id,
+        "Keep proposal-first governance.",
+        &["mcp://payload".to_string()],
+        &composed,
+    )
+    .unwrap();
+    let preview_payload = distillation_preview_payload(&PreviewDistillationResult {
+        preview,
+        profile: composed,
+        stored_in_pg: false,
+    });
+    assert_eq!(preview_payload["stored_in_pg"], false);
+    assert_eq!(preview_payload["candidates"][0]["memory_kind"], "decision");
+    assert_eq!(preview_payload["profile"]["focus_topics"][0], "proposal");
 }
 
 #[tokio::test]
