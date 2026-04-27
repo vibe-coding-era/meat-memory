@@ -15,6 +15,7 @@
 - `0009_memory_v2_91_benchmark.sql`：加入 V2.91 benchmark suite / run / case result 结构
 - `0010_memory_v2_92_recall_trace.sql`：加入 V2.92 recall trace / candidate / budget pack 结构
 - `0011_memory_v2_93_secret_health.sql`：加入 V2.93 secret finding / health report 结构
+- `0012_memory_v2_94_evidence_passport.sql`：加入 V2.94 evidence span / passport metadata 结构
 
 ## 维护约定
 

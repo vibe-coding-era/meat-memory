@@ -7,11 +7,13 @@ pub mod distillation;
 pub mod entity;
 pub mod episode;
 pub mod error;
+pub mod evidence;
 pub mod identity;
 pub mod ids;
 pub mod lifecycle;
 pub mod memory;
 pub mod memory_relation;
+pub mod passport;
 pub mod proposal;
 pub mod recall;
 pub mod record;
@@ -35,12 +37,13 @@ pub use distillation::{
 pub use entity::{Entity, EntityType};
 pub use episode::{Episode, EpisodeKind, EpisodeState};
 pub use error::DomainError;
+pub use evidence::{EvidenceSpan, EvidenceSpanKind, EvidenceSpanLocation};
 pub use identity::{BindingConfirmedBy, ProjectBindingKind, ProjectIdentityBinding};
 pub use ids::{
     AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
     DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
-    MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RecallBudgetPackId,
-    RecallTraceId, RelationId, ScopeId, SecretFindingId, SourceId,
+    MemoryPassportId, MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId,
+    RecallBudgetPackId, RecallTraceId, RelationId, ScopeId, SecretFindingId, SourceId,
 };
 pub use lifecycle::{
     AgentContext, DocumentConflictState, DocumentSyncState, MemoryLayer, MemorySource,
@@ -48,6 +51,10 @@ pub use lifecycle::{
 };
 pub use memory::{Memory, MemoryKind, MemoryScores, MemoryState};
 pub use memory_relation::{MemoryRelation, MemoryRelationSourceKind, MemoryRelationType};
+pub use passport::{
+    MEMORY_PASSPORT_SCHEMA_VERSION, MemoryPassportEncryption, MemoryPassportManifest,
+    MemoryPassportObject, MemoryPassportObjectKind, MemoryPassportRedaction, stable_hash,
+};
 pub use proposal::{MemoryProposal, ProposalStatus, ProposalType, ReviewLevel};
 pub use recall::{
     RecallBudgetItem, RecallBudgetPack, RecallBudgetRenderMode, RecallBudgetSummary,

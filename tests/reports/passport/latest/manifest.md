@@ -1,0 +1,15 @@
+# Memory Passport Manifest
+
+passport_id: mpt_01KQ7C39QSX51TS5022Y58MRMQ
+schema_version: 2.94
+source_scope_id: scp_v294_acceptance
+object_count: 4
+redaction: sensitive
+encryption: false
+bundle_hash: b8774fe9f56c055fd9a168fa51c117a864cf66e4ac64b67012588362ee1e0dad
+
+## Objects
+- kind=evidence_span id=evd_01KQ7C39QSF0KSET1VTZX0ABRX hash=320e82a319b665cdbd9d7d620aed1b0a6b30b9be0b636aac2a3adcecc7b37dc2 bytes=463
+- kind=evidence_span id=evd_01KQ7C39QSGXC3VEQGJB27D6AB hash=f0ba532c6420227e3fb29e2410d735d40bc595a53c65ee1a5411dfc9c51f771a bytes=519
+- kind=memory id=mem_01KQ7C36EHNRM2YCSXZ8QYPD1T hash=8efbc6971aaf31df43468d104abfc50ee186e742ae88b5e2a7d0b86635af2c1d bytes=620
+- kind=memory id=mem_01KQ7C37EBY5HA0NVCZ3N9VNA7 hash=86f9af0add9a8b06a36107709c23b950f9ae64e291a9fa3733c7a805a8c7d343 bytes=530

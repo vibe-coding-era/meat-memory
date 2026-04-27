@@ -49,14 +49,16 @@ id_type!(BenchmarkRunId, "bmr");
 id_type!(RecallTraceId, "rtr");
 id_type!(RecallBudgetPackId, "rbp");
 id_type!(SecretFindingId, "sfd");
+id_type!(MemoryPassportId, "mpt");
 
 #[cfg(test)]
 mod tests {
     use super::{
         AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
         DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
-        MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId,
-        RecallBudgetPackId, RecallTraceId, RelationId, ScopeId, SecretFindingId, SourceId,
+        MemoryPassportId, MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId,
+        ProposalId, RecallBudgetPackId, RecallTraceId, RelationId, ScopeId, SecretFindingId,
+        SourceId,
     };
 
     #[test]
@@ -83,6 +85,7 @@ mod tests {
             RecallTraceId::new().as_str().to_string(),
             RecallBudgetPackId::new().as_str().to_string(),
             SecretFindingId::new().as_str().to_string(),
+            MemoryPassportId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -106,6 +109,7 @@ mod tests {
         assert!(cases[18].starts_with("rtr_"));
         assert!(cases[19].starts_with("rbp_"));
         assert!(cases[20].starts_with("sfd_"));
+        assert!(cases[21].starts_with("mpt_"));
     }
 
     #[test]
@@ -131,6 +135,7 @@ mod tests {
         let recall_trace = RecallTraceId::from_string("rtr_custom");
         let recall_budget_pack = RecallBudgetPackId::from_string("rbp_custom");
         let secret_finding = SecretFindingId::from_string("sfd_custom");
+        let passport = MemoryPassportId::from_string("mpt_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -153,6 +158,7 @@ mod tests {
         assert_eq!(recall_trace.as_str(), "rtr_custom");
         assert_eq!(recall_budget_pack.as_str(), "rbp_custom");
         assert_eq!(secret_finding.as_str(), "sfd_custom");
+        assert_eq!(passport.as_str(), "mpt_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -183,5 +189,6 @@ mod tests {
         assert!(RecallTraceId::default().as_str().starts_with("rtr_"));
         assert!(RecallBudgetPackId::default().as_str().starts_with("rbp_"));
         assert!(SecretFindingId::default().as_str().starts_with("sfd_"));
+        assert!(MemoryPassportId::default().as_str().starts_with("mpt_"));
     }
 }

@@ -38,6 +38,8 @@ const MIGRATION_0009: &str = include_str!("../../../migrations/0009_memory_v2_91
 const MIGRATION_0010: &str = include_str!("../../../migrations/0010_memory_v2_92_recall_trace.sql");
 const MIGRATION_0011: &str =
     include_str!("../../../migrations/0011_memory_v2_93_secret_health.sql");
+const MIGRATION_0012: &str =
+    include_str!("../../../migrations/0012_memory_v2_94_evidence_passport.sql");
 const DEFAULT_SCHEMA: &str = "public";
 
 pub(crate) fn migration_0009_sql() -> &'static str {
@@ -50,6 +52,10 @@ pub(crate) fn migration_0010_sql() -> &'static str {
 
 pub(crate) fn migration_0011_sql() -> &'static str {
     MIGRATION_0011
+}
+
+pub(crate) fn migration_0012_sql() -> &'static str {
+    MIGRATION_0012
 }
 const SEED_SCOPE_SQL: &str = "INSERT INTO scopes (id, parent_scope_id, scope_type, name, path, owner_principal_id, inherit_policy, default_visibility, sync_policy)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -400,6 +406,7 @@ impl PgStore {
         tx.execute(sqlx::raw_sql(migration_0009_sql())).await?;
         tx.execute(sqlx::raw_sql(migration_0010_sql())).await?;
         tx.execute(sqlx::raw_sql(migration_0011_sql())).await?;
+        tx.execute(sqlx::raw_sql(migration_0012_sql())).await?;
         tx.commit().await?;
         Ok(())
     }

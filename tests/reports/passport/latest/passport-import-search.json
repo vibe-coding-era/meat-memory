@@ -1,0 +1,17 @@
+{
+  "entity_count": 0,
+  "memories": [
+    {
+      "body": "V2.94 passport durable fact keeps evidence and can be imported into another scope",
+      "evidence_count": 1,
+      "memory_id": "mem_01KQ7C3BJ0W2KBT6EKAVVJ9FQA",
+      "memory_kind": "fact",
+      "memory_state": "active",
+      "title": "passport durable fact"
+    }
+  ],
+  "memory_count": 1,
+  "query": "durable fact",
+  "relation_count": 0,
+  "scope_id": "scp_v294_imported"
+}

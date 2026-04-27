@@ -17,6 +17,7 @@ memory-policy = { path = "../memory-policy" }
 memory-sync = { path = "../memory-sync" }
 memory-store-md = { path = "../memory-store-md" }
 memory-store-pg = { path = "../memory-store-pg" }
+serde.workspace = true
 serde_json.workspace = true
 time.workspace = true
 tracing.workspace = true

@@ -10,20 +10,22 @@ use super::{
     generated_project_scope_id, health_report_json, health_report_lines, key_command,
     lifecycle_command, lifecycle_inspect_json, lifecycle_status_json, load_body,
     load_body_from_reader, mcp_command, mcp_info_json, mcp_info_lines, memory_proposal_json,
-    memory_timeline_json, memory_version_json, parse_artifact_kind,
-    parse_distillation_profile_level, parse_distillation_profile_status,
+    memory_provenance_json, memory_provenance_lines, memory_timeline_json, memory_version_json,
+    parse_artifact_kind, parse_distillation_profile_level, parse_distillation_profile_status,
     parse_document_conflict_state, parse_document_sync_state, parse_key_scope, parse_key_source,
     parse_memory_kind, parse_record_status, parse_review_actor_kind, parse_sensitivity,
-    parse_source_sync_mode, parse_storage_mode, parse_visibility, profiles_command,
-    project_command, project_init_result_json, project_init_result_lines, project_scope_slug,
-    proposal_command, remember_command, remember_command_with_runtime,
-    remember_image_command_with_runtime, remember_image_result_json, remember_image_result_lines,
-    remember_result_json, remember_result_lines, render_json, resolve_bind, rollback_command,
-    rollback_memory_json, run_with_cli, scope_id_or_default, search_bundle_json,
-    search_bundle_lines, search_command, search_command_with_runtime, serve_command_with_runtime,
-    skills_command, source_command, static_command_message, timeline_command,
-    trace_inspect_command, trace_result_json, trace_result_lines, tui_command, tui_init_json,
-    tui_init_lines, validate_model_registry, versions_command, write_tui_config_if_requested,
+    parse_source_sync_mode, parse_storage_mode, parse_visibility, passport_export_json,
+    passport_export_lines, passport_import_json, passport_import_lines, passport_verification_json,
+    passport_verification_lines, profiles_command, project_command, project_init_result_json,
+    project_init_result_lines, project_scope_slug, proposal_command, remember_command,
+    remember_command_with_runtime, remember_image_command_with_runtime, remember_image_result_json,
+    remember_image_result_lines, remember_result_json, remember_result_lines, render_json,
+    resolve_bind, rollback_command, rollback_memory_json, run_with_cli, scope_id_or_default,
+    search_bundle_json, search_bundle_lines, search_command, search_command_with_runtime,
+    serve_command_with_runtime, skills_command, source_command, static_command_message,
+    timeline_command, trace_inspect_command, trace_result_json, trace_result_lines, tui_command,
+    tui_init_json, tui_init_lines, validate_model_registry, versions_command,
+    write_tui_config_if_requested,
 };
 use axum::{body::Body, http::Request};
 use clap::Parser;
@@ -33,9 +35,11 @@ use memory_core::ServiceInfo;
 use memory_domain::{
     AccessKey, AccessKeyId, Artifact, ArtifactKind, BenchmarkMetrics, BenchmarkRun, BenchmarkRunId,
     BenchmarkRunStatus, BenchmarkSuite, BenchmarkSuiteId, ContextBundle, DistillationProfile,
-    DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus, KeyScopeKind,
-    KeySourceKind, Memory, MemoryHealthRisk, MemoryHealthRiskKind, MemoryHealthSeverity,
-    MemoryHealthSuggestedAction, MemoryId, MemoryKind, MemoryProposal, MemoryRecordStatus,
+    DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus, EvidenceSpan,
+    KeyScopeKind, KeySourceKind, Memory, MemoryHealthRisk, MemoryHealthRiskKind,
+    MemoryHealthSeverity, MemoryHealthSuggestedAction, MemoryId, MemoryKind,
+    MemoryPassportEncryption, MemoryPassportManifest, MemoryPassportObject,
+    MemoryPassportObjectKind, MemoryPassportRedaction, MemoryProposal, MemoryRecordStatus,
     MemoryRelation, MemoryRelationSourceKind, MemoryRelationType, MemoryState, ProposalId,
     ProposalStatus, ProposalType, RecallBudgetItem, RecallBudgetPack, RecallBudgetPackId,
     RecallBudgetRenderMode, RecallBudgetSummary, RecallTrace, RecallTraceCandidate,
@@ -47,10 +51,11 @@ use memory_kernel::{
     AuditLogService, BenchmarkReportPaths, BenchmarkRunOutput, ChangeMemoryLifecycleStatusResult,
     ComposedDistillationProfile, DistillationPreviewService, DistillationPromptSegment,
     InspectMemoryLifecycleResult, LifecycleNormalizer, MemoryHealthReport, MemoryHealthReportPaths,
-    MemoryTimeline, PreviewDistillationResult, RecallExplainer, RecallTraceReportPaths,
-    RememberImageResult, RememberTextResult, ReviewActorKind, RollbackMemoryResult, RollbackPlan,
-    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
-    TraceSearchContextResult,
+    MemoryPassportBundle, MemoryPassportIdMapping, MemoryPassportImportResult, MemoryPassportPaths,
+    MemoryPassportVerification, MemoryProvenance, MemoryTimeline, PreviewDistillationResult,
+    RecallExplainer, RecallTraceReportPaths, RememberImageResult, RememberTextResult,
+    ReviewActorKind, RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent,
+    TimelineEventKind, TimelineVersion, TraceSearchContextResult,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -303,6 +308,82 @@ fn sample_health_report(report_dir: &Path) -> (MemoryHealthReport, MemoryHealthR
         markdown: report_dir.join("health.md"),
     };
     (report, paths)
+}
+
+fn sample_passport_payload(
+    report_dir: &Path,
+) -> (
+    MemoryPassportBundle,
+    MemoryPassportPaths,
+    MemoryPassportVerification,
+    MemoryPassportImportResult,
+    MemoryProvenance,
+) {
+    let mut memory = sample_memory();
+    memory.source_refs = vec!["file://docs/passport.md".to_string()];
+    let evidence = EvidenceSpan::new_text(
+        memory.scope_id.clone(),
+        Some(memory.id.clone()),
+        None,
+        "file://docs/passport.md",
+        "sample body",
+        "sha256:evidence",
+        0,
+        11,
+    );
+    let objects = vec![
+        MemoryPassportObject::new(
+            MemoryPassportObjectKind::Memory,
+            memory.id.as_str(),
+            serde_json::to_string(&memory).unwrap(),
+        ),
+        MemoryPassportObject::new(
+            MemoryPassportObjectKind::EvidenceSpan,
+            evidence.id.as_str(),
+            serde_json::to_string(&evidence).unwrap(),
+        ),
+    ];
+    let manifest = MemoryPassportManifest::new(
+        memory.scope_id.clone(),
+        objects,
+        MemoryPassportRedaction::Sensitive,
+        MemoryPassportEncryption::none(),
+        datetime!(2026-04-27 00:00:00 UTC),
+    );
+    let bundle = MemoryPassportBundle {
+        manifest: manifest.clone(),
+        memories: vec![memory.clone()],
+        evidence_spans: vec![evidence.clone()],
+    };
+    let paths = MemoryPassportPaths {
+        passport: report_dir.join("passport.json"),
+        manifest: report_dir.join("manifest.json"),
+        memories: report_dir.join("memories.json"),
+        evidence: report_dir.join("evidence.json"),
+        markdown: report_dir.join("manifest.md"),
+    };
+    let verification = MemoryPassportVerification {
+        manifest: manifest.clone(),
+        valid: true,
+        checked_objects: 2,
+        errors: Vec::new(),
+    };
+    let import = MemoryPassportImportResult {
+        manifest,
+        verified: true,
+        target_scope_id: ScopeId::from_string("scp_cli_import"),
+        imported_count: 1,
+        skipped_count: 0,
+        id_mappings: vec![MemoryPassportIdMapping {
+            original_memory_id: memory.id.clone(),
+            imported_memory_id: MemoryId::from_string("mem_imported"),
+        }],
+    };
+    let provenance = MemoryProvenance {
+        memory,
+        evidence_spans: vec![evidence],
+    };
+    (bundle, paths, verification, import, provenance)
 }
 
 fn sample_config(markdown_root: &str, asset_root: &str, enable_mcp: bool) -> AppConfig {
@@ -862,6 +943,45 @@ fn health_output_helpers_include_risks_and_paths() {
 }
 
 #[test]
+fn passport_output_helpers_include_manifest_paths_and_counts() {
+    let tempdir = tempdir().unwrap();
+    let (bundle, paths, verification, import, provenance) = sample_passport_payload(tempdir.path());
+
+    let export_json = passport_export_json(&bundle, &paths);
+    let export_lines = passport_export_lines(&bundle, &paths);
+    let verify_json = passport_verification_json(&verification);
+    let verify_lines = passport_verification_lines(&verification);
+    let import_json = passport_import_json(&import);
+    let import_lines = passport_import_lines(&import);
+    let provenance_json = memory_provenance_json(&provenance);
+    let provenance_lines = memory_provenance_lines(&provenance);
+
+    assert_eq!(export_json["manifest"]["object_count"], 2);
+    assert_eq!(
+        export_json["report_paths"]["manifest"],
+        tempdir.path().join("manifest.json").display().to_string()
+    );
+    assert!(export_lines.iter().any(|line| line == "Memories: 1"));
+    assert_eq!(verify_json["valid"], true);
+    assert!(verify_lines.iter().any(|line| line == "Checked objects: 2"));
+    assert_eq!(import_json["imported_count"], 1);
+    assert_eq!(
+        import_json["id_mappings"][0]["imported_memory_id"],
+        "mem_imported"
+    );
+    assert!(import_lines.iter().any(|line| line == "Imported: 1"));
+    assert_eq!(
+        provenance_json["evidence_spans"][0]["source_ref"],
+        "file://docs/passport.md"
+    );
+    assert!(
+        provenance_lines
+            .iter()
+            .any(|line| line == "Evidence spans: 1")
+    );
+}
+
+#[test]
 fn benchmark_cli_parser_accepts_run_and_report() {
     let run_cli = Cli::try_parse_from([
         "memory-cli",
@@ -991,6 +1111,101 @@ fn health_cli_parser_accepts_report() {
             assert!(args.json);
         }
         _ => panic!("expected health report command"),
+    }
+}
+
+#[test]
+fn passport_cli_parser_accepts_export_verify_import_and_provenance() {
+    let export_cli = Cli::try_parse_from([
+        "memory-cli",
+        "passport",
+        "export",
+        "--scope-id",
+        "scp_parser",
+        "--limit",
+        "20",
+        "--output-dir",
+        "tests/reports/passport/latest",
+        "--json",
+    ])
+    .unwrap();
+    match export_cli.command {
+        super::Command::Passport(super::PassportArgs {
+            command: super::PassportCommand::Export(args),
+        }) => {
+            assert_eq!(args.scope_id.as_deref(), Some("scp_parser"));
+            assert_eq!(args.limit, 20);
+            assert!(args.redact_sensitive);
+            assert!(args.json);
+        }
+        _ => panic!("expected passport export command"),
+    }
+
+    let verify_cli = Cli::try_parse_from([
+        "memory-cli",
+        "passport",
+        "verify",
+        "--input-dir",
+        "tests/reports/passport/latest",
+        "--json",
+    ])
+    .unwrap();
+    match verify_cli.command {
+        super::Command::Passport(super::PassportArgs {
+            command: super::PassportCommand::Verify(args),
+        }) => {
+            assert_eq!(
+                args.input_dir,
+                PathBuf::from("tests/reports/passport/latest")
+            );
+            assert!(args.json);
+        }
+        _ => panic!("expected passport verify command"),
+    }
+
+    let import_cli = Cli::try_parse_from([
+        "memory-cli",
+        "passport",
+        "import",
+        "--input-dir",
+        "tests/reports/passport/latest",
+        "--target-scope-id",
+        "scp_imported",
+        "--dry-run",
+        "--json",
+    ])
+    .unwrap();
+    match import_cli.command {
+        super::Command::Passport(super::PassportArgs {
+            command: super::PassportCommand::Import(args),
+        }) => {
+            assert_eq!(args.target_scope_id.as_deref(), Some("scp_imported"));
+            assert!(args.dry_run);
+            assert!(args.json);
+        }
+        _ => panic!("expected passport import command"),
+    }
+
+    let provenance_cli = Cli::try_parse_from([
+        "memory-cli",
+        "passport",
+        "provenance",
+        "--scope-id",
+        "scp_parser",
+        "--memory-id",
+        "mem_parser",
+        "--json",
+    ])
+    .unwrap();
+    match provenance_cli.command {
+        super::Command::Passport(super::PassportArgs {
+            command: super::PassportCommand::Provenance(args),
+        }) => {
+            assert_eq!(args.scope_id.as_deref(), Some("scp_parser"));
+            assert_eq!(args.memory_id, "mem_parser");
+            assert!(args.json);
+        }
+        _ => panic!("expected passport provenance command"),
     }
 }
 
@@ -1574,6 +1789,45 @@ fn cli_parser_accepts_all_subcommands_and_nested_shapes() {
             "scp_parser",
             "--output-dir",
             "tests/reports/health/latest",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "passport",
+            "export",
+            "--scope-id",
+            "scp_parser",
+            "--output-dir",
+            "tests/reports/passport/latest",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "passport",
+            "verify",
+            "--input-dir",
+            "tests/reports/passport/latest",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "passport",
+            "import",
+            "--input-dir",
+            "tests/reports/passport/latest",
+            "--target-scope-id",
+            "scp_import",
+            "--dry-run",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "passport",
+            "provenance",
+            "--scope-id",
+            "scp_parser",
+            "--memory-id",
+            "mem_parser",
             "--json",
         ],
     ];

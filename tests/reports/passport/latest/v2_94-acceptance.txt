@@ -1,0 +1,90 @@
+[v2.94] acceptance started
+[v2.94] report: /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest/v2_94-acceptance.txt
+[v2.94] passport output: /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest
+[v2.94] format check
+[v2.94] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+[v2.94] evidence domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+
+running 5 tests
+test evidence::tests::evidence_span_kinds_expose_stable_labels ... ok
+test evidence::tests::text_evidence_span_keeps_source_location ... ok
+test proposal::tests::proposal_rejects_empty_reason_and_evidence ... ok
+test relation::tests::activates_after_adding_evidence ... ok
+test relation::tests::refuses_to_activate_without_evidence ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s
+
+[v2.94] passport domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+
+running 2 tests
+test passport::tests::manifest_sorts_objects_and_computes_bundle_hash ... ok
+test passport::tests::passport_labels_and_hashes_are_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.94] passport ids
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+
+running 2 tests
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.94] passport kernel
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
+
+running 4 tests
+test v29_passport::tests::derives_text_and_multimodal_evidence_spans ... ok
+test v29_passport::tests::passport_export_verify_import_roundtrips_markdown_scope ... ok
+test v29_passport::tests::passport_redaction_removes_high_risk_secret_values ... ok
+test v29_passport::tests::passport_writer_and_verifier_check_hash_contract ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 106 filtered out; finished in 0.04s
+
+[v2.94] passport CLI helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
+
+running 2 tests
+test app::main_tests::passport_cli_parser_accepts_export_verify_import_and_provenance ... ok
+test app::main_tests::passport_output_helpers_include_manifest_paths_and_counts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 57 filtered out; finished in 0.03s
+
+[v2.94] passport PG migration contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+
+running 1 test
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+[v2.94] seed passport fixture
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running `target/debug/memory-cli remember --scope-id scp_v294_acceptance --title 'passport durable fact' --body 'V2.94 passport durable fact keeps evidence and can be imported into another scope' --memory-kind fact --source-refs 'file://docs/V2.9/V2.94-development-plan.md' --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/memory-cli remember --scope-id scp_v294_acceptance --title 'passport redaction risk' --file /Users/Rou/dev_projects/meat-memory/target/v2_94-passport-markdown/passport-secret.fixture --memory-kind risk --json`
+[v2.94] CLI provenance
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running `target/debug/memory-cli passport provenance --scope-id scp_v294_acceptance --memory-id mem_01KQ7C36EHNRM2YCSXZ8QYPD1T --json`
+[v2.94] CLI passport export
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running `target/debug/memory-cli passport export --scope-id scp_v294_acceptance --limit 20 --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --json`
+[v2.94] CLI passport verify
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli passport verify --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --json`
+[v2.94] CLI passport import
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli passport import --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --target-scope-id scp_v294_imported --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli search 'durable fact' --scope-id scp_v294_imported --json`
+[v2.94] acceptance completed

@@ -19,14 +19,17 @@ use memory_kernel::{
     GetMemoryTimelineRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest,
     InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
     ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryHealthReport, MemoryHealthReportPaths, MemoryTimeline,
+    ListProjectDocumentsRequest, MemoryHealthReport, MemoryHealthReportPaths, MemoryPassportBundle,
+    MemoryPassportExportRequest, MemoryPassportImportRequest, MemoryPassportImportResult,
+    MemoryPassportPaths, MemoryPassportVerification, MemoryProvenance, MemoryTimeline,
     PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
     RecallTraceBudget, RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest,
     RememberImageResult, RememberTextRequest, RememberTextResult, ReviewActorKind,
     RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
     TimelineEvent, TimelineEventKind, TimelineVersion, TraceSearchContextRequest,
     TraceSearchContextResult, UpsertAgentContextRequest, UpsertDistillationProfileRequest,
-    health_json, write_memory_health_report, write_recall_trace_report,
+    bundle_json, health_json, verification_json, verify_memory_passport_bundle,
+    write_memory_health_report, write_memory_passport_bundle, write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -87,6 +90,7 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::Benchmark(args) => benchmark_command(args).await,
         Command::Trace(args) => trace_command(args).await,
         Command::Health(args) => health_command(args).await,
+        Command::Passport(args) => passport_command(args).await,
     }
 }
 
@@ -1494,6 +1498,204 @@ async fn health_report_command(args: HealthReportArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn passport_command(args: PassportArgs) -> Result<()> {
+    match args.command {
+        PassportCommand::Export(export) => passport_export_command(export).await,
+        PassportCommand::Verify(verify) => passport_verify_command(verify),
+        PassportCommand::Import(import) => passport_import_command(import).await,
+        PassportCommand::Provenance(provenance) => passport_provenance_command(provenance).await,
+    }
+}
+
+async fn passport_export_command(args: PassportExportArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let scope_id = scope_id_or_default(args.scope_id, &service_info);
+    let context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
+    if let Some(context) = context.as_ref() {
+        ensure_cli_context_scope(context, &scope_id)?;
+    }
+    let mut request = MemoryPassportExportRequest::new(scope_id);
+    request.limit = args.limit;
+    request.redact_sensitive = args.redact_sensitive;
+    request.context = context;
+    let bundle = kernel.export_memory_passport(request).await?;
+    let paths = write_memory_passport_bundle(&args.output_dir, &bundle)?;
+
+    if args.json {
+        print_json(passport_export_json(&bundle, &paths))?;
+    } else {
+        for line in passport_export_lines(&bundle, &paths) {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+fn passport_verify_command(args: PassportVerifyArgs) -> Result<()> {
+    let verification = verify_memory_passport_bundle(&args.input_dir)?;
+    if args.json {
+        print_json(passport_verification_json(&verification))?;
+    } else {
+        for line in passport_verification_lines(&verification) {
+            println!("{line}");
+        }
+    }
+    if verification.valid {
+        Ok(())
+    } else {
+        bail!("passport verification failed")
+    }
+}
+
+async fn passport_import_command(args: PassportImportArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    let context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
+    let result = kernel
+        .import_memory_passport(MemoryPassportImportRequest {
+            input_dir: args.input_dir,
+            target_scope_id: args.target_scope_id.map(ScopeId::from_string),
+            dry_run: args.dry_run,
+            context,
+        })
+        .await?;
+
+    if args.json {
+        print_json(passport_import_json(&result))?;
+    } else {
+        for line in passport_import_lines(&result) {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+async fn passport_provenance_command(args: PassportProvenanceArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let scope_id = scope_id_or_default(args.scope_id, &service_info);
+    let context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
+    if let Some(context) = context.as_ref() {
+        ensure_cli_context_scope(context, &scope_id)?;
+    }
+    let provenance = kernel
+        .memory_provenance(
+            scope_id,
+            MemoryId::from_string(args.memory_id),
+            context.as_ref(),
+        )
+        .await?;
+
+    if args.json {
+        print_json(memory_provenance_json(&provenance))?;
+    } else {
+        for line in memory_provenance_lines(&provenance) {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+fn passport_export_json(
+    bundle: &MemoryPassportBundle,
+    paths: &MemoryPassportPaths,
+) -> serde_json::Value {
+    let mut value = bundle_json(bundle);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("report_paths".to_string(), passport_paths_json(paths));
+    }
+    value
+}
+
+fn passport_export_lines(
+    bundle: &MemoryPassportBundle,
+    paths: &MemoryPassportPaths,
+) -> Vec<String> {
+    vec![
+        format!("Passport id: {}", bundle.manifest.id.as_str()),
+        format!("Scope: {}", bundle.manifest.source_scope_id.as_str()),
+        format!("Memories: {}", bundle.memories.len()),
+        format!("Evidence spans: {}", bundle.evidence_spans.len()),
+        format!("Object count: {}", bundle.manifest.object_count),
+        format!("Bundle hash: {}", bundle.manifest.bundle_hash),
+        format!("Manifest: {}", paths.markdown.display()),
+    ]
+}
+
+fn passport_verification_json(verification: &MemoryPassportVerification) -> serde_json::Value {
+    verification_json(verification)
+}
+
+fn passport_verification_lines(verification: &MemoryPassportVerification) -> Vec<String> {
+    let mut lines = vec![
+        format!("Passport id: {}", verification.manifest.id.as_str()),
+        format!("Valid: {}", verification.valid),
+        format!("Checked objects: {}", verification.checked_objects),
+    ];
+    if verification.errors.is_empty() {
+        lines.push("Errors: none".to_string());
+    } else {
+        lines.push(format!("Errors: {}", verification.errors.join("; ")));
+    }
+    lines
+}
+
+fn passport_import_json(result: &MemoryPassportImportResult) -> serde_json::Value {
+    json!({
+        "manifest": result.manifest,
+        "verified": result.verified,
+        "target_scope_id": result.target_scope_id.as_str(),
+        "imported_count": result.imported_count,
+        "skipped_count": result.skipped_count,
+        "id_mappings": result.id_mappings.iter().map(|mapping| json!({
+            "original_memory_id": mapping.original_memory_id.as_str(),
+            "imported_memory_id": mapping.imported_memory_id.as_str(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn passport_import_lines(result: &MemoryPassportImportResult) -> Vec<String> {
+    vec![
+        format!("Passport id: {}", result.manifest.id.as_str()),
+        format!("Verified: {}", result.verified),
+        format!("Target scope: {}", result.target_scope_id.as_str()),
+        format!("Imported: {}", result.imported_count),
+        format!("Skipped: {}", result.skipped_count),
+    ]
+}
+
+fn memory_provenance_json(provenance: &MemoryProvenance) -> serde_json::Value {
+    json!({
+        "memory": provenance.memory,
+        "evidence_spans": provenance.evidence_spans,
+    })
+}
+
+fn memory_provenance_lines(provenance: &MemoryProvenance) -> Vec<String> {
+    let mut lines = vec![
+        format!("Memory: {}", provenance.memory.id.as_str()),
+        format!("Title: {}", provenance.memory.title),
+        format!("Evidence spans: {}", provenance.evidence_spans.len()),
+    ];
+    for span in &provenance.evidence_spans {
+        lines.push(format!(
+            "- {} {} {}",
+            span.kind.as_str(),
+            span.source_ref,
+            span.quote
+        ));
+    }
+    lines
+}
+
+fn passport_paths_json(paths: &MemoryPassportPaths) -> serde_json::Value {
+    json!({
+        "passport": paths.passport.display().to_string(),
+        "manifest": paths.manifest.display().to_string(),
+        "memories": paths.memories.display().to_string(),
+        "evidence": paths.evidence.display().to_string(),
+        "markdown": paths.markdown.display().to_string(),
+    })
 }
 
 fn health_report_json(

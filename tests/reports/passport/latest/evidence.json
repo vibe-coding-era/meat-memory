@@ -1,0 +1,60 @@
+[
+  {
+    "id": "evd_01KQ7C39QSF0KSET1VTZX0ABRX",
+    "scope_id": "scp_v294_acceptance",
+    "memory_id": "mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+    "artifact_id": null,
+    "source_ref": "memory:mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+    "kind": "Text",
+    "quote": "password = [REDACTED:PASSWORD]",
+    "content_hash": "1941423c604826d5b2707f51dd3475872e930443d466de274c219d4302d3f444",
+    "location": {
+      "start": 0,
+      "end": 30,
+      "page": null,
+      "region": null,
+      "start_ms": null,
+      "end_ms": null
+    },
+    "created_at": [
+      2026,
+      117,
+      11,
+      44,
+      50,
+      937323000,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "id": "evd_01KQ7C39QSGXC3VEQGJB27D6AB",
+    "scope_id": "scp_v294_acceptance",
+    "memory_id": "mem_01KQ7C36EHNRM2YCSXZ8QYPD1T",
+    "artifact_id": null,
+    "source_ref": "file://docs/V2.9/V2.94-development-plan.md",
+    "kind": "Text",
+    "quote": "V2.94 passport durable fact keeps evidence and can be imported into another scope",
+    "content_hash": "6b5c7f6ea93f17c3b69b2ae09f394bfac0e0676e1bef15dfdac4a327ba6998a2",
+    "location": {
+      "start": 0,
+      "end": 81,
+      "page": null,
+      "region": null,
+      "start_ms": null,
+      "end_ms": null
+    },
+    "created_at": [
+      2026,
+      117,
+      11,
+      44,
+      50,
+      937360000,
+      0,
+      0,
+      0
+    ]
+  }
+]

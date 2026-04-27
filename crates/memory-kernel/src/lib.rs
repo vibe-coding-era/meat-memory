@@ -4,6 +4,7 @@ mod lifecycle;
 mod v28;
 mod v28_runtime;
 mod v29_benchmark;
+mod v29_passport;
 mod v29_security;
 mod v29_trace;
 
@@ -71,6 +72,12 @@ pub use v28_runtime::{
 pub use v29_benchmark::{
     BenchmarkReportPaths, BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkRunner,
     BenchmarkSuiteKind,
+};
+pub use v29_passport::{
+    MemoryPassportBundle, MemoryPassportExportRequest, MemoryPassportIdMapping,
+    MemoryPassportImportRequest, MemoryPassportImportResult, MemoryPassportPaths,
+    MemoryPassportVerification, MemoryProvenance, bundle_json, derive_evidence_spans,
+    verification_json, verify_memory_passport_bundle, write_memory_passport_bundle,
 };
 pub use v29_security::{
     MemoryHealthReportPaths, SecretDetector, SensitiveIngestGuardResult, analyze_memory_health,
@@ -1499,8 +1506,11 @@ impl Kernel {
                 .await?;
             let artifact_id = pg_store.insert_artifact(&artifact).await?;
             let memory_id = pg_store.insert_memory(&memory).await?;
+            let evidence_quote = derive_evidence_spans(&memory, Some(&artifact))
+                .first()
+                .map(|span| span.quote.clone());
             pg_store
-                .link_evidence(&memory_id, &artifact_id, None)
+                .link_evidence(&memory_id, &artifact_id, evidence_quote.as_deref())
                 .await?;
             if let Some(context) = context {
                 pg_store

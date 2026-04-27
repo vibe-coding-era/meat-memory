@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -38,6 +38,7 @@ pub(super) enum Command {
     Benchmark(BenchmarkArgs),
     Trace(TraceArgs),
     Health(HealthArgs),
+    Passport(PassportArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -742,6 +743,20 @@ pub(super) enum HealthCommand {
 }
 
 #[derive(Debug, Clone, Args)]
+pub(super) struct PassportArgs {
+    #[command(subcommand)]
+    pub(super) command: PassportCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum PassportCommand {
+    Export(PassportExportArgs),
+    Verify(PassportVerifyArgs),
+    Import(PassportImportArgs),
+    Provenance(PassportProvenanceArgs),
+}
+
+#[derive(Debug, Clone, Args)]
 pub(super) struct HealthReportArgs {
     #[arg(long)]
     pub(super) key: Option<String>,
@@ -751,6 +766,56 @@ pub(super) struct HealthReportArgs {
     pub(super) limit: usize,
     #[arg(long, default_value = "tests/reports/health/latest")]
     pub(super) output_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct PassportExportArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 100)]
+    pub(super) limit: usize,
+    #[arg(long, default_value = "tests/reports/passport/latest")]
+    pub(super) output_dir: PathBuf,
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    pub(super) redact_sensitive: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct PassportVerifyArgs {
+    #[arg(long, default_value = "tests/reports/passport/latest")]
+    pub(super) input_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct PassportImportArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long, default_value = "tests/reports/passport/latest")]
+    pub(super) input_dir: PathBuf,
+    #[arg(long)]
+    pub(super) target_scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) dry_run: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct PassportProvenanceArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) memory_id: String,
     #[arg(long)]
     pub(super) json: bool,
 }

@@ -97,6 +97,7 @@
 ./docs/scripts/v2_91-acceptance.sh
 ./docs/scripts/v2_92-acceptance.sh
 ./docs/scripts/v2_93-acceptance.sh
+./docs/scripts/v2_94-acceptance.sh
 ./docs/scripts/v2_7-production-gate.sh
 ./docs/scripts/v2_8-production-gate.sh
 ```
@@ -111,6 +112,7 @@
 - `v2_91-acceptance.sh`：V2.91 benchmark baseline、报告骨架、V2.7 / V2.8 兼容 smoke 与新增代码 100% 覆盖率说明
 - `v2_92-acceptance.sh`：V2.92 recall trace、explanation、budget packer、trace CLI 和新增代码 100% 覆盖率说明
 - `v2_93-acceptance.sh`：V2.93 secret / PII guard、health report、CLI health 投影和新增代码 100% 覆盖率说明
+- `v2_94-acceptance.sh`：V2.94 evidence span、Memory Passport export / verify / import / provenance 和新增代码 100% 覆盖率说明
 - `v2_7-production-gate.sh`：V2.7 商用生产门禁，覆盖格式、接口、P1 回归、存储、接入面、安全和严格 PG 验收
 - `v2_8-production-gate.sh`：V2.8 发布门禁，覆盖格式、接口、V2.8 核心套件、接入面、安全和 strict acceptance
 
@@ -173,7 +175,12 @@
 - `v1-acceptance.sh`：V1 验收
 - `v2_1-acceptance.sh`：V2.1 配置 / MCP / TUI / skill 验收
 - `v2_4-acceptance.sh`：V2.4 context / docs / source 验收
+- `v2_7-acceptance.sh`：V2.7 lifecycle / governance / explainability / health report 验收
 - `v2_8-acceptance.sh`：V2.8 proposal / timeline / rollback / profile / distillation 验收
+- `v2_91-acceptance.sh`：V2.91 benchmark baseline 验收
+- `v2_92-acceptance.sh`：V2.92 recall trace / budget 验收
+- `v2_93-acceptance.sh`：V2.93 secret / health 验收
+- `v2_94-acceptance.sh`：V2.94 evidence / passport 验收
 - `v2_7-production-gate.sh`：V2.7 生产门禁
 - `v2_8-production-gate.sh`：V2.8 发布门禁
 - `v2-perf.sh`：性能烟测
