@@ -46,14 +46,16 @@ id_type!(DistillationProfileId, "dpf");
 id_type!(DistillationRunId, "drn");
 id_type!(BenchmarkSuiteId, "bms");
 id_type!(BenchmarkRunId, "bmr");
+id_type!(RecallTraceId, "rtr");
+id_type!(RecallBudgetPackId, "rbp");
 
 #[cfg(test)]
 mod tests {
     use super::{
         AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
         DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
-        MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RelationId,
-        ScopeId, SourceId,
+        MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId,
+        RecallBudgetPackId, RecallTraceId, RelationId, ScopeId, SourceId,
     };
 
     #[test]
@@ -77,6 +79,8 @@ mod tests {
             DistillationRunId::new().as_str().to_string(),
             BenchmarkSuiteId::new().as_str().to_string(),
             BenchmarkRunId::new().as_str().to_string(),
+            RecallTraceId::new().as_str().to_string(),
+            RecallBudgetPackId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -97,6 +101,8 @@ mod tests {
         assert!(cases[15].starts_with("drn_"));
         assert!(cases[16].starts_with("bms_"));
         assert!(cases[17].starts_with("bmr_"));
+        assert!(cases[18].starts_with("rtr_"));
+        assert!(cases[19].starts_with("rbp_"));
     }
 
     #[test]
@@ -119,6 +125,8 @@ mod tests {
         let distillation_run = DistillationRunId::from_string("drn_custom");
         let benchmark_suite = BenchmarkSuiteId::from_string("bms_custom");
         let benchmark_run = BenchmarkRunId::from_string("bmr_custom");
+        let recall_trace = RecallTraceId::from_string("rtr_custom");
+        let recall_budget_pack = RecallBudgetPackId::from_string("rbp_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -138,6 +146,8 @@ mod tests {
         assert_eq!(distillation_run.as_str(), "drn_custom");
         assert_eq!(benchmark_suite.as_str(), "bms_custom");
         assert_eq!(benchmark_run.as_str(), "bmr_custom");
+        assert_eq!(recall_trace.as_str(), "rtr_custom");
+        assert_eq!(recall_budget_pack.as_str(), "rbp_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -165,5 +175,7 @@ mod tests {
         assert!(DistillationRunId::default().as_str().starts_with("drn_"));
         assert!(BenchmarkSuiteId::default().as_str().starts_with("bms_"));
         assert!(BenchmarkRunId::default().as_str().starts_with("bmr_"));
+        assert!(RecallTraceId::default().as_str().starts_with("rtr_"));
+        assert!(RecallBudgetPackId::default().as_str().starts_with("rbp_"));
     }
 }

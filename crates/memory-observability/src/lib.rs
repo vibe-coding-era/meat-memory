@@ -52,6 +52,7 @@ pub struct MetricsSnapshot {
     pub v2_4: V24MetricsSnapshot,
     pub v2_7: V27MetricsSnapshot,
     pub v2_8: V28MetricsSnapshot,
+    pub v2_9: V29MetricsSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -111,6 +112,16 @@ pub struct V28MetricsSnapshot {
     pub distillation_preview_hit_rate: f64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct V29MetricsSnapshot {
+    pub recall_traces: u64,
+    pub recall_hit_traces: u64,
+    pub recall_empty_traces: u64,
+    pub recall_filtered_candidates: u64,
+    pub recall_budget_trimmed_items: u64,
+    pub recall_hit_rate: f64,
+}
+
 #[derive(Debug)]
 struct ObservabilityRegistry {
     search_total: AtomicU64,
@@ -161,6 +172,11 @@ struct ObservabilityRegistry {
     v28_distillation_preview_failures: AtomicU64,
     v28_distillation_preview_candidates: AtomicU64,
     v28_distillation_preview_hits: AtomicU64,
+    v29_recall_traces: AtomicU64,
+    v29_recall_hit_traces: AtomicU64,
+    v29_recall_empty_traces: AtomicU64,
+    v29_recall_filtered_candidates: AtomicU64,
+    v29_recall_budget_trimmed_items: AtomicU64,
     search_latency: Mutex<LatencyReservoir>,
     write_latency: Mutex<LatencyReservoir>,
 }
@@ -216,6 +232,11 @@ impl Default for ObservabilityRegistry {
             v28_distillation_preview_failures: AtomicU64::new(0),
             v28_distillation_preview_candidates: AtomicU64::new(0),
             v28_distillation_preview_hits: AtomicU64::new(0),
+            v29_recall_traces: AtomicU64::new(0),
+            v29_recall_hit_traces: AtomicU64::new(0),
+            v29_recall_empty_traces: AtomicU64::new(0),
+            v29_recall_filtered_candidates: AtomicU64::new(0),
+            v29_recall_budget_trimmed_items: AtomicU64::new(0),
             search_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
             write_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
         }
@@ -537,6 +558,26 @@ pub fn record_v28_distillation_preview(success: bool, candidate_count: usize) {
     }
 }
 
+pub fn record_recall_trace(selected_count: usize, filtered_count: usize, trimmed_items: usize) {
+    let registry = registry();
+    registry.v29_recall_traces.fetch_add(1, Ordering::Relaxed);
+    if selected_count > 0 {
+        registry
+            .v29_recall_hit_traces
+            .fetch_add(1, Ordering::Relaxed);
+    } else {
+        registry
+            .v29_recall_empty_traces
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    registry
+        .v29_recall_filtered_candidates
+        .fetch_add(to_u64(filtered_count), Ordering::Relaxed);
+    registry
+        .v29_recall_budget_trimmed_items
+        .fetch_add(to_u64(trimmed_items), Ordering::Relaxed);
+}
+
 pub fn metrics_snapshot() -> MetricsSnapshot {
     let registry = registry();
     let hit_queries = registry.search_hits.load(Ordering::Relaxed);
@@ -549,6 +590,8 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
     let distillation_preview_hits = registry
         .v28_distillation_preview_hits
         .load(Ordering::Relaxed);
+    let recall_traces = registry.v29_recall_traces.load(Ordering::Relaxed);
+    let recall_hit_traces = registry.v29_recall_hit_traces.load(Ordering::Relaxed);
 
     MetricsSnapshot {
         search: SearchMetricsSnapshot {
@@ -621,6 +664,18 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
             distillation_preview_hits,
             distillation_preview_hit_rate: rate(distillation_preview_hits, distillation_previews),
         },
+        v2_9: V29MetricsSnapshot {
+            recall_traces,
+            recall_hit_traces,
+            recall_empty_traces: registry.v29_recall_empty_traces.load(Ordering::Relaxed),
+            recall_filtered_candidates: registry
+                .v29_recall_filtered_candidates
+                .load(Ordering::Relaxed),
+            recall_budget_trimmed_items: registry
+                .v29_recall_budget_trimmed_items
+                .load(Ordering::Relaxed),
+            recall_hit_rate: rate(recall_hit_traces, recall_traces),
+        },
     }
 }
 
@@ -663,10 +718,10 @@ mod tests {
     use super::{
         LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
         record_context_operation, record_docs_operation, record_key_operation,
-        record_lifecycle_operation, record_search_failure, record_search_success,
-        record_source_operation, record_v28_distillation_preview, record_v28_proposal_decision,
-        record_v28_proposal_observation, record_v28_rollback, record_write_failure,
-        record_write_success,
+        record_lifecycle_operation, record_recall_trace, record_search_failure,
+        record_search_success, record_source_operation, record_v28_distillation_preview,
+        record_v28_proposal_decision, record_v28_proposal_observation, record_v28_rollback,
+        record_write_failure, record_write_success,
     };
     use std::time::Duration;
 
@@ -757,6 +812,8 @@ mod tests {
         record_v28_distillation_preview(true, 2);
         record_v28_distillation_preview(true, 0);
         record_v28_distillation_preview(false, 0);
+        record_recall_trace(2, 1, 1);
+        record_recall_trace(0, 2, 0);
 
         let after = metrics_snapshot();
 
@@ -981,6 +1038,42 @@ mod tests {
                 >= 2
         );
         assert!(after.v2_8.distillation_preview_hit_rate > 0.0);
+        assert!(
+            after
+                .v2_9
+                .recall_traces
+                .saturating_sub(before.v2_9.recall_traces)
+                >= 2
+        );
+        assert!(
+            after
+                .v2_9
+                .recall_hit_traces
+                .saturating_sub(before.v2_9.recall_hit_traces)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_9
+                .recall_empty_traces
+                .saturating_sub(before.v2_9.recall_empty_traces)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_9
+                .recall_filtered_candidates
+                .saturating_sub(before.v2_9.recall_filtered_candidates)
+                >= 3
+        );
+        assert!(
+            after
+                .v2_9
+                .recall_budget_trimmed_items
+                .saturating_sub(before.v2_9.recall_budget_trimmed_items)
+                >= 1
+        );
+        assert!(after.v2_9.recall_hit_rate > 0.0);
         assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);
         assert!(
             after
@@ -1000,5 +1093,6 @@ mod tests {
         assert!(snapshot.write.total_requests >= snapshot.write.successful_requests);
         assert!(snapshot.v2_8.proposal_observations >= snapshot.v2_8.proposal_conflicts);
         assert!(snapshot.v2_8.distillation_previews >= snapshot.v2_8.distillation_preview_hits);
+        assert!(snapshot.v2_9.recall_traces >= snapshot.v2_9.recall_hit_traces);
     }
 }

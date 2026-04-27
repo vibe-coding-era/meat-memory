@@ -4,6 +4,7 @@ mod lifecycle;
 mod v28;
 mod v28_runtime;
 mod v29_benchmark;
+mod v29_trace;
 
 pub use lifecycle::{
     AuditEvent, AuditLogService, BudgetPacker, EvolutionEvent, EvolutionEventType,
@@ -68,6 +69,10 @@ pub use v28_runtime::{
 pub use v29_benchmark::{
     BenchmarkReportPaths, BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkRunner,
     BenchmarkSuiteKind,
+};
+pub use v29_trace::{
+    RecallTraceBudget, RecallTraceReportPaths, TraceSearchContextRequest, TraceSearchContextResult,
+    classify_recall_failure, explain_recall_trace, write_recall_trace_report,
 };
 
 #[derive(Debug, Clone)]

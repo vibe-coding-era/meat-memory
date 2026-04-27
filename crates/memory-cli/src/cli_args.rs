@@ -36,6 +36,7 @@ pub(super) enum Command {
     RememberImage(RememberImageArgs),
     Search(SearchArgs),
     Benchmark(BenchmarkArgs),
+    Trace(TraceArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -679,6 +680,50 @@ pub(super) struct BenchmarkRunArgs {
 #[derive(Debug, Clone, Args)]
 pub(super) struct BenchmarkReportArgs {
     #[arg(long, default_value = "tests/reports/benchmark/latest")]
+    pub(super) input_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct TraceArgs {
+    #[command(subcommand)]
+    pub(super) command: TraceCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum TraceCommand {
+    Latest(TraceLatestArgs),
+    Inspect(TraceInspectArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct TraceLatestArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long)]
+    pub(super) query: Option<String>,
+    #[arg(long, default_value_t = 10)]
+    pub(super) limit: usize,
+    #[arg(long, default_value_t = 5)]
+    pub(super) max_records: usize,
+    #[arg(long, default_value_t = 2000)]
+    pub(super) max_chars: usize,
+    #[arg(long)]
+    pub(super) debug_candidates: bool,
+    #[arg(long, default_value = "tests/reports/trace/latest")]
+    pub(super) output_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct TraceInspectArgs {
+    #[arg(long)]
+    pub(super) trace_id: String,
+    #[arg(long, default_value = "tests/reports/trace/latest")]
     pub(super) input_dir: PathBuf,
     #[arg(long)]
     pub(super) json: bool,

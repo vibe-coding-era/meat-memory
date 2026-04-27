@@ -20,11 +20,12 @@ use memory_kernel::{
     InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
     ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
     ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
-    PreviewDistillationResult, PromoteAgentContextRequest, RejectMemoryProposalRequest,
-    RememberImageRequest, RememberImageResult, RememberTextRequest, RememberTextResult,
-    ReviewActorKind, RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest,
-    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
-    UpsertAgentContextRequest, UpsertDistillationProfileRequest,
+    PreviewDistillationResult, PromoteAgentContextRequest, RecallTraceBudget,
+    RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest, RememberImageResult,
+    RememberTextRequest, RememberTextResult, ReviewActorKind, RollbackMemoryRequest,
+    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
+    TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
+    UpsertAgentContextRequest, UpsertDistillationProfileRequest, write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -83,6 +84,7 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::RememberImage(args) => remember_image_command(args).await,
         Command::Search(args) => search_command(args).await,
         Command::Benchmark(args) => benchmark_command(args).await,
+        Command::Trace(args) => trace_command(args).await,
     }
 }
 
@@ -1342,6 +1344,121 @@ fn benchmark_run_output_lines(output: &BenchmarkRunOutput) -> Vec<String> {
         format!("failure count: {}", output.run.metrics.failure_count),
         format!("Report: {}", output.report_paths.summary.display()),
     ]
+}
+
+async fn trace_command(args: TraceArgs) -> Result<()> {
+    match args.command {
+        TraceCommand::Latest(latest) => trace_latest_command(latest).await,
+        TraceCommand::Inspect(inspect) => trace_inspect_command(inspect),
+    }
+}
+
+async fn trace_latest_command(args: TraceLatestArgs) -> Result<()> {
+    let Some(query) = args.query.clone() else {
+        return print_trace_report_from_dir(&args.output_dir, None, args.json);
+    };
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let mut search =
+        SearchContextRequest::new(scope_id_or_default(args.scope_id, &service_info), query);
+    search.limit = args.limit;
+    search.context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
+    let mut trace_request = TraceSearchContextRequest::new(search);
+    trace_request.budget = RecallTraceBudget {
+        max_records: args.max_records,
+        max_chars: args.max_chars,
+    };
+    trace_request.include_debug_candidates = args.debug_candidates;
+    let result = kernel.search_context_with_trace(trace_request).await?;
+    let paths = write_recall_trace_report(&args.output_dir, &result)?;
+
+    if args.json {
+        print_json(trace_result_json(&result, &paths))?;
+    } else {
+        for line in trace_result_lines(&result, &paths) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn trace_inspect_command(args: TraceInspectArgs) -> Result<()> {
+    print_trace_report_from_dir(&args.input_dir, Some(&args.trace_id), args.json)
+}
+
+fn print_trace_report_from_dir(
+    input_dir: &Path,
+    trace_id: Option<&str>,
+    json_output: bool,
+) -> Result<()> {
+    let trace_path = input_dir.join("trace.json");
+    let raw = fs::read_to_string(&trace_path)
+        .with_context(|| format!("failed to read {}", trace_path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", trace_path.display()))?;
+    if let Some(expected_trace_id) = trace_id {
+        let actual_trace_id = value
+            .pointer("/trace/id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if actual_trace_id != expected_trace_id {
+            bail!("trace id mismatch: expected {expected_trace_id}, found {actual_trace_id}");
+        }
+    }
+    if json_output {
+        print_json(value)?;
+    } else {
+        let explanation_path = input_dir.join("explanation.md");
+        let explanation = fs::read_to_string(&explanation_path)
+            .with_context(|| format!("failed to read {}", explanation_path.display()))?;
+        println!("{explanation}");
+    }
+    Ok(())
+}
+
+fn trace_result_json(
+    result: &TraceSearchContextResult,
+    paths: &RecallTraceReportPaths,
+) -> serde_json::Value {
+    json!({
+        "trace": result.trace,
+        "explanation": result.explanation,
+        "budget_pack": result.budget_pack,
+        "bundle": result.bundle,
+        "report_paths": {
+            "trace": paths.trace.display().to_string(),
+            "explanation": paths.explanation.display().to_string(),
+            "budget": paths.budget.display().to_string(),
+        }
+    })
+}
+
+fn trace_result_lines(
+    result: &TraceSearchContextResult,
+    paths: &RecallTraceReportPaths,
+) -> Vec<String> {
+    let mut lines = vec![
+        format!("Trace id: {}", result.trace.id.as_str()),
+        format!("Query: {}", result.trace.query),
+        format!("Candidates: {}", result.trace.candidate_count),
+        format!("Selected: {}", result.trace.selected_count),
+        format!("Filtered: {}", result.trace.filtered_count),
+        format!(
+            "Budget: {}/{} chars",
+            result.budget_pack.used_chars, result.budget_pack.max_chars
+        ),
+        format!("Trimmed: {}", result.budget_pack.trimmed_items.len()),
+        format!("Trace report: {}", paths.trace.display()),
+        format!("Explanation: {}", paths.explanation.display()),
+    ];
+    if let Some(failure) = &result.explanation.failure {
+        lines.push(format!(
+            "Failure: {} - {}",
+            failure.kind.as_str(),
+            failure.reason
+        ));
+    }
+    lines
 }
 
 async fn bootstrap_runtime() -> Result<(AppConfig, Kernel, ServiceInfo)> {

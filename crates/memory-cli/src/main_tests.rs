@@ -20,9 +20,9 @@ use super::{
     remember_result_json, remember_result_lines, render_json, resolve_bind, rollback_command,
     rollback_memory_json, run_with_cli, scope_id_or_default, search_bundle_json,
     search_bundle_lines, search_command, search_command_with_runtime, serve_command_with_runtime,
-    skills_command, source_command, static_command_message, timeline_command, tui_command,
-    tui_init_json, tui_init_lines, validate_model_registry, versions_command,
-    write_tui_config_if_requested,
+    skills_command, source_command, static_command_message, timeline_command,
+    trace_inspect_command, trace_result_json, trace_result_lines, tui_command, tui_init_json,
+    tui_init_lines, validate_model_registry, versions_command, write_tui_config_if_requested,
 };
 use axum::{body::Body, http::Request};
 use clap::Parser;
@@ -35,17 +35,19 @@ use memory_domain::{
     DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus, KeyScopeKind,
     KeySourceKind, Memory, MemoryId, MemoryKind, MemoryProposal, MemoryRecordStatus,
     MemoryRelation, MemoryRelationSourceKind, MemoryRelationType, MemoryState, ProposalId,
-    ProposalStatus, ProposalType, ReviewLevel, ScopeId, Sensitivity, SourceSyncMode, StorageMode,
-    Visibility,
+    ProposalStatus, ProposalType, RecallBudgetItem, RecallBudgetPack, RecallBudgetPackId,
+    RecallBudgetRenderMode, RecallBudgetSummary, RecallTrace, RecallTraceCandidate,
+    RecallTraceExplanation, RecallTraceId, RecallTraceRetention, ReviewLevel, ScopeId, Sensitivity,
+    SourceSyncMode, StorageMode, Visibility,
 };
 use memory_domain::{DocumentConflictState, DocumentSyncState};
 use memory_kernel::{
     AuditLogService, BenchmarkReportPaths, BenchmarkRunOutput, ChangeMemoryLifecycleStatusResult,
     ComposedDistillationProfile, DistillationPreviewService, DistillationPromptSegment,
     InspectMemoryLifecycleResult, LifecycleNormalizer, MemoryTimeline, PreviewDistillationResult,
-    RecallExplainer, RememberImageResult, RememberTextResult, ReviewActorKind,
-    RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent, TimelineEventKind,
-    TimelineVersion,
+    RecallExplainer, RecallTraceReportPaths, RememberImageResult, RememberTextResult,
+    ReviewActorKind, RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent,
+    TimelineEventKind, TimelineVersion, TraceSearchContextResult,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -204,6 +206,64 @@ fn sample_benchmark_output(report_dir: &Path) -> BenchmarkRunOutput {
             leakage: report_dir.join("leakage.jsonl"),
         },
     }
+}
+
+fn sample_trace_result(report_dir: &Path) -> (TraceSearchContextResult, RecallTraceReportPaths) {
+    let memory = sample_memory();
+    let trace_id = RecallTraceId::from_string("rtr_cli");
+    let budget_pack = RecallBudgetPack {
+        id: RecallBudgetPackId::from_string("rbp_cli"),
+        trace_id: trace_id.clone(),
+        max_records: 2,
+        max_chars: 200,
+        used_chars: 64,
+        items: vec![RecallBudgetItem {
+            memory_id: memory.id.clone(),
+            title: memory.title.clone(),
+            chars_used: 64,
+            render_mode: RecallBudgetRenderMode::Full,
+        }],
+        trimmed_items: Vec::new(),
+    };
+    let trace = RecallTrace {
+        id: trace_id.clone(),
+        scope_id: memory.scope_id.clone(),
+        query: "测试覆盖率".to_string(),
+        retrieval_mode: "markdown_keyword_graph".to_string(),
+        candidate_count: 1,
+        selected_count: 1,
+        filtered_count: 0,
+        budget: RecallBudgetSummary::from_pack(&budget_pack),
+        retention: RecallTraceRetention::SummaryOnly,
+        candidates: vec![RecallTraceCandidate {
+            memory_id: memory.id.clone(),
+            title: memory.title.clone(),
+            rank: 1,
+            score: 9,
+            selected: true,
+            filtered_reason: None,
+        }],
+        created_at: datetime!(2026-04-27 00:00:00 UTC),
+    };
+    let result = TraceSearchContextResult {
+        bundle: sample_context_bundle(vec![memory]),
+        trace,
+        explanation: RecallTraceExplanation {
+            trace_id,
+            summary: "selected 1 of 1 candidates; filtered 0; used 64/200 chars".to_string(),
+            matched_terms: vec!["测试覆盖率".to_string()],
+            filtered_reasons: Vec::new(),
+            budget_reasons: vec!["packed 1 items within 200 chars".to_string()],
+            failure: None,
+        },
+        budget_pack,
+    };
+    let paths = RecallTraceReportPaths {
+        trace: report_dir.join("trace.json"),
+        explanation: report_dir.join("explanation.md"),
+        budget: report_dir.join("budget.json"),
+    };
+    (result, paths)
 }
 
 fn sample_config(markdown_root: &str, asset_root: &str, enable_mcp: bool) -> AppConfig {
@@ -695,6 +755,52 @@ fn benchmark_report_command_reads_summary_and_metrics() {
 }
 
 #[test]
+fn trace_output_helpers_include_budget_and_paths() {
+    let tempdir = tempdir().unwrap();
+    let (result, paths) = sample_trace_result(tempdir.path());
+    let rendered = trace_result_json(&result, &paths);
+    let lines = trace_result_lines(&result, &paths);
+
+    assert_eq!(rendered["trace"]["id"], "rtr_cli");
+    assert_eq!(rendered["budget_pack"]["used_chars"], 64);
+    assert_eq!(
+        rendered["report_paths"]["trace"],
+        tempdir.path().join("trace.json").display().to_string()
+    );
+    assert!(lines.iter().any(|line| line == "Selected: 1"));
+    assert!(lines.iter().any(|line| line == "Trimmed: 0"));
+}
+
+#[test]
+fn trace_inspect_command_reads_trace_report() {
+    let tempdir = tempdir().unwrap();
+    let (result, paths) = sample_trace_result(tempdir.path());
+    fs::write(
+        &paths.trace,
+        render_json(trace_result_json(&result, &paths)).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        &paths.explanation,
+        "# Recall Trace Explanation\n\ntrace_id: rtr_cli\n",
+    )
+    .unwrap();
+
+    trace_inspect_command(super::TraceInspectArgs {
+        trace_id: "rtr_cli".to_string(),
+        input_dir: tempdir.path().to_path_buf(),
+        json: false,
+    })
+    .unwrap();
+    trace_inspect_command(super::TraceInspectArgs {
+        trace_id: "rtr_cli".to_string(),
+        input_dir: tempdir.path().to_path_buf(),
+        json: true,
+    })
+    .unwrap();
+}
+
+#[test]
 fn benchmark_cli_parser_accepts_run_and_report() {
     let run_cli = Cli::try_parse_from([
         "memory-cli",
@@ -740,6 +846,59 @@ fn benchmark_cli_parser_accepts_run_and_report() {
             assert!(args.json);
         }
         _ => panic!("expected benchmark report command"),
+    }
+}
+
+#[test]
+fn trace_cli_parser_accepts_latest_and_inspect() {
+    let latest_cli = Cli::try_parse_from([
+        "memory-cli",
+        "trace",
+        "latest",
+        "--scope-id",
+        "scp_parser",
+        "--query",
+        "parser trace",
+        "--max-records",
+        "3",
+        "--max-chars",
+        "1200",
+        "--debug-candidates",
+        "--json",
+    ])
+    .unwrap();
+    match latest_cli.command {
+        super::Command::Trace(super::TraceArgs {
+            command: super::TraceCommand::Latest(args),
+        }) => {
+            assert_eq!(args.scope_id.as_deref(), Some("scp_parser"));
+            assert_eq!(args.query.as_deref(), Some("parser trace"));
+            assert_eq!(args.max_records, 3);
+            assert!(args.debug_candidates);
+        }
+        _ => panic!("expected trace latest command"),
+    }
+
+    let inspect_cli = Cli::try_parse_from([
+        "memory-cli",
+        "trace",
+        "inspect",
+        "--trace-id",
+        "rtr_parser",
+        "--input-dir",
+        "tests/reports/trace/latest",
+        "--json",
+    ])
+    .unwrap();
+    match inspect_cli.command {
+        super::Command::Trace(super::TraceArgs {
+            command: super::TraceCommand::Inspect(args),
+        }) => {
+            assert_eq!(args.trace_id, "rtr_parser");
+            assert_eq!(args.input_dir, PathBuf::from("tests/reports/trace/latest"));
+            assert!(args.json);
+        }
+        _ => panic!("expected trace inspect command"),
     }
 }
 

@@ -13,6 +13,7 @@ pub mod lifecycle;
 pub mod memory;
 pub mod memory_relation;
 pub mod proposal;
+pub mod recall;
 pub mod record;
 pub mod relation;
 pub mod scope;
@@ -37,8 +38,8 @@ pub use identity::{BindingConfirmedBy, ProjectBindingKind, ProjectIdentityBindin
 pub use ids::{
     AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
     DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
-    MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RelationId, ScopeId,
-    SourceId,
+    MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RecallBudgetPackId,
+    RecallTraceId, RelationId, ScopeId, SourceId,
 };
 pub use lifecycle::{
     AgentContext, DocumentConflictState, DocumentSyncState, MemoryLayer, MemorySource,
@@ -47,6 +48,11 @@ pub use lifecycle::{
 pub use memory::{Memory, MemoryKind, MemoryScores, MemoryState};
 pub use memory_relation::{MemoryRelation, MemoryRelationSourceKind, MemoryRelationType};
 pub use proposal::{MemoryProposal, ProposalStatus, ProposalType, ReviewLevel};
+pub use recall::{
+    RecallBudgetItem, RecallBudgetPack, RecallBudgetRenderMode, RecallBudgetSummary,
+    RecallBudgetTrimmedItem, RecallFailureClassification, RecallFailureKind, RecallTrace,
+    RecallTraceCandidate, RecallTraceExplanation, RecallTraceRetention,
+};
 pub use record::{
     MemoryRecord, MemoryRecordConfidence, MemoryRecordNativeKind, MemoryRecordSourceKind,
     MemoryRecordStatus, MemoryRecordType,

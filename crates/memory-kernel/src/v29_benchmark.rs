@@ -1,4 +1,4 @@
-use crate::{Kernel, RememberTextRequest, SearchContextRequest};
+use crate::{Kernel, RememberTextRequest, SearchContextRequest, TraceSearchContextRequest};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use memory_domain::{
@@ -171,7 +171,10 @@ impl Kernel {
         let started_at = Instant::now();
         let mut request = SearchContextRequest::new(scope_id.clone(), fixture.query);
         request.limit = 5;
-        let bundle = self.search_context(request).await?;
+        let mut trace_request = TraceSearchContextRequest::new(request);
+        trace_request.expected_titles = vec![fixture.title.to_string()];
+        let traced = self.search_context_with_trace(trace_request).await?;
+        let bundle = traced.bundle;
         let latency_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         let actual_memory_ids = bundle
             .memories
@@ -194,6 +197,7 @@ impl Kernel {
 
         Ok(BenchmarkCaseResult {
             case_id: fixture.case_id.to_string(),
+            trace_id: Some(traced.trace.id),
             query: fixture.query.to_string(),
             expected_memory_titles: vec![fixture.title.to_string()],
             actual_memory_ids,

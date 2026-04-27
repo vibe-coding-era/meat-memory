@@ -1,0 +1,201 @@
+{
+  "budget_pack": {
+    "id": "rbp_01KQ6NP14JSYAS3F89T9XEP3Y5",
+    "items": [
+      {
+        "chars_used": 64,
+        "memory_id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+        "render_mode": "truncated",
+        "title": "trace budget public two"
+      }
+    ],
+    "max_chars": 64,
+    "max_records": 1,
+    "trace_id": "rtr_01KQ6NP14JY448SVD5NGB111G8",
+    "trimmed_items": [
+      {
+        "memory_id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+        "reason": "record limit exceeded",
+        "title": "trace budget public one"
+      }
+    ],
+    "used_chars": 64
+  },
+  "bundle": {
+    "entities": [],
+    "generated_at": [
+      2026,
+      117,
+      5,
+      13,
+      7,
+      474604000,
+      0,
+      0,
+      0
+    ],
+    "memories": [
+      {
+        "body": "trace budget public two should be trimmed by the record budget",
+        "created_at": [
+          2026,
+          117,
+          5,
+          13,
+          5,
+          724160000,
+          0,
+          0,
+          0
+        ],
+        "evidence_count": 1,
+        "id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+        "kind": "Summary",
+        "language_code": "en",
+        "owner_scope_id": "scp_v292_acceptance",
+        "published_from_scope_id": null,
+        "scope_id": "scp_v292_acceptance",
+        "scores": {
+          "confidence": 0.6000000238418579,
+          "freshness": 1.0,
+          "importance": 0.5,
+          "stability": 0.5
+        },
+        "sensitivity": "Internal",
+        "source_refs": [],
+        "state": "Active",
+        "title": "trace budget public two",
+        "updated_at": [
+          2026,
+          117,
+          5,
+          13,
+          5,
+          724161000,
+          0,
+          0,
+          0
+        ],
+        "visibility": "Private"
+      },
+      {
+        "body": "trace budget public one should be selected and explained",
+        "created_at": [
+          2026,
+          117,
+          5,
+          13,
+          4,
+          826323000,
+          0,
+          0,
+          0
+        ],
+        "evidence_count": 1,
+        "id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+        "kind": "Fact",
+        "language_code": "en",
+        "owner_scope_id": "scp_v292_acceptance",
+        "published_from_scope_id": null,
+        "scope_id": "scp_v292_acceptance",
+        "scores": {
+          "confidence": 0.6000000238418579,
+          "freshness": 1.0,
+          "importance": 0.5,
+          "stability": 0.5
+        },
+        "sensitivity": "Internal",
+        "source_refs": [],
+        "state": "Active",
+        "title": "trace budget public one",
+        "updated_at": [
+          2026,
+          117,
+          5,
+          13,
+          4,
+          826325000,
+          0,
+          0,
+          0
+        ],
+        "visibility": "Private"
+      }
+    ],
+    "query": "trace budget",
+    "relations": [],
+    "scope_id": "scp_v292_acceptance"
+  },
+  "explanation": {
+    "budget_reasons": [
+      "packed 1 items within 64 chars",
+      "trimmed 1 items due to budget"
+    ],
+    "failure": {
+      "kind": "budget_trimmed",
+      "reason": "one or more selected memories were trimmed by budget"
+    },
+    "filtered_reasons": [
+      "restricted sensitivity requires owner scope access"
+    ],
+    "matched_terms": [
+      "trace",
+      "budget"
+    ],
+    "summary": "selected 2 of 3 candidates; filtered 1; used 64/64 chars",
+    "trace_id": "rtr_01KQ6NP14JY448SVD5NGB111G8"
+  },
+  "trace": {
+    "budget": {
+      "max_chars": 64,
+      "max_records": 1,
+      "trimmed_items": 1,
+      "used_chars": 64
+    },
+    "candidate_count": 3,
+    "candidates": [
+      {
+        "filtered_reason": "restricted sensitivity requires owner scope access",
+        "memory_id": "mem_01KQ6NP07Y048HT5XY5DJF7ZJY",
+        "rank": 1,
+        "score": 19,
+        "selected": false,
+        "title": "trace budget restricted"
+      },
+      {
+        "filtered_reason": null,
+        "memory_id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+        "rank": 2,
+        "score": 19,
+        "selected": true,
+        "title": "trace budget public two"
+      },
+      {
+        "filtered_reason": null,
+        "memory_id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+        "rank": 3,
+        "score": 19,
+        "selected": true,
+        "title": "trace budget public one"
+      }
+    ],
+    "created_at": [
+      2026,
+      117,
+      5,
+      13,
+      7,
+      474904000,
+      0,
+      0,
+      0
+    ],
+    "filtered_count": 1,
+    "id": "rtr_01KQ6NP14JY448SVD5NGB111G8",
+    "query": "trace budget",
+    "retention": "debug_candidates",
+    "retrieval_mode": "markdown_keyword_graph",
+    "scope_id": "scp_v292_acceptance",
+    "selected_count": 2
+  }
+}

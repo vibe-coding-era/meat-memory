@@ -1,4 +1,4 @@
-use crate::{BenchmarkRunId, BenchmarkSuiteId, MemoryId};
+use crate::{BenchmarkRunId, BenchmarkSuiteId, MemoryId, RecallTraceId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -45,6 +45,7 @@ pub struct BenchmarkRun {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BenchmarkCaseResult {
     pub case_id: String,
+    pub trace_id: Option<RecallTraceId>,
     pub query: String,
     pub expected_memory_titles: Vec<String>,
     pub actual_memory_ids: Vec<MemoryId>,
@@ -120,7 +121,7 @@ mod tests {
     use super::{
         BenchmarkCaseResult, BenchmarkMetrics, BenchmarkRunStatus, BenchmarkSuite, percentile,
     };
-    use crate::{BenchmarkSuiteId, MemoryId};
+    use crate::{BenchmarkSuiteId, MemoryId, RecallTraceId};
 
     fn case(
         case_id: &str,
@@ -130,6 +131,7 @@ mod tests {
     ) -> BenchmarkCaseResult {
         BenchmarkCaseResult {
             case_id: case_id.to_string(),
+            trace_id: Some(RecallTraceId::from_string(format!("rtr_{case_id}"))),
             query: format!("query {case_id}"),
             expected_memory_titles: vec![format!("expected {case_id}")],
             actual_memory_ids: vec![MemoryId::from_string(format!("mem_{case_id}"))],

@@ -1,0 +1,22 @@
+{
+  "id": "rbp_01KQ6NP14JSYAS3F89T9XEP3Y5",
+  "trace_id": "rtr_01KQ6NP14JY448SVD5NGB111G8",
+  "max_records": 1,
+  "max_chars": 64,
+  "used_chars": 64,
+  "items": [
+    {
+      "memory_id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+      "title": "trace budget public two",
+      "chars_used": 64,
+      "render_mode": "truncated"
+    }
+  ],
+  "trimmed_items": [
+    {
+      "memory_id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+      "title": "trace budget public one",
+      "reason": "record limit exceeded"
+    }
+  ]
+}
