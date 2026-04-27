@@ -3,6 +3,7 @@ use async_trait::async_trait;
 mod lifecycle;
 mod v28;
 mod v28_runtime;
+mod v29_benchmark;
 
 pub use lifecycle::{
     AuditEvent, AuditLogService, BudgetPacker, EvolutionEvent, EvolutionEventType,
@@ -63,6 +64,10 @@ pub use v28_runtime::{
     ListMemoryVersionsRequest, PreviewDistillationRequest, PreviewDistillationResult,
     RejectMemoryProposalRequest, RollbackMemoryRequest, RollbackMemoryResult,
     UpsertDistillationProfileRequest,
+};
+pub use v29_benchmark::{
+    BenchmarkReportPaths, BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkRunner,
+    BenchmarkSuiteKind,
 };
 
 #[derive(Debug, Clone)]

@@ -12,6 +12,7 @@ use memory_domain::{
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{
     ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
+    BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkSuiteKind,
     ChangeMemoryLifecycleStatusRequest, ChangeMemoryLifecycleStatusResult,
     ComposedDistillationProfile, CreateAccessKeyRequest, DistillationCandidate,
     DistillationPromptSegment, DistillationSessionOverride, GetMemoryProposalRequest,
@@ -81,6 +82,7 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::Remember(args) => remember_command(args).await,
         Command::RememberImage(args) => remember_image_command(args).await,
         Command::Search(args) => search_command(args).await,
+        Command::Benchmark(args) => benchmark_command(args).await,
     }
 }
 
@@ -1261,6 +1263,85 @@ async fn search_command_with_runtime(
     }
 
     Ok(())
+}
+
+async fn benchmark_command(args: BenchmarkArgs) -> Result<()> {
+    match args.command {
+        BenchmarkCommand::Run(run) => benchmark_run_command(run).await,
+        BenchmarkCommand::Report(report) => benchmark_report_command(report),
+    }
+}
+
+async fn benchmark_run_command(args: BenchmarkRunArgs) -> Result<()> {
+    let (_, kernel, _) = bootstrap_runtime().await?;
+    let suite = BenchmarkSuiteKind::from_name(&args.suite)?;
+    let scope_id = ScopeId::from_string(
+        args.scope_id
+            .unwrap_or_else(|| "scp_benchmark_meat_code_zh".to_string()),
+    );
+    let output = kernel
+        .run_benchmark(BenchmarkRunRequest::new(suite, scope_id, args.output_dir))
+        .await?;
+
+    if args.json {
+        print_json(benchmark_run_output_json(&output))?;
+    } else {
+        for line in benchmark_run_output_lines(&output) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn benchmark_report_command(args: BenchmarkReportArgs) -> Result<()> {
+    if args.json {
+        let metrics_path = args.input_dir.join("metrics.json");
+        let raw = fs::read_to_string(&metrics_path)
+            .with_context(|| format!("failed to read {}", metrics_path.display()))?;
+        let value = serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse {}", metrics_path.display()))?;
+        print_json(value)?;
+    } else {
+        let summary_path = args.input_dir.join("summary.md");
+        let summary = fs::read_to_string(&summary_path)
+            .with_context(|| format!("failed to read {}", summary_path.display()))?;
+        println!("{summary}");
+    }
+
+    Ok(())
+}
+
+fn benchmark_run_output_json(output: &BenchmarkRunOutput) -> serde_json::Value {
+    json!({
+        "suite": output.suite,
+        "run": output.run,
+        "metrics": output.run.metrics,
+        "cases": output.cases,
+        "report_paths": {
+            "summary": output.report_paths.summary.display().to_string(),
+            "metrics": output.report_paths.metrics.display().to_string(),
+            "failures": output.report_paths.failures.display().to_string(),
+            "latency": output.report_paths.latency.display().to_string(),
+            "leakage": output.report_paths.leakage.display().to_string(),
+        }
+    })
+}
+
+fn benchmark_run_output_lines(output: &BenchmarkRunOutput) -> Vec<String> {
+    vec![
+        format!("Benchmark suite: {}", output.suite.name),
+        format!("Run id: {}", output.run.id.as_str()),
+        format!("Status: {}", output.run.status.as_str()),
+        format!("Cases: {}", output.run.case_count),
+        format!("recall@1: {:.3}", output.run.metrics.recall_at_1),
+        format!("recall@5: {:.3}", output.run.metrics.recall_at_5),
+        format!("p50 latency ms: {}", output.run.metrics.p50_latency_ms),
+        format!("p95 latency ms: {}", output.run.metrics.p95_latency_ms),
+        format!("leakage count: {}", output.run.metrics.leakage_count),
+        format!("failure count: {}", output.run.metrics.failure_count),
+        format!("Report: {}", output.report_paths.summary.display()),
+    ]
 }
 
 async fn bootstrap_runtime() -> Result<(AppConfig, Kernel, ServiceInfo)> {

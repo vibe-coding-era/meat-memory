@@ -8,12 +8,12 @@ use super::{
     list_memory_proposals_prefix_sql, list_memory_proposals_sql, list_memory_relations_prefix_sql,
     list_memory_relations_sql, list_memory_versions_sql, list_project_identity_bindings_sql,
     memory_from_record, memory_kind_to_str, memory_relation_source_kind_to_str,
-    memory_relation_type_to_str, memory_state_to_str, migration_0008_sql, parse_memory_kind,
-    parse_memory_state, parse_sensitivity, parse_visibility, project_binding_kind_to_str,
-    proposal_status_to_str, proposal_type_to_str, review_level_to_str, scope_type_to_str,
-    search_memory_prefix_sql, search_terms, seed_scope_sql, select_distillation_profile_sql,
-    select_memory_proposal_sql, select_memory_sql, sensitivity_to_str,
-    update_memory_evidence_count_sql, update_memory_version_metadata_sql,
+    memory_relation_type_to_str, memory_state_to_str, migration_0008_sql, migration_0009_sql,
+    parse_memory_kind, parse_memory_state, parse_sensitivity, parse_visibility,
+    project_binding_kind_to_str, proposal_status_to_str, proposal_type_to_str, review_level_to_str,
+    scope_type_to_str, search_memory_prefix_sql, search_terms, seed_scope_sql,
+    select_distillation_profile_sql, select_memory_proposal_sql, select_memory_sql,
+    sensitivity_to_str, update_memory_evidence_count_sql, update_memory_version_metadata_sql,
     upsert_distillation_profile_sql, upsert_memory_embedding_sql, upsert_memory_proposal_sql,
     upsert_memory_sql, upsert_memory_version_sql, upsert_project_identity_binding_sql,
     visibility_to_str,
@@ -343,6 +343,9 @@ fn v28_sql_helpers_expose_expected_statements() {
     assert!(migration_0008_sql().contains("distillation_profiles"));
     assert!(migration_0008_sql().contains("distillation_runs"));
     assert!(migration_0008_sql().contains("ALTER TABLE memory_versions"));
+    assert!(migration_0009_sql().contains("benchmark_suites"));
+    assert!(migration_0009_sql().contains("benchmark_runs"));
+    assert!(migration_0009_sql().contains("benchmark_case_results"));
 
     assert!(upsert_project_identity_binding_sql().contains("ON CONFLICT (id) DO UPDATE"));
     assert!(list_project_identity_bindings_sql().contains("WHERE owner_scope_id = $1"));

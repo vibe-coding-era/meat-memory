@@ -1,0 +1,4 @@
+{"case_id":"compat-legacy-entrypoints","latency_ms":0}
+{"case_id":"review-risk-first","latency_ms":0}
+{"case_id":"secret-guard-baseline","latency_ms":0}
+{"case_id":"benchmark-report-contract","latency_ms":0}

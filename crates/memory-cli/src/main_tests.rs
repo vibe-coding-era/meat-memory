@@ -1,5 +1,6 @@
 use super::{
-    Cli, api_metadata, bootstrap_loaded_config, bootstrap_runtime, build_cli_router,
+    Cli, api_metadata, benchmark_report_command, benchmark_run_output_json,
+    benchmark_run_output_lines, bootstrap_loaded_config, bootstrap_runtime, build_cli_router,
     build_distillation_session_override, build_kernel, build_non_interactive_project_init_request,
     build_remember_image_request, build_remember_request, build_search_request,
     check_mcp_http_endpoint, config_check_json, config_check_lines, config_check_report,
@@ -29,7 +30,8 @@ use memory_assets::{AssetMetadata, AssetRef, StorageClass, StoredAsset};
 use memory_config::AppConfig;
 use memory_core::ServiceInfo;
 use memory_domain::{
-    AccessKey, AccessKeyId, Artifact, ArtifactKind, ContextBundle, DistillationProfile,
+    AccessKey, AccessKeyId, Artifact, ArtifactKind, BenchmarkMetrics, BenchmarkRun, BenchmarkRunId,
+    BenchmarkRunStatus, BenchmarkSuite, BenchmarkSuiteId, ContextBundle, DistillationProfile,
     DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus, KeyScopeKind,
     KeySourceKind, Memory, MemoryId, MemoryKind, MemoryProposal, MemoryRecordStatus,
     MemoryRelation, MemoryRelationSourceKind, MemoryRelationType, MemoryState, ProposalId,
@@ -38,11 +40,12 @@ use memory_domain::{
 };
 use memory_domain::{DocumentConflictState, DocumentSyncState};
 use memory_kernel::{
-    AuditLogService, ChangeMemoryLifecycleStatusResult, ComposedDistillationProfile,
-    DistillationPreviewService, DistillationPromptSegment, InspectMemoryLifecycleResult,
-    LifecycleNormalizer, MemoryTimeline, PreviewDistillationResult, RecallExplainer,
-    RememberImageResult, RememberTextResult, ReviewActorKind, RollbackMemoryResult, RollbackPlan,
-    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
+    AuditLogService, BenchmarkReportPaths, BenchmarkRunOutput, ChangeMemoryLifecycleStatusResult,
+    ComposedDistillationProfile, DistillationPreviewService, DistillationPromptSegment,
+    InspectMemoryLifecycleResult, LifecycleNormalizer, MemoryTimeline, PreviewDistillationResult,
+    RecallExplainer, RememberImageResult, RememberTextResult, ReviewActorKind,
+    RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent, TimelineEventKind,
+    TimelineVersion,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -157,6 +160,49 @@ fn sample_context_bundle(memories: Vec<Memory>) -> ContextBundle {
         entities: Vec::new(),
         relations: Vec::new(),
         generated_at: datetime!(2025-01-02 03:04:05 UTC),
+    }
+}
+
+fn sample_benchmark_output(report_dir: &Path) -> BenchmarkRunOutput {
+    let suite = BenchmarkSuite {
+        id: BenchmarkSuiteId::from_string("bms_cli"),
+        name: "meat-code-zh".to_string(),
+        version: "2.91.0".to_string(),
+        description: "中文代码项目记忆基线".to_string(),
+        metric_profile: "recall@1,recall@5,latency,leakage,failure_reason".to_string(),
+    };
+    let metrics = BenchmarkMetrics {
+        case_count: 1,
+        recall_at_1: 1.0,
+        recall_at_5: 1.0,
+        leakage_count: 0,
+        p50_latency_ms: 3,
+        p95_latency_ms: 3,
+        failure_count: 0,
+    };
+    let run = BenchmarkRun {
+        id: BenchmarkRunId::from_string("bmr_cli"),
+        suite_id: suite.id.clone(),
+        suite_name: suite.name.clone(),
+        status: BenchmarkRunStatus::Passed,
+        started_at: datetime!(2026-04-27 00:00:00 UTC),
+        finished_at: Some(datetime!(2026-04-27 00:00:01 UTC)),
+        case_count: 1,
+        metrics,
+        report_path: Some(report_dir.join("summary.md").display().to_string()),
+    };
+
+    BenchmarkRunOutput {
+        suite,
+        run,
+        cases: Vec::new(),
+        report_paths: BenchmarkReportPaths {
+            summary: report_dir.join("summary.md"),
+            metrics: report_dir.join("metrics.json"),
+            failures: report_dir.join("failures.jsonl"),
+            latency: report_dir.join("latency.jsonl"),
+            leakage: report_dir.join("leakage.jsonl"),
+        },
     }
 }
 
@@ -598,6 +644,103 @@ fn exposes_static_messages_for_non_runtime_commands() {
         })),
         None
     );
+}
+
+#[test]
+fn benchmark_output_helpers_include_required_metrics_and_paths() {
+    let tempdir = tempdir().unwrap();
+    let output = sample_benchmark_output(tempdir.path());
+    let rendered = benchmark_run_output_json(&output);
+    let lines = benchmark_run_output_lines(&output);
+
+    assert_eq!(rendered["suite"]["name"], "meat-code-zh");
+    assert_eq!(rendered["metrics"]["recall_at_1"], 1.0);
+    assert_eq!(
+        rendered["report_paths"]["summary"],
+        tempdir.path().join("summary.md").display().to_string()
+    );
+    assert!(lines.iter().any(|line| line == "recall@5: 1.000"));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("Report: ") && line.ends_with("summary.md"))
+    );
+}
+
+#[test]
+fn benchmark_report_command_reads_summary_and_metrics() {
+    let tempdir = tempdir().unwrap();
+    let output = sample_benchmark_output(tempdir.path());
+    fs::write(
+        &output.report_paths.summary,
+        "# Benchmark Summary\n\nrecall@1: 1.000\nrecall@5: 1.000\n",
+    )
+    .unwrap();
+    fs::write(
+        &output.report_paths.metrics,
+        render_json(benchmark_run_output_json(&output)).unwrap(),
+    )
+    .unwrap();
+
+    benchmark_report_command(super::BenchmarkReportArgs {
+        input_dir: tempdir.path().to_path_buf(),
+        json: false,
+    })
+    .unwrap();
+    benchmark_report_command(super::BenchmarkReportArgs {
+        input_dir: tempdir.path().to_path_buf(),
+        json: true,
+    })
+    .unwrap();
+}
+
+#[test]
+fn benchmark_cli_parser_accepts_run_and_report() {
+    let run_cli = Cli::try_parse_from([
+        "memory-cli",
+        "benchmark",
+        "run",
+        "--suite",
+        "meat-code-zh",
+        "--scope-id",
+        "scp_parser",
+        "--output-dir",
+        "tests/reports/benchmark/latest",
+        "--json",
+    ])
+    .unwrap();
+    match run_cli.command {
+        super::Command::Benchmark(super::BenchmarkArgs {
+            command: super::BenchmarkCommand::Run(args),
+        }) => {
+            assert_eq!(args.suite, "meat-code-zh");
+            assert_eq!(args.scope_id.as_deref(), Some("scp_parser"));
+            assert!(args.json);
+        }
+        _ => panic!("expected benchmark run command"),
+    }
+
+    let report_cli = Cli::try_parse_from([
+        "memory-cli",
+        "benchmark",
+        "report",
+        "--input-dir",
+        "tests/reports/benchmark/latest",
+        "--json",
+    ])
+    .unwrap();
+    match report_cli.command {
+        super::Command::Benchmark(super::BenchmarkArgs {
+            command: super::BenchmarkCommand::Report(args),
+        }) => {
+            assert_eq!(
+                args.input_dir,
+                PathBuf::from("tests/reports/benchmark/latest")
+            );
+            assert!(args.json);
+        }
+        _ => panic!("expected benchmark report command"),
+    }
 }
 
 #[tokio::test]
@@ -1140,6 +1283,26 @@ fn cli_parser_accepts_all_subcommands_and_nested_shapes() {
             "scp_parser",
             "--limit",
             "8",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "benchmark",
+            "run",
+            "--suite",
+            "meat-code-zh",
+            "--scope-id",
+            "scp_parser",
+            "--output-dir",
+            "tests/reports/benchmark/latest",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "benchmark",
+            "report",
+            "--input-dir",
+            "tests/reports/benchmark/latest",
             "--json",
         ],
     ];

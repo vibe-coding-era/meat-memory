@@ -35,6 +35,7 @@ pub(super) enum Command {
     Remember(RememberArgs),
     RememberImage(RememberImageArgs),
     Search(SearchArgs),
+    Benchmark(BenchmarkArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -647,6 +648,38 @@ pub(super) struct SearchArgs {
     pub(super) scope_id: Option<String>,
     #[arg(long, default_value_t = 10)]
     pub(super) limit: usize,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct BenchmarkArgs {
+    #[command(subcommand)]
+    pub(super) command: BenchmarkCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum BenchmarkCommand {
+    Run(BenchmarkRunArgs),
+    Report(BenchmarkReportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct BenchmarkRunArgs {
+    #[arg(long, default_value = "meat-code-zh")]
+    pub(super) suite: String,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value = "tests/reports/benchmark/latest")]
+    pub(super) output_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct BenchmarkReportArgs {
+    #[arg(long, default_value = "tests/reports/benchmark/latest")]
+    pub(super) input_dir: PathBuf,
     #[arg(long)]
     pub(super) json: bool,
 }

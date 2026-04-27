@@ -1,0 +1,57 @@
+{
+  "metrics": {
+    "case_count": 4,
+    "failure_count": 0,
+    "leakage_count": 0,
+    "p50_latency_ms": 0,
+    "p95_latency_ms": 0,
+    "recall_at_1": 1.0,
+    "recall_at_5": 1.0
+  },
+  "run": {
+    "case_count": 4,
+    "finished_at": [
+      2026,
+      117,
+      4,
+      18,
+      23,
+      250779000,
+      0,
+      0,
+      0
+    ],
+    "id": "bmr_01KQ6JHSWJRHXMQHJ6E5D6J5M7",
+    "metrics": {
+      "case_count": 4,
+      "failure_count": 0,
+      "leakage_count": 0,
+      "p50_latency_ms": 0,
+      "p95_latency_ms": 0,
+      "recall_at_1": 1.0,
+      "recall_at_5": 1.0
+    },
+    "report_path": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/summary.md",
+    "started_at": [
+      2026,
+      117,
+      4,
+      18,
+      23,
+      246507000,
+      0,
+      0,
+      0
+    ],
+    "status": "passed",
+    "suite_id": "bms_meat_code_zh",
+    "suite_name": "meat-code-zh"
+  },
+  "suite": {
+    "description": "Meat Memory 自有中文代码项目记忆基线",
+    "id": "bms_meat_code_zh",
+    "metric_profile": "recall@1,recall@5,latency,leakage,failure_reason",
+    "name": "meat-code-zh",
+    "version": "2.91.0"
+  }
+}

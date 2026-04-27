@@ -1,0 +1,200 @@
+[v2.91] acceptance started
+[v2.91] report: /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/v2_91-acceptance.txt
+[v2.91] benchmark output: /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest
+[v2.91] format check
+[v2.91] interface check
+    Checking memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
+    Checking memory-store v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store)
+    Checking memory-extract v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-extract)
+    Checking memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
+    Checking memory-sync v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-sync)
+    Checking memory-store-md v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-md)
+    Checking memory-policy v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-policy)
+    Checking memory-core v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-core)
+    Checking memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+    Checking memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+    Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.68s
+[v2.91] benchmark domain models
+   Compiling memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+
+running 5 tests
+test benchmark::tests::benchmark_run_status_serializes_to_stable_labels ... ok
+test benchmark::tests::benchmark_suite_keeps_metric_profile_metadata ... ok
+test benchmark::tests::metrics_from_cases_reports_recall_latency_and_failures ... ok
+test benchmark::tests::metrics_from_empty_cases_uses_zero_baseline ... ok
+test benchmark::tests::percentile_handles_single_and_multiple_values ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out; finished in 0.00s
+
+[v2.91] benchmark ids
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+
+running 2 tests
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 47 filtered out; finished in 0.00s
+
+[v2.91] benchmark kernel runner
+   Compiling memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
+   Compiling memory-store v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store)
+   Compiling memory-store-md v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-md)
+   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
+   Compiling memory-extract v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-extract)
+   Compiling memory-sync v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-sync)
+   Compiling memory-policy v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-policy)
+   Compiling memory-core v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-core)
+   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+
+running 6 tests
+test v29_benchmark::tests::benchmark_failure_reason_prefers_leakage_over_recall_miss ... ok
+test v29_benchmark::tests::benchmark_runner_writes_summary_and_json_reports ... ok
+test v29_benchmark::tests::benchmark_suite_kind_accepts_meat_code_zh_only ... ok
+test v29_benchmark::tests::contains_restricted_memory_flags_leakage_candidates ... ok
+test v29_benchmark::tests::render_summary_includes_required_metric_names ... ok
+test v29_benchmark::tests::report_paths_are_stable ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 91 filtered out; finished in 0.01s
+
+[v2.91] benchmark CLI helpers and parser
+   Compiling memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
+   Compiling memory-store v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store)
+   Compiling memory-policy v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-policy)
+   Compiling memory-store-md v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-md)
+   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
+   Compiling memory-extract v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-extract)
+   Compiling memory-sync v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-sync)
+   Compiling memory-core v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-core)
+   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.44s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-7baa1cb3a6946b55)
+
+running 3 tests
+test app::main_tests::benchmark_cli_parser_accepts_run_and_report ... ok
+test app::main_tests::benchmark_output_helpers_include_required_metrics_and_paths ... ok
+test app::main_tests::benchmark_report_command_reads_summary_and_metrics ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 0.01s
+
+[v2.91] benchmark PG migration contract
+   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+
+running 1 test
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+[v2.91] V2.7 compatibility smoke
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+
+running 23 tests
+test lifecycle::lifecycle_impl::lifecycle_tests::audit_log_service_records_status_transition ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::budget_packer_covers_zero_and_fit_paths ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::budget_packer_respects_record_and_character_limits ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::classifier_covers_all_text_driven_record_types ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::classifier_covers_memory_source_ref_kinds ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::classifier_detects_summary_and_code_context_keywords ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::compact_summary_handles_long_chinese_text_without_panic ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::evolution_service_describes_supersede_and_conflict_events ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::forget_service_soft_forgets_and_restores_records ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_agent_context_to_short_term_record ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_clean_document_to_active_record_with_uri_content ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_conflicted_document_to_needs_review_record ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_memory_to_long_term_record ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_preserves_memory_source_metadata ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_preserves_source_ref_and_kind_for_long_term_records ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_explainer_covers_summary_content_source_and_default_reasons ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_explainer_returns_traceable_reason ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_guard_excludes_restricted_archived_and_expired_records ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_guard_filters_restricted_memories_by_request_context ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::summary_and_truncation_helpers_cover_short_and_tiny_limits ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::task_summary_helpers_split_and_deduplicate_clauses ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::task_summary_service_extracts_structured_fields ... ok
+test v28::v28_tests::executor_plans_audit_only_for_lifecycle_proposals ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.00s
+
+[v2.91] V2.8 compatibility smoke
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+
+running 54 tests
+test v28::v28_tests::classifier_detects_conflict_candidate_for_opposite_fact ... ok
+test v28::v28_tests::classifier_detects_exact_duplicate_with_same_source ... ok
+test v28::v28_tests::classifier_detects_near_duplicate_by_type_and_title ... ok
+test v28::v28_tests::classifier_detects_reverse_polarity_conflicts ... ok
+test v28::v28_tests::classifier_detects_supersede_candidate_for_new_decision ... ok
+test v28::v28_tests::classifier_detects_true_false_and_chinese_conflicts ... ok
+test v28::v28_tests::classifier_returns_unrelated_for_same_scope_different_title ... ok
+test v28::v28_tests::classifier_returns_unrelated_when_scope_differs ... ok
+test v28::v28_tests::distillation_preview_builds_candidate_from_input_and_profile ... ok
+test v28::v28_tests::distillation_preview_rejects_empty_input_and_evidence ... ok
+test v28::v28_tests::distillation_preview_uses_default_memory_kind_when_profile_has_no_preference ... ok
+test v28::v28_tests::executor_plans_audit_only_for_lifecycle_proposals ... ok
+test v28::v28_tests::executor_plans_supersede_and_conflict_relations ... ok
+test v28::v28_tests::executor_plans_version_actions_for_content_changing_proposals ... ok
+test v28::v28_tests::executor_rejects_non_approved_proposals ... ok
+test v28::v28_tests::executor_requires_subject_and_target_when_needed ... ok
+test v28::v28_tests::orchestrator_creates_required_supersede_proposal ... ok
+test v28::v28_tests::orchestrator_maps_near_duplicate_and_conflict_to_proposals ... ok
+test v28::v28_tests::orchestrator_skips_exact_duplicate_and_unrelated_assessments ... ok
+test v28::v28_tests::profile_service_allows_session_preferences_without_prompt_text ... ok
+test v28::v28_tests::profile_service_composes_system_user_project_and_session_layers ... ok
+test v28::v28_tests::profile_service_deduplicates_session_preferences ... ok
+test v28::v28_tests::profile_service_ignores_archived_and_other_project_profiles ... ok
+test v28::v28_tests::profile_service_uses_latest_active_profile_per_persistent_layer ... ok
+test v28::v28_tests::resolver_asks_confirmation_when_signal_has_no_binding ... ok
+test v28::v28_tests::resolver_derives_project_key_from_repo_remote_or_source_signal ... ok
+test v28::v28_tests::resolver_falls_back_to_scope_without_project_signal ... ok
+test v28::v28_tests::resolver_ignores_bindings_from_other_scopes ... ok
+test v28::v28_tests::resolver_matches_confirmed_repo_root_binding ... ok
+test v28::v28_tests::resolver_matches_remote_source_prefix_and_alias_bindings ... ok
+test v28::v28_tests::review_policy_allows_auto_and_suggested_approval_boundaries ... ok
+test v28::v28_tests::review_policy_allows_system_apply_but_guards_agent_required_apply ... ok
+test v28::v28_tests::review_policy_denies_blocked_approval_and_apply ... ok
+test v28::v28_tests::review_policy_requires_user_authorization_for_required_approval ... ok
+test v28::v28_tests::rollback_plans_new_version_from_old_snapshot ... ok
+test v28::v28_tests::rollback_rejects_empty_inputs ... ok
+test v28::v28_tests::rollback_rejects_missing_or_latest_targets ... ok
+test v28::v28_tests::timeline_emits_rejected_and_applied_proposal_events ... ok
+test v28::v28_tests::timeline_emits_remaining_proposal_decision_statuses_and_tie_breaker ... ok
+test v28::v28_tests::timeline_filters_related_inputs_and_sorts_events_newest_first ... ok
+test v28::v28_tests::timeline_handles_empty_inputs ... ok
+test v28::v28_tests::timeline_includes_target_side_relations_and_proposals ... ok
+test v28_runtime::tests::distillation_preview_runtime_persists_single_profile_source_and_kind_labels ... ok
+test v28_runtime::tests::distillation_preview_runtime_uses_stored_profiles_and_persists_run ... ok
+test v28_runtime::tests::distillation_preview_runtime_works_without_pg ... ok
+test v28_runtime::tests::distillation_profile_runtime_rejects_project_profiles_without_scope ... ok
+test v28_runtime::tests::distillation_profile_runtime_upserts_and_lists_profiles_with_pg ... ok
+test v28_runtime::tests::memory_rollback_runtime_restores_old_snapshot_and_marks_version ... ok
+test v28_runtime::tests::memory_timeline_runtime_aggregates_versions_relations_proposals_and_audit ... ok
+test v28_runtime::tests::memory_timeline_runtime_requires_pg ... ok
+test v28_runtime::tests::memory_versions_runtime_reads_pg_history_latest_first ... ok
+test v28_runtime::tests::proposal_apply_runtime_materializes_relation_version_audit_and_status ... ok
+test v28_runtime::tests::proposal_review_runtime_lists_inspects_approves_and_rejects_pg ... ok
+test v28_runtime::tests::proposal_review_runtime_requires_pg ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 43 filtered out; finished in 0.12s
+
+[v2.91] CLI benchmark run
+   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
+   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.44s
+     Running `target/debug/memory-cli benchmark run --suite meat-code-zh --scope-id scp_v291_acceptance --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest --json`
+[v2.91] acceptance completed

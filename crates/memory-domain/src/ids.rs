@@ -44,13 +44,16 @@ id_type!(ProposalId, "prp");
 id_type!(MemoryRelationId, "mrl");
 id_type!(DistillationProfileId, "dpf");
 id_type!(DistillationRunId, "drn");
+id_type!(BenchmarkSuiteId, "bms");
+id_type!(BenchmarkRunId, "bmr");
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessKeyId, AgentContextId, ArtifactId, DistillationProfileId, DistillationRunId,
-        EntityId, EpisodeId, EvidenceId, MemoryId, MemoryRelationId, ProjectDocumentId,
-        ProjectIdentityBindingId, ProposalId, RelationId, ScopeId, SourceId,
+        AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
+        DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
+        MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RelationId,
+        ScopeId, SourceId,
     };
 
     #[test]
@@ -72,6 +75,8 @@ mod tests {
             MemoryRelationId::new().as_str().to_string(),
             DistillationProfileId::new().as_str().to_string(),
             DistillationRunId::new().as_str().to_string(),
+            BenchmarkSuiteId::new().as_str().to_string(),
+            BenchmarkRunId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -90,6 +95,8 @@ mod tests {
         assert!(cases[13].starts_with("mrl_"));
         assert!(cases[14].starts_with("dpf_"));
         assert!(cases[15].starts_with("drn_"));
+        assert!(cases[16].starts_with("bms_"));
+        assert!(cases[17].starts_with("bmr_"));
     }
 
     #[test]
@@ -110,6 +117,8 @@ mod tests {
         let memory_relation = MemoryRelationId::from_string("mrl_custom");
         let distillation_profile = DistillationProfileId::from_string("dpf_custom");
         let distillation_run = DistillationRunId::from_string("drn_custom");
+        let benchmark_suite = BenchmarkSuiteId::from_string("bms_custom");
+        let benchmark_run = BenchmarkRunId::from_string("bmr_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -127,6 +136,8 @@ mod tests {
         assert_eq!(memory_relation.as_str(), "mrl_custom");
         assert_eq!(distillation_profile.as_str(), "dpf_custom");
         assert_eq!(distillation_run.as_str(), "drn_custom");
+        assert_eq!(benchmark_suite.as_str(), "bms_custom");
+        assert_eq!(benchmark_run.as_str(), "bmr_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -152,5 +163,7 @@ mod tests {
                 .starts_with("dpf_")
         );
         assert!(DistillationRunId::default().as_str().starts_with("drn_"));
+        assert!(BenchmarkSuiteId::default().as_str().starts_with("bms_"));
+        assert!(BenchmarkRunId::default().as_str().starts_with("bmr_"));
     }
 }

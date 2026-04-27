@@ -1,0 +1,138 @@
+{
+  "cases": [
+    {
+      "actual_memory_ids": [
+        "mem_01KQ6JHSWFMFE61W9CKZ9J6GBT"
+      ],
+      "actual_memory_titles": [
+        "V2.91 兼容契约 remember search fetch_context"
+      ],
+      "case_id": "compat-legacy-entrypoints",
+      "expected_memory_titles": [
+        "V2.91 兼容契约 remember search fetch_context"
+      ],
+      "failure_reason": null,
+      "latency_ms": 0,
+      "leakage": false,
+      "query": "V2.91 兼容契约 remember search fetch_context",
+      "recall_at_1": true,
+      "recall_at_5": true
+    },
+    {
+      "actual_memory_ids": [
+        "mem_01KQ6JHSWG3G3QXHFHWX218NPS"
+      ],
+      "actual_memory_titles": [
+        "评审输出 风险优先 摘要靠后"
+      ],
+      "case_id": "review-risk-first",
+      "expected_memory_titles": [
+        "评审输出 风险优先 摘要靠后"
+      ],
+      "failure_reason": null,
+      "latency_ms": 0,
+      "leakage": false,
+      "query": "评审输出 风险优先 摘要靠后",
+      "recall_at_1": true,
+      "recall_at_5": true
+    },
+    {
+      "actual_memory_ids": [
+        "mem_01KQ6JHSWHTN8ZTJW9CD47HJWE"
+      ],
+      "actual_memory_titles": [
+        "Secret Guard token API key 默认脱敏"
+      ],
+      "case_id": "secret-guard-baseline",
+      "expected_memory_titles": [
+        "Secret Guard token API key 默认脱敏"
+      ],
+      "failure_reason": null,
+      "latency_ms": 0,
+      "leakage": false,
+      "query": "Secret Guard token API key 默认脱敏",
+      "recall_at_1": true,
+      "recall_at_5": true
+    },
+    {
+      "actual_memory_ids": [
+        "mem_01KQ6JHSWJVR683H9SE1MZPFSK"
+      ],
+      "actual_memory_titles": [
+        "Benchmark 报告 recall@1 recall@5 latency leakage failure reason"
+      ],
+      "case_id": "benchmark-report-contract",
+      "expected_memory_titles": [
+        "Benchmark 报告 recall@1 recall@5 latency leakage failure reason"
+      ],
+      "failure_reason": null,
+      "latency_ms": 0,
+      "leakage": false,
+      "query": "Benchmark 报告 recall@1 recall@5 latency leakage failure reason",
+      "recall_at_1": true,
+      "recall_at_5": true
+    }
+  ],
+  "metrics": {
+    "case_count": 4,
+    "failure_count": 0,
+    "leakage_count": 0,
+    "p50_latency_ms": 0,
+    "p95_latency_ms": 0,
+    "recall_at_1": 1.0,
+    "recall_at_5": 1.0
+  },
+  "report_paths": {
+    "failures": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/failures.jsonl",
+    "latency": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/latency.jsonl",
+    "leakage": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/leakage.jsonl",
+    "metrics": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/metrics.json",
+    "summary": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/summary.md"
+  },
+  "run": {
+    "case_count": 4,
+    "finished_at": [
+      2026,
+      117,
+      4,
+      18,
+      23,
+      250779000,
+      0,
+      0,
+      0
+    ],
+    "id": "bmr_01KQ6JHSWJRHXMQHJ6E5D6J5M7",
+    "metrics": {
+      "case_count": 4,
+      "failure_count": 0,
+      "leakage_count": 0,
+      "p50_latency_ms": 0,
+      "p95_latency_ms": 0,
+      "recall_at_1": 1.0,
+      "recall_at_5": 1.0
+    },
+    "report_path": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/summary.md",
+    "started_at": [
+      2026,
+      117,
+      4,
+      18,
+      23,
+      246507000,
+      0,
+      0,
+      0
+    ],
+    "status": "passed",
+    "suite_id": "bms_meat_code_zh",
+    "suite_name": "meat-code-zh"
+  },
+  "suite": {
+    "description": "Meat Memory 自有中文代码项目记忆基线",
+    "id": "bms_meat_code_zh",
+    "metric_profile": "recall@1,recall@5,latency,leakage,failure_reason",
+    "name": "meat-code-zh",
+    "version": "2.91.0"
+  }
+}

@@ -1,5 +1,6 @@
 pub mod access;
 pub mod artifact;
+pub mod benchmark;
 pub mod common;
 pub mod context;
 pub mod distillation;
@@ -21,6 +22,9 @@ pub use access::{
     KeyUsageBreakdown, RequestContext, StorageMode, hash_access_key,
 };
 pub use artifact::{Artifact, ArtifactKind};
+pub use benchmark::{
+    BenchmarkCaseResult, BenchmarkMetrics, BenchmarkRun, BenchmarkRunStatus, BenchmarkSuite,
+};
 pub use common::{ObjectStatus, Sensitivity, Visibility};
 pub use context::ContextBundle;
 pub use distillation::{
@@ -31,9 +35,10 @@ pub use episode::{Episode, EpisodeKind, EpisodeState};
 pub use error::DomainError;
 pub use identity::{BindingConfirmedBy, ProjectBindingKind, ProjectIdentityBinding};
 pub use ids::{
-    AccessKeyId, AgentContextId, ArtifactId, DistillationProfileId, DistillationRunId, EntityId,
-    EpisodeId, EvidenceId, MemoryId, MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId,
-    ProposalId, RelationId, ScopeId, SourceId,
+    AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
+    DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
+    MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RelationId, ScopeId,
+    SourceId,
 };
 pub use lifecycle::{
     AgentContext, DocumentConflictState, DocumentSyncState, MemoryLayer, MemorySource,
