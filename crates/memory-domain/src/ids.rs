@@ -48,6 +48,7 @@ id_type!(BenchmarkSuiteId, "bms");
 id_type!(BenchmarkRunId, "bmr");
 id_type!(RecallTraceId, "rtr");
 id_type!(RecallBudgetPackId, "rbp");
+id_type!(SecretFindingId, "sfd");
 
 #[cfg(test)]
 mod tests {
@@ -55,7 +56,7 @@ mod tests {
         AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
         DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
         MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId,
-        RecallBudgetPackId, RecallTraceId, RelationId, ScopeId, SourceId,
+        RecallBudgetPackId, RecallTraceId, RelationId, ScopeId, SecretFindingId, SourceId,
     };
 
     #[test]
@@ -81,6 +82,7 @@ mod tests {
             BenchmarkRunId::new().as_str().to_string(),
             RecallTraceId::new().as_str().to_string(),
             RecallBudgetPackId::new().as_str().to_string(),
+            SecretFindingId::new().as_str().to_string(),
         ];
 
         assert!(cases[0].starts_with("art_"));
@@ -103,6 +105,7 @@ mod tests {
         assert!(cases[17].starts_with("bmr_"));
         assert!(cases[18].starts_with("rtr_"));
         assert!(cases[19].starts_with("rbp_"));
+        assert!(cases[20].starts_with("sfd_"));
     }
 
     #[test]
@@ -127,6 +130,7 @@ mod tests {
         let benchmark_run = BenchmarkRunId::from_string("bmr_custom");
         let recall_trace = RecallTraceId::from_string("rtr_custom");
         let recall_budget_pack = RecallBudgetPackId::from_string("rbp_custom");
+        let secret_finding = SecretFindingId::from_string("sfd_custom");
 
         assert_eq!(artifact.as_str(), "art_custom");
         assert_eq!(episode.as_str(), "epi_custom");
@@ -148,6 +152,7 @@ mod tests {
         assert_eq!(benchmark_run.as_str(), "bmr_custom");
         assert_eq!(recall_trace.as_str(), "rtr_custom");
         assert_eq!(recall_budget_pack.as_str(), "rbp_custom");
+        assert_eq!(secret_finding.as_str(), "sfd_custom");
 
         assert!(ArtifactId::default().as_str().starts_with("art_"));
         assert!(EpisodeId::default().as_str().starts_with("epi_"));
@@ -177,5 +182,6 @@ mod tests {
         assert!(BenchmarkRunId::default().as_str().starts_with("bmr_"));
         assert!(RecallTraceId::default().as_str().starts_with("rtr_"));
         assert!(RecallBudgetPackId::default().as_str().starts_with("rbp_"));
+        assert!(SecretFindingId::default().as_str().starts_with("sfd_"));
     }
 }

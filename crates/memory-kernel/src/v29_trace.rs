@@ -1,6 +1,7 @@
+use crate::v29_security::secret_recall_block_reason;
 use crate::{
-    Kernel, LifecycleNormalizer, RecallGuard, SearchContextRequest, build_context_graph,
-    memory_rank_score, merge_memories, rerank_memories,
+    Kernel, LifecycleNormalizer, RecallGuard, SearchContextRequest, apply_secret_recall_guard,
+    build_context_graph, memory_rank_score, merge_memories, rerank_memories,
 };
 use anyhow::Result;
 use memory_domain::{
@@ -96,24 +97,34 @@ impl Kernel {
             retrieved.ranked_candidates.clone(),
             request.search.context.as_ref(),
         );
-        let (entities, relations) = build_context_graph(&request.search.scope_id, &selected);
+        let secret_guard = apply_secret_recall_guard(selected);
+        if !secret_guard.findings.is_empty() || secret_guard.blocked_count > 0 {
+            memory_observability::record_security_guard(
+                secret_guard.findings.len(),
+                false,
+                secret_guard.blocked_count > 0,
+            );
+        }
+        let (entities, relations) =
+            build_context_graph(&request.search.scope_id, &secret_guard.memories);
         let bundle = ContextBundle {
             query: retrieved.normalized_query.clone(),
             scope_id: request.search.scope_id.clone(),
-            memories: selected.clone(),
+            memories: secret_guard.memories.clone(),
             entities,
             relations,
             generated_at: OffsetDateTime::now_utc(),
         };
         let trace_id = RecallTraceId::new();
-        let budget_pack = pack_recall_budget(trace_id.clone(), &selected, request.budget);
+        let budget_pack =
+            pack_recall_budget(trace_id.clone(), &secret_guard.memories, request.budget);
         let trace = build_recall_trace(RecallTraceBuildInput {
             trace_id,
             scope_id: &request.search.scope_id,
             normalized_query: &retrieved.normalized_query,
             retrieval_mode: retrieved.retrieval_mode,
             ranked_candidates: &retrieved.ranked_candidates,
-            selected: &selected,
+            selected: &secret_guard.memories,
             context: request.search.context.as_ref(),
             budget_pack: &budget_pack,
             include_debug_candidates: request.include_debug_candidates,
@@ -263,6 +274,9 @@ fn build_recall_trace(input: RecallTraceBuildInput<'_>) -> RecallTrace {
 }
 
 fn filtered_reason(memory: &Memory, context: Option<&RequestContext>) -> Option<String> {
+    if let Some(reason) = secret_recall_block_reason(memory) {
+        return Some(reason);
+    }
     let record = LifecycleNormalizer::normalize_memory(memory);
     if matches!(
         record.status,

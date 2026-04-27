@@ -1,0 +1,12 @@
+{
+  "artifact_id": "art_01KQ79Q4X00B39TTF0S4HT2AZF",
+  "body": "service api_key=[REDACTED:API_KEY] owner owner@example.test\n",
+  "evidence_count": 1,
+  "memory_id": "mem_01KQ79Q4X1NETYK3YKDF8CA66G",
+  "memory_kind": "fact",
+  "memory_state": "active",
+  "scope_id": "scp_v293_acceptance",
+  "title": "guard redacts api key",
+  "wrote_markdown": true,
+  "wrote_pg": false
+}

@@ -19,13 +19,14 @@ use memory_kernel::{
     GetMemoryTimelineRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest,
     InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
     ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
-    PreviewDistillationResult, PromoteAgentContextRequest, RecallTraceBudget,
-    RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest, RememberImageResult,
-    RememberTextRequest, RememberTextResult, ReviewActorKind, RollbackMemoryRequest,
-    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
-    UpsertAgentContextRequest, UpsertDistillationProfileRequest, write_recall_trace_report,
+    ListProjectDocumentsRequest, MemoryHealthReport, MemoryHealthReportPaths, MemoryTimeline,
+    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
+    RecallTraceBudget, RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest,
+    RememberImageResult, RememberTextRequest, RememberTextResult, ReviewActorKind,
+    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
+    TimelineEvent, TimelineEventKind, TimelineVersion, TraceSearchContextRequest,
+    TraceSearchContextResult, UpsertAgentContextRequest, UpsertDistillationProfileRequest,
+    health_json, write_memory_health_report, write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -85,6 +86,7 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::Search(args) => search_command(args).await,
         Command::Benchmark(args) => benchmark_command(args).await,
         Command::Trace(args) => trace_command(args).await,
+        Command::Health(args) => health_command(args).await,
     }
 }
 
@@ -722,6 +724,11 @@ async fn lifecycle_command(args: LifecycleArgs) -> Result<()> {
                     "restricted": payload.restricted,
                     "stale": payload.stale,
                     "source_backed": payload.source_backed,
+                    "low_confidence": payload.low_confidence,
+                    "secret_findings": payload.secret_findings,
+                    "high_risk_secret_findings": payload.high_risk_secret_findings,
+                    "suggested_actions": payload.suggested_actions,
+                    "risks": payload.risks.iter().map(memory_health_risk_json).collect::<Vec<_>>(),
                     "generated_at": payload.generated_at,
                 }))?;
             } else {
@@ -730,6 +737,7 @@ async fn lifecycle_command(args: LifecycleArgs) -> Result<()> {
                 println!("Active: {}", payload.active);
                 println!("Needs review: {}", payload.needs_review);
                 println!("Forgotten: {}", payload.forgotten);
+                println!("Secret findings: {}", payload.secret_findings);
             }
         }
     }
@@ -1459,6 +1467,86 @@ fn trace_result_lines(
         ));
     }
     lines
+}
+
+async fn health_command(args: HealthArgs) -> Result<()> {
+    match args.command {
+        HealthCommand::Report(report) => health_report_command(report).await,
+    }
+}
+
+async fn health_report_command(args: HealthReportArgs) -> Result<()> {
+    let (_, kernel, service_info) = bootstrap_runtime().await?;
+    let scope_id = Some(scope_id_or_default(args.scope_id, &service_info));
+    let context = resolve_cli_request_context(&kernel, args.key.as_deref()).await?;
+    if let (Some(context), Some(scope_id)) = (context.as_ref(), scope_id.as_ref()) {
+        ensure_cli_context_scope(context, scope_id)?;
+    }
+    let report = kernel.memory_health_report(scope_id, args.limit).await?;
+    let paths = write_memory_health_report(&args.output_dir, &report)?;
+
+    if args.json {
+        print_json(health_report_json(&report, &paths))?;
+    } else {
+        for line in health_report_lines(&report, &paths) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn health_report_json(
+    report: &MemoryHealthReport,
+    paths: &MemoryHealthReportPaths,
+) -> serde_json::Value {
+    let mut value = health_json(report);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "report_paths".to_string(),
+            json!({
+                "json": paths.json.display().to_string(),
+                "markdown": paths.markdown.display().to_string(),
+            }),
+        );
+    }
+    value
+}
+
+fn health_report_lines(
+    report: &MemoryHealthReport,
+    paths: &MemoryHealthReportPaths,
+) -> Vec<String> {
+    vec![
+        format!(
+            "Health scope: {}",
+            report
+                .scope_id
+                .as_ref()
+                .map(ScopeId::as_str)
+                .unwrap_or("all")
+        ),
+        format!("Total: {}", report.total),
+        format!("Risks: {}", report.risks.len()),
+        format!("Secret findings: {}", report.secret_findings),
+        format!(
+            "High-risk secret findings: {}",
+            report.high_risk_secret_findings
+        ),
+        format!("Suggested actions: {}", report.suggested_actions.join(",")),
+        format!("Health report: {}", paths.markdown.display()),
+    ]
+}
+
+fn memory_health_risk_json(risk: &memory_domain::MemoryHealthRisk) -> serde_json::Value {
+    json!({
+        "kind": risk.kind.as_str(),
+        "severity": risk.severity.as_str(),
+        "memory_id": risk.memory_id.as_ref().map(|id| id.as_str()),
+        "title": risk.title.as_deref(),
+        "detail": risk.detail.as_str(),
+        "suggested_action": risk.suggested_action.as_str(),
+    })
 }
 
 async fn bootstrap_runtime() -> Result<(AppConfig, Kernel, ServiceInfo)> {
@@ -2953,6 +3041,13 @@ async fn resolve_required_cli_request_context(
     resolve_cli_request_context(kernel, raw_key)
         .await?
         .context("MEAT_MEMORY_KEY or --key is required")
+}
+
+fn ensure_cli_context_scope(context: &RequestContext, scope_id: &ScopeId) -> Result<()> {
+    if context.owner_scope_id != *scope_id {
+        bail!("health scope access forbidden for current meat memory key");
+    }
+    Ok(())
 }
 
 async fn get_source_for_context(

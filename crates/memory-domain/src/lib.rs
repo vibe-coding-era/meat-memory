@@ -17,6 +17,7 @@ pub mod recall;
 pub mod record;
 pub mod relation;
 pub mod scope;
+pub mod security;
 
 pub use access::{
     AccessKey, AccessKeyStatus, AccessKeyUsageStats, KeyScopeKind, KeySourceKind,
@@ -39,7 +40,7 @@ pub use ids::{
     AccessKeyId, AgentContextId, ArtifactId, BenchmarkRunId, BenchmarkSuiteId,
     DistillationProfileId, DistillationRunId, EntityId, EpisodeId, EvidenceId, MemoryId,
     MemoryRelationId, ProjectDocumentId, ProjectIdentityBindingId, ProposalId, RecallBudgetPackId,
-    RecallTraceId, RelationId, ScopeId, SourceId,
+    RecallTraceId, RelationId, ScopeId, SecretFindingId, SourceId,
 };
 pub use lifecycle::{
     AgentContext, DocumentConflictState, DocumentSyncState, MemoryLayer, MemorySource,
@@ -59,3 +60,7 @@ pub use record::{
 };
 pub use relation::{Relation, RelationState, RelationType};
 pub use scope::{InheritPolicy, Scope, ScopeHierarchyValidator, ScopeType, SyncPolicy};
+pub use security::{
+    MemoryHealthRisk, MemoryHealthRiskKind, MemoryHealthSeverity, MemoryHealthSuggestedAction,
+    SecretFinding, SecretFindingAction, SecretFindingKind, SecretFindingLocation, SecretRiskLevel,
+};

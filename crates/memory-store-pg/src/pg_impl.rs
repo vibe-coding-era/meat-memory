@@ -18,7 +18,7 @@ use memory_domain::{
     Artifact, ArtifactId, ArtifactKind, DocumentConflictState, DocumentSyncState, KeyScopeKind,
     KeySourceKind, KeyUsageBreakdown, Memory, MemoryId, MemoryKind, MemoryScores, MemorySource,
     MemoryState, ProjectDocument, ProjectDocumentId, ProposalId, Scope, ScopeId, ScopeType,
-    Sensitivity, SourceId, SourceStatus, SourceSyncMode, StorageMode, Visibility,
+    SecretFinding, Sensitivity, SourceId, SourceStatus, SourceSyncMode, StorageMode, Visibility,
 };
 use sqlx::{Executor, PgPool, Postgres, QueryBuilder, Row};
 use time::OffsetDateTime;
@@ -36,6 +36,8 @@ const MIGRATION_0006: &str =
 const MIGRATION_0007: &str = include_str!("../../../migrations/0007_memory_v2_7_lifecycle.sql");
 const MIGRATION_0009: &str = include_str!("../../../migrations/0009_memory_v2_91_benchmark.sql");
 const MIGRATION_0010: &str = include_str!("../../../migrations/0010_memory_v2_92_recall_trace.sql");
+const MIGRATION_0011: &str =
+    include_str!("../../../migrations/0011_memory_v2_93_secret_health.sql");
 const DEFAULT_SCHEMA: &str = "public";
 
 pub(crate) fn migration_0009_sql() -> &'static str {
@@ -44,6 +46,10 @@ pub(crate) fn migration_0009_sql() -> &'static str {
 
 pub(crate) fn migration_0010_sql() -> &'static str {
     MIGRATION_0010
+}
+
+pub(crate) fn migration_0011_sql() -> &'static str {
+    MIGRATION_0011
 }
 const SEED_SCOPE_SQL: &str = "INSERT INTO scopes (id, parent_scope_id, scope_type, name, path, owner_principal_id, inherit_policy, default_visibility, sync_policy)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -137,6 +143,10 @@ const INSERT_MEMORY_KEY_LINK_SQL: &str = "INSERT INTO memory_key_links
                  (memory_id, key_id, isolation_group_id)
                  VALUES ($1,$2,$3)
                  ON CONFLICT (memory_id, key_id) DO NOTHING";
+const INSERT_SECRET_FINDING_SQL: &str = "INSERT INTO secret_findings
+                 (id, scope_id, memory_id, source_ref, kind, action, risk_level, fingerprint, redacted_preview, location_json, created_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 ON CONFLICT (id) DO NOTHING";
 const UPSERT_MEMORY_EMBEDDING_SQL: &str = "INSERT INTO memory_embeddings
                  (memory_id, key_id, isolation_group_id, embedding_model_alias, embedding, created_at, updated_at)
                  VALUES ($1,$2,$3,$4,$5::vector,NOW(),NOW())
@@ -389,6 +399,7 @@ impl PgStore {
         tx.execute(sqlx::raw_sql(migration_0008_sql())).await?;
         tx.execute(sqlx::raw_sql(migration_0009_sql())).await?;
         tx.execute(sqlx::raw_sql(migration_0010_sql())).await?;
+        tx.execute(sqlx::raw_sql(migration_0011_sql())).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -887,6 +898,26 @@ impl PgStore {
                     .bind(memory_id.as_str())
                     .bind(key_id.as_str())
                     .bind(isolation_group_id),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn insert_secret_finding(&self, finding: &SecretFinding) -> Result<()> {
+        self.pool
+            .execute(
+                sqlx::query(insert_secret_finding_sql())
+                    .bind(finding.id.as_str())
+                    .bind(finding.scope_id.as_str())
+                    .bind(finding.memory_id.as_ref().map(MemoryId::as_str))
+                    .bind(&finding.source_ref)
+                    .bind(finding.kind.as_str())
+                    .bind(finding.action.as_str())
+                    .bind(finding.risk_level.as_str())
+                    .bind(&finding.fingerprint)
+                    .bind(&finding.redacted_preview)
+                    .bind(sqlx::types::Json(&finding.location))
+                    .bind(finding.created_at),
             )
             .await?;
         Ok(())
@@ -1483,6 +1514,10 @@ fn insert_key_usage_event_sql() -> &'static str {
 
 fn insert_memory_key_link_sql() -> &'static str {
     INSERT_MEMORY_KEY_LINK_SQL
+}
+
+fn insert_secret_finding_sql() -> &'static str {
+    INSERT_SECRET_FINDING_SQL
 }
 
 fn upsert_memory_embedding_sql() -> &'static str {

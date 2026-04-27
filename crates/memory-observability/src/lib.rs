@@ -120,6 +120,11 @@ pub struct V29MetricsSnapshot {
     pub recall_filtered_candidates: u64,
     pub recall_budget_trimmed_items: u64,
     pub recall_hit_rate: f64,
+    pub secret_findings: u64,
+    pub secret_blocked_ingests: u64,
+    pub secret_blocked_recalls: u64,
+    pub health_reports: u64,
+    pub health_risks: u64,
 }
 
 #[derive(Debug)]
@@ -177,6 +182,11 @@ struct ObservabilityRegistry {
     v29_recall_empty_traces: AtomicU64,
     v29_recall_filtered_candidates: AtomicU64,
     v29_recall_budget_trimmed_items: AtomicU64,
+    v29_secret_findings: AtomicU64,
+    v29_secret_blocked_ingests: AtomicU64,
+    v29_secret_blocked_recalls: AtomicU64,
+    v29_health_reports: AtomicU64,
+    v29_health_risks: AtomicU64,
     search_latency: Mutex<LatencyReservoir>,
     write_latency: Mutex<LatencyReservoir>,
 }
@@ -237,6 +247,11 @@ impl Default for ObservabilityRegistry {
             v29_recall_empty_traces: AtomicU64::new(0),
             v29_recall_filtered_candidates: AtomicU64::new(0),
             v29_recall_budget_trimmed_items: AtomicU64::new(0),
+            v29_secret_findings: AtomicU64::new(0),
+            v29_secret_blocked_ingests: AtomicU64::new(0),
+            v29_secret_blocked_recalls: AtomicU64::new(0),
+            v29_health_reports: AtomicU64::new(0),
+            v29_health_risks: AtomicU64::new(0),
             search_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
             write_latency: Mutex::new(LatencyReservoir::new(LATENCY_WINDOW)),
         }
@@ -578,6 +593,31 @@ pub fn record_recall_trace(selected_count: usize, filtered_count: usize, trimmed
         .fetch_add(to_u64(trimmed_items), Ordering::Relaxed);
 }
 
+pub fn record_security_guard(findings: usize, blocked_ingest: bool, blocked_recall: bool) {
+    let registry = registry();
+    registry
+        .v29_secret_findings
+        .fetch_add(to_u64(findings), Ordering::Relaxed);
+    if blocked_ingest {
+        registry
+            .v29_secret_blocked_ingests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if blocked_recall {
+        registry
+            .v29_secret_blocked_recalls
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+pub fn record_v29_health_report(risk_count: usize) {
+    let registry = registry();
+    registry.v29_health_reports.fetch_add(1, Ordering::Relaxed);
+    registry
+        .v29_health_risks
+        .fetch_add(to_u64(risk_count), Ordering::Relaxed);
+}
+
 pub fn metrics_snapshot() -> MetricsSnapshot {
     let registry = registry();
     let hit_queries = registry.search_hits.load(Ordering::Relaxed);
@@ -675,6 +715,11 @@ pub fn metrics_snapshot() -> MetricsSnapshot {
                 .v29_recall_budget_trimmed_items
                 .load(Ordering::Relaxed),
             recall_hit_rate: rate(recall_hit_traces, recall_traces),
+            secret_findings: registry.v29_secret_findings.load(Ordering::Relaxed),
+            secret_blocked_ingests: registry.v29_secret_blocked_ingests.load(Ordering::Relaxed),
+            secret_blocked_recalls: registry.v29_secret_blocked_recalls.load(Ordering::Relaxed),
+            health_reports: registry.v29_health_reports.load(Ordering::Relaxed),
+            health_risks: registry.v29_health_risks.load(Ordering::Relaxed),
         },
     }
 }
@@ -719,8 +764,9 @@ mod tests {
         LatencyReservoir, init, metrics_snapshot, operation_span, percentile, rate,
         record_context_operation, record_docs_operation, record_key_operation,
         record_lifecycle_operation, record_recall_trace, record_search_failure,
-        record_search_success, record_source_operation, record_v28_distillation_preview,
-        record_v28_proposal_decision, record_v28_proposal_observation, record_v28_rollback,
+        record_search_success, record_security_guard, record_source_operation,
+        record_v28_distillation_preview, record_v28_proposal_decision,
+        record_v28_proposal_observation, record_v28_rollback, record_v29_health_report,
         record_write_failure, record_write_success,
     };
     use std::time::Duration;
@@ -814,6 +860,9 @@ mod tests {
         record_v28_distillation_preview(false, 0);
         record_recall_trace(2, 1, 1);
         record_recall_trace(0, 2, 0);
+        record_security_guard(3, true, false);
+        record_security_guard(2, false, true);
+        record_v29_health_report(4);
 
         let after = metrics_snapshot();
 
@@ -1074,6 +1123,41 @@ mod tests {
                 >= 1
         );
         assert!(after.v2_9.recall_hit_rate > 0.0);
+        assert!(
+            after
+                .v2_9
+                .secret_findings
+                .saturating_sub(before.v2_9.secret_findings)
+                >= 5
+        );
+        assert!(
+            after
+                .v2_9
+                .secret_blocked_ingests
+                .saturating_sub(before.v2_9.secret_blocked_ingests)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_9
+                .secret_blocked_recalls
+                .saturating_sub(before.v2_9.secret_blocked_recalls)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_9
+                .health_reports
+                .saturating_sub(before.v2_9.health_reports)
+                >= 1
+        );
+        assert!(
+            after
+                .v2_9
+                .health_risks
+                .saturating_sub(before.v2_9.health_risks)
+                >= 4
+        );
         assert!(after.write.pg_writes.saturating_sub(before.write.pg_writes) >= 1);
         assert!(
             after
@@ -1094,5 +1178,6 @@ mod tests {
         assert!(snapshot.v2_8.proposal_observations >= snapshot.v2_8.proposal_conflicts);
         assert!(snapshot.v2_8.distillation_previews >= snapshot.v2_8.distillation_preview_hits);
         assert!(snapshot.v2_9.recall_traces >= snapshot.v2_9.recall_hit_traces);
+        assert!(snapshot.v2_9.secret_findings >= snapshot.v2_9.secret_blocked_ingests);
     }
 }

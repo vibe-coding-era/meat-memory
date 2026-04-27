@@ -4,6 +4,7 @@ mod lifecycle;
 mod v28;
 mod v28_runtime;
 mod v29_benchmark;
+mod v29_security;
 mod v29_trace;
 
 pub use lifecycle::{
@@ -17,9 +18,9 @@ use memory_core::MemoryService;
 use memory_domain::{
     AccessKey, AccessKeyId, AccessKeyStatus, AccessKeyUsageStats, AgentContext, AgentContextId,
     Artifact, ArtifactKind, ContextBundle, DocumentConflictState, DocumentSyncState, Entity,
-    KeyScopeKind, KeySourceKind, Memory, MemoryId, MemoryKind, MemoryRecord, MemoryRecordStatus,
-    MemorySource, MemoryState, ProjectDocument, Relation, RequestContext, Scope, ScopeId,
-    ScopeType, Sensitivity, SourceId, StorageMode, Visibility, hash_access_key,
+    KeyScopeKind, KeySourceKind, Memory, MemoryHealthRisk, MemoryId, MemoryKind, MemoryRecord,
+    MemoryRecordStatus, MemorySource, MemoryState, ProjectDocument, Relation, RequestContext,
+    Scope, ScopeId, ScopeType, Sensitivity, SourceId, StorageMode, Visibility, hash_access_key,
 };
 use memory_extract::{
     ExtractionEnvelope, detect_language_code, distill_candidate_memory, extract_entities,
@@ -33,7 +34,8 @@ use memory_models::{
 use memory_observability::{
     operation_span, record_context_operation, record_docs_operation, record_key_operation,
     record_lifecycle_operation, record_search_failure, record_search_success,
-    record_source_operation, record_write_failure, record_write_success,
+    record_security_guard, record_source_operation, record_v29_health_report, record_write_failure,
+    record_write_success,
 };
 use memory_policy::{
     PolicyDecision, PublishPolicyInput, WritePolicyInput, evaluate_publish_policy,
@@ -69,6 +71,11 @@ pub use v28_runtime::{
 pub use v29_benchmark::{
     BenchmarkReportPaths, BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkRunner,
     BenchmarkSuiteKind,
+};
+pub use v29_security::{
+    MemoryHealthReportPaths, SecretDetector, SensitiveIngestGuardResult, analyze_memory_health,
+    apply_secret_recall_guard, apply_sensitive_ingest_guard, health_json,
+    redact_hard_deleted_memory_body, write_memory_health_report,
 };
 pub use v29_trace::{
     RecallTraceBudget, RecallTraceReportPaths, TraceSearchContextRequest, TraceSearchContextResult,
@@ -237,6 +244,11 @@ pub struct MemoryHealthReport {
     pub restricted: usize,
     pub stale: usize,
     pub source_backed: usize,
+    pub low_confidence: usize,
+    pub secret_findings: usize,
+    pub high_risk_secret_findings: usize,
+    pub risks: Vec<MemoryHealthRisk>,
+    pub suggested_actions: Vec<String>,
     pub generated_at: time::OffsetDateTime,
 }
 
@@ -619,6 +631,11 @@ impl Kernel {
         let before_record = LifecycleNormalizer::normalize_memory(&memory);
         memory.state = memory_state_from_record_status(request.status);
         memory.updated_at = time::OffsetDateTime::now_utc();
+        if request.status == MemoryRecordStatus::Deleted
+            && redact_hard_deleted_memory_body(&mut memory)
+        {
+            record_security_guard(1, false, false);
+        }
         let (wrote_pg, wrote_markdown) = self.persist_memory(&memory).await?;
 
         let record = LifecycleNormalizer::normalize_memory(&memory);
@@ -661,44 +678,8 @@ impl Kernel {
         limit: usize,
     ) -> Result<MemoryHealthReport> {
         let memories = self.browse_memories(scope_id.clone(), limit).await?;
-        let mut report = MemoryHealthReport {
-            scope_id,
-            total: memories.len(),
-            active: 0,
-            candidate: 0,
-            needs_review: 0,
-            archived: 0,
-            deprecated: 0,
-            forgotten: 0,
-            deleted: 0,
-            restricted: 0,
-            stale: 0,
-            source_backed: 0,
-            generated_at: time::OffsetDateTime::now_utc(),
-        };
-
-        for memory in &memories {
-            let record = LifecycleNormalizer::normalize_memory(memory);
-            match record.status {
-                MemoryRecordStatus::Active => report.active += 1,
-                MemoryRecordStatus::Candidate => report.candidate += 1,
-                MemoryRecordStatus::NeedsReview => report.needs_review += 1,
-                MemoryRecordStatus::Archived => report.archived += 1,
-                MemoryRecordStatus::Deprecated => report.deprecated += 1,
-                MemoryRecordStatus::Forgotten => report.forgotten += 1,
-                MemoryRecordStatus::Deleted => report.deleted += 1,
-            }
-            if matches!(record.sensitivity, Sensitivity::Restricted) {
-                report.restricted += 1;
-            }
-            if record.freshness < 0.3 {
-                report.stale += 1;
-            }
-            if record.source_ref.is_some() {
-                report.source_backed += 1;
-            }
-        }
-
+        let report = analyze_memory_health(scope_id, &memories, time::OffsetDateTime::now_utc());
+        record_v29_health_report(report.risks.len());
         record_lifecycle_operation("report", true);
         Ok(report)
     }
@@ -1464,13 +1445,28 @@ impl Kernel {
 
     async fn remember_artifact(
         &self,
-        artifact: Artifact,
+        mut artifact: Artifact,
         title_override: Option<&str>,
         memory_kind: Option<MemoryKind>,
         context: Option<&RequestContext>,
     ) -> Result<RememberTextResult> {
         self.ensure_key_can_access_scope(context, &artifact.scope_id)?;
         self.evaluate_policy(artifact.visibility, artifact.sensitivity)?;
+
+        let guard = apply_sensitive_ingest_guard(
+            &artifact.scope_id,
+            &format!("artifact:{}", artifact.id.as_str()),
+            &artifact.content_text,
+        );
+        if !guard.findings.is_empty() {
+            record_security_guard(guard.findings.len(), guard.denied, false);
+        }
+        if guard.denied {
+            bail!("write denied by secret guard");
+        }
+        if guard.body != artifact.content_text {
+            v29_security::rewrite_artifact_body(&mut artifact, guard.body.clone());
+        }
 
         let envelope = ExtractionEnvelope::new(
             artifact_kind_label(artifact.kind),
@@ -1484,7 +1480,9 @@ impl Kernel {
         memory.visibility = artifact.visibility;
         memory.sensitivity = artifact.sensitivity;
         memory.source_refs = artifact.source_refs.clone();
-        memory.activate()?;
+        if !guard.proposal_required {
+            memory.activate()?;
+        }
 
         let mut wrote_pg = false;
         let mut wrote_markdown = false;
@@ -1508,6 +1506,11 @@ impl Kernel {
                 pg_store
                     .link_memory_key(&memory_id, &context.key_id, &context.isolation_group_id)
                     .await?;
+            }
+            for finding in &guard.findings {
+                let mut finding = finding.clone();
+                finding.memory_id = Some(memory_id.clone());
+                pg_store.insert_secret_finding(&finding).await?;
             }
             if self.should_embed(context) {
                 self.embed_memory(pg_store, &memory, context).await?;
@@ -1622,12 +1625,21 @@ impl Kernel {
                 }
             };
             let memories = RecallGuard::filter_memories(memories, request.context.as_ref());
-            let (entities, relations) = build_context_graph(&request.scope_id, &memories);
+            let secret_guard = apply_secret_recall_guard(memories);
+            if !secret_guard.findings.is_empty() || secret_guard.blocked_count > 0 {
+                record_security_guard(
+                    secret_guard.findings.len(),
+                    false,
+                    secret_guard.blocked_count > 0,
+                );
+            }
+            let (entities, relations) =
+                build_context_graph(&request.scope_id, &secret_guard.memories);
 
             Ok(ContextBundle {
                 query: normalized_query,
                 scope_id: request.scope_id.clone(),
-                memories,
+                memories: secret_guard.memories,
                 entities,
                 relations,
                 generated_at: time::OffsetDateTime::now_utc(),

@@ -1,0 +1,54 @@
+{
+  "active": 2,
+  "archived": 0,
+  "candidate": 0,
+  "deleted": 0,
+  "deprecated": 0,
+  "forgotten": 0,
+  "generated_at": [
+    2026,
+    117,
+    11,
+    3,
+    19,
+    227591000,
+    0,
+    0,
+    0
+  ],
+  "high_risk_secret_findings": 1,
+  "low_confidence": 0,
+  "needs_review": 0,
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/health/latest/health.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/health/latest/health.md"
+  },
+  "restricted": 1,
+  "risks": [
+    {
+      "detail": "restricted memory requires owner-scope recall access",
+      "kind": "high_sensitivity",
+      "memory_id": "mem_01KQ79Q6P2WAX37SYJZPA504TX",
+      "severity": "warning",
+      "suggested_action": "review",
+      "title": "restricted health risk"
+    },
+    {
+      "detail": "api_key detected in memory body",
+      "kind": "secret_finding",
+      "memory_id": "mem_01KQ79Q4X1NETYK3YKDF8CA66G",
+      "severity": "critical",
+      "suggested_action": "redact",
+      "title": "guard redacts api key"
+    }
+  ],
+  "scope_id": "scp_v293_acceptance",
+  "secret_findings": 2,
+  "source_backed": 0,
+  "stale": 0,
+  "suggested_actions": [
+    "redact",
+    "review"
+  ],
+  "total": 2
+}

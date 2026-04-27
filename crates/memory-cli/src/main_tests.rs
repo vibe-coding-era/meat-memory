@@ -7,10 +7,11 @@ use super::{
     config_command, config_summary_json, config_summary_lines, context_command,
     detect_image_media_type, distill_command, distillation_preview_result_json,
     distillation_profile_json, docs_command, ensure_default_key_material, export_skill_bundle,
-    generated_project_scope_id, key_command, lifecycle_command, lifecycle_inspect_json,
-    lifecycle_status_json, load_body, load_body_from_reader, mcp_command, mcp_info_json,
-    mcp_info_lines, memory_proposal_json, memory_timeline_json, memory_version_json,
-    parse_artifact_kind, parse_distillation_profile_level, parse_distillation_profile_status,
+    generated_project_scope_id, health_report_json, health_report_lines, key_command,
+    lifecycle_command, lifecycle_inspect_json, lifecycle_status_json, load_body,
+    load_body_from_reader, mcp_command, mcp_info_json, mcp_info_lines, memory_proposal_json,
+    memory_timeline_json, memory_version_json, parse_artifact_kind,
+    parse_distillation_profile_level, parse_distillation_profile_status,
     parse_document_conflict_state, parse_document_sync_state, parse_key_scope, parse_key_source,
     parse_memory_kind, parse_record_status, parse_review_actor_kind, parse_sensitivity,
     parse_source_sync_mode, parse_storage_mode, parse_visibility, profiles_command,
@@ -33,7 +34,8 @@ use memory_domain::{
     AccessKey, AccessKeyId, Artifact, ArtifactKind, BenchmarkMetrics, BenchmarkRun, BenchmarkRunId,
     BenchmarkRunStatus, BenchmarkSuite, BenchmarkSuiteId, ContextBundle, DistillationProfile,
     DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus, KeyScopeKind,
-    KeySourceKind, Memory, MemoryId, MemoryKind, MemoryProposal, MemoryRecordStatus,
+    KeySourceKind, Memory, MemoryHealthRisk, MemoryHealthRiskKind, MemoryHealthSeverity,
+    MemoryHealthSuggestedAction, MemoryId, MemoryKind, MemoryProposal, MemoryRecordStatus,
     MemoryRelation, MemoryRelationSourceKind, MemoryRelationType, MemoryState, ProposalId,
     ProposalStatus, ProposalType, RecallBudgetItem, RecallBudgetPack, RecallBudgetPackId,
     RecallBudgetRenderMode, RecallBudgetSummary, RecallTrace, RecallTraceCandidate,
@@ -44,10 +46,11 @@ use memory_domain::{DocumentConflictState, DocumentSyncState};
 use memory_kernel::{
     AuditLogService, BenchmarkReportPaths, BenchmarkRunOutput, ChangeMemoryLifecycleStatusResult,
     ComposedDistillationProfile, DistillationPreviewService, DistillationPromptSegment,
-    InspectMemoryLifecycleResult, LifecycleNormalizer, MemoryTimeline, PreviewDistillationResult,
-    RecallExplainer, RecallTraceReportPaths, RememberImageResult, RememberTextResult,
-    ReviewActorKind, RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, TraceSearchContextResult,
+    InspectMemoryLifecycleResult, LifecycleNormalizer, MemoryHealthReport, MemoryHealthReportPaths,
+    MemoryTimeline, PreviewDistillationResult, RecallExplainer, RecallTraceReportPaths,
+    RememberImageResult, RememberTextResult, ReviewActorKind, RollbackMemoryResult, RollbackPlan,
+    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
+    TraceSearchContextResult,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -264,6 +267,42 @@ fn sample_trace_result(report_dir: &Path) -> (TraceSearchContextResult, RecallTr
         budget: report_dir.join("budget.json"),
     };
     (result, paths)
+}
+
+fn sample_health_report(report_dir: &Path) -> (MemoryHealthReport, MemoryHealthReportPaths) {
+    let memory = sample_memory();
+    let report = MemoryHealthReport {
+        scope_id: Some(memory.scope_id.clone()),
+        total: 1,
+        active: 1,
+        candidate: 0,
+        needs_review: 0,
+        archived: 0,
+        deprecated: 0,
+        forgotten: 0,
+        deleted: 0,
+        restricted: 1,
+        stale: 1,
+        source_backed: 0,
+        low_confidence: 1,
+        secret_findings: 1,
+        high_risk_secret_findings: 1,
+        risks: vec![MemoryHealthRisk {
+            kind: MemoryHealthRiskKind::SecretFinding,
+            severity: MemoryHealthSeverity::Critical,
+            memory_id: Some(memory.id.clone()),
+            title: Some(memory.title.clone()),
+            detail: "api_key detected in memory body".to_string(),
+            suggested_action: MemoryHealthSuggestedAction::Redact,
+        }],
+        suggested_actions: vec!["redact".to_string()],
+        generated_at: datetime!(2026-04-27 00:00:00 UTC),
+    };
+    let paths = MemoryHealthReportPaths {
+        json: report_dir.join("health.json"),
+        markdown: report_dir.join("health.md"),
+    };
+    (report, paths)
 }
 
 fn sample_config(markdown_root: &str, asset_root: &str, enable_mcp: bool) -> AppConfig {
@@ -801,6 +840,28 @@ fn trace_inspect_command_reads_trace_report() {
 }
 
 #[test]
+fn health_output_helpers_include_risks_and_paths() {
+    let tempdir = tempdir().unwrap();
+    let (report, paths) = sample_health_report(tempdir.path());
+    let rendered = health_report_json(&report, &paths);
+    let lines = health_report_lines(&report, &paths);
+
+    assert_eq!(rendered["scope_id"], "scp_cli");
+    assert_eq!(rendered["secret_findings"], 1);
+    assert_eq!(rendered["risks"][0]["kind"], "secret_finding");
+    assert_eq!(
+        rendered["report_paths"]["markdown"],
+        tempdir.path().join("health.md").display().to_string()
+    );
+    assert!(lines.iter().any(|line| line == "Risks: 1"));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "High-risk secret findings: 1")
+    );
+}
+
+#[test]
 fn benchmark_cli_parser_accepts_run_and_report() {
     let run_cli = Cli::try_parse_from([
         "memory-cli",
@@ -899,6 +960,37 @@ fn trace_cli_parser_accepts_latest_and_inspect() {
             assert!(args.json);
         }
         _ => panic!("expected trace inspect command"),
+    }
+}
+
+#[test]
+fn health_cli_parser_accepts_report() {
+    let cli = Cli::try_parse_from([
+        "memory-cli",
+        "health",
+        "report",
+        "--scope-id",
+        "scp_parser",
+        "--limit",
+        "20",
+        "--output-dir",
+        "tests/reports/health/latest",
+        "--json",
+    ])
+    .unwrap();
+    match cli.command {
+        super::Command::Health(super::HealthArgs {
+            command: super::HealthCommand::Report(args),
+        }) => {
+            assert_eq!(args.scope_id.as_deref(), Some("scp_parser"));
+            assert_eq!(args.limit, 20);
+            assert_eq!(
+                args.output_dir,
+                PathBuf::from("tests/reports/health/latest")
+            );
+            assert!(args.json);
+        }
+        _ => panic!("expected health report command"),
     }
 }
 
@@ -1462,6 +1554,26 @@ fn cli_parser_accepts_all_subcommands_and_nested_shapes() {
             "report",
             "--input-dir",
             "tests/reports/benchmark/latest",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "trace",
+            "latest",
+            "--scope-id",
+            "scp_parser",
+            "--query",
+            "parser trace",
+            "--json",
+        ],
+        &[
+            "memory-cli",
+            "health",
+            "report",
+            "--scope-id",
+            "scp_parser",
+            "--output-dir",
+            "tests/reports/health/latest",
             "--json",
         ],
     ];

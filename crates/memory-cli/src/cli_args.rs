@@ -37,6 +37,7 @@ pub(super) enum Command {
     Search(SearchArgs),
     Benchmark(BenchmarkArgs),
     Trace(TraceArgs),
+    Health(HealthArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -725,6 +726,31 @@ pub(super) struct TraceInspectArgs {
     pub(super) trace_id: String,
     #[arg(long, default_value = "tests/reports/trace/latest")]
     pub(super) input_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct HealthArgs {
+    #[command(subcommand)]
+    pub(super) command: HealthCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum HealthCommand {
+    Report(HealthReportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct HealthReportArgs {
+    #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value_t = 100)]
+    pub(super) limit: usize,
+    #[arg(long, default_value = "tests/reports/health/latest")]
+    pub(super) output_dir: PathBuf,
     #[arg(long)]
     pub(super) json: bool,
 }

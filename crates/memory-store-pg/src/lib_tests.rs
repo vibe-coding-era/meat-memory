@@ -4,12 +4,13 @@ use super::{
     build_search_query, distillation_profile_level_to_str, distillation_profile_status_to_str,
     insert_artifact_sql, insert_distillation_run_sql, insert_memory_evidence_sql,
     insert_memory_relation_sql, insert_memory_sql, insert_memory_version_snapshot_sql,
-    insert_memory_version_sql, list_distillation_profiles_sql, list_memory_prefix_sql,
-    list_memory_proposals_prefix_sql, list_memory_proposals_sql, list_memory_relations_prefix_sql,
-    list_memory_relations_sql, list_memory_versions_sql, list_project_identity_bindings_sql,
-    memory_from_record, memory_kind_to_str, memory_relation_source_kind_to_str,
-    memory_relation_type_to_str, memory_state_to_str, migration_0008_sql, migration_0009_sql,
-    migration_0010_sql, parse_memory_kind, parse_memory_state, parse_sensitivity, parse_visibility,
+    insert_memory_version_sql, insert_secret_finding_sql, list_distillation_profiles_sql,
+    list_memory_prefix_sql, list_memory_proposals_prefix_sql, list_memory_proposals_sql,
+    list_memory_relations_prefix_sql, list_memory_relations_sql, list_memory_versions_sql,
+    list_project_identity_bindings_sql, memory_from_record, memory_kind_to_str,
+    memory_relation_source_kind_to_str, memory_relation_type_to_str, memory_state_to_str,
+    migration_0008_sql, migration_0009_sql, migration_0010_sql, migration_0011_sql,
+    parse_memory_kind, parse_memory_state, parse_sensitivity, parse_visibility,
     project_binding_kind_to_str, proposal_status_to_str, proposal_type_to_str, review_level_to_str,
     scope_type_to_str, search_memory_prefix_sql, search_terms, seed_scope_sql,
     select_distillation_profile_sql, select_memory_proposal_sql, select_memory_sql,
@@ -294,6 +295,7 @@ fn sql_helpers_expose_expected_statements() {
         update_memory_evidence_count_sql(),
         list_memory_prefix_sql(),
         search_memory_prefix_sql(),
+        insert_secret_finding_sql(),
     ];
 
     for statement in statements {
@@ -310,6 +312,7 @@ fn sql_helpers_expose_expected_statements() {
     assert!(list_memory_prefix_sql().contains("FROM memories"));
     assert!(search_memory_prefix_sql().contains("WHERE scope_id = "));
     assert!(upsert_memory_embedding_sql().contains("memory_embeddings"));
+    assert!(insert_secret_finding_sql().contains("secret_findings"));
 }
 
 #[test]
@@ -349,6 +352,8 @@ fn v28_sql_helpers_expose_expected_statements() {
     assert!(migration_0010_sql().contains("recall_traces"));
     assert!(migration_0010_sql().contains("recall_trace_candidates"));
     assert!(migration_0010_sql().contains("recall_budget_packs"));
+    assert!(migration_0011_sql().contains("secret_findings"));
+    assert!(migration_0011_sql().contains("memory_health_reports"));
 
     assert!(upsert_project_identity_binding_sql().contains("ON CONFLICT (id) DO UPDATE"));
     assert!(list_project_identity_bindings_sql().contains("WHERE owner_scope_id = $1"));

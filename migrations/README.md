@@ -14,6 +14,7 @@
 - `0008_memory_v2_8_governance.sql`：加入 V2.8 项目识别、提案、关系、蒸馏与版本治理结构
 - `0009_memory_v2_91_benchmark.sql`：加入 V2.91 benchmark suite / run / case result 结构
 - `0010_memory_v2_92_recall_trace.sql`：加入 V2.92 recall trace / candidate / budget pack 结构
+- `0011_memory_v2_93_secret_health.sql`：加入 V2.93 secret finding / health report 结构
 
 ## 维护约定
 
