@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meat Memory V2.9 - V2.97 功能设计与架构图</title>
+  <style>
+    :root {
+      --ink: #17201b;
+      --muted: #5d685f;
+      --line: #c7d1ca;
+      --paper: #f7f4ec;
+      --panel: #fffdf7;
+      --kernel: #1f6f5b;
+      --entry: #2d6c9f;
+      --data: #8a5a2b;
+      --risk: #b24436;
+      --future: #78633c;
+      --shadow: 0 16px 45px rgba(34, 45, 38, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(31, 111, 91, 0.12), transparent 32%),
+        radial-gradient(circle at 82% 18%, rgba(201, 119, 69, 0.16), transparent 24rem),
+        repeating-linear-gradient(0deg, rgba(23, 32, 27, 0.035) 0 1px, transparent 1px 24px),
+        var(--paper);
+      font-family: ui-serif, Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+      line-height: 1.5;
+    }
+
+    .page {
+      width: min(1680px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 34px 0 48px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(34px, 4vw, 62px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 880px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .stamp {
+      min-width: 260px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 253, 247, 0.84);
+      box-shadow: var(--shadow);
+    }
+
+    .stamp strong {
+      display: block;
+      font-size: 22px;
+    }
+
+    .stamp span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 26px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      background: rgba(255, 253, 247, 0.72);
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--kernel);
+    }
+
+    .dot.entry { background: var(--entry); }
+    .dot.data { background: var(--data); }
+    .dot.risk { background: var(--risk); }
+    .dot.future { background: var(--future); }
+
+    .map {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.05fr 1.15fr 1.05fr;
+      gap: 18px;
+      padding: 20px;
+      border: 1px solid rgba(23, 32, 27, 0.18);
+      background: rgba(255, 253, 247, 0.68);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .map::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, transparent 0 32%, rgba(23, 32, 27, 0.06) 32% 33%, transparent 33% 66%, rgba(23, 32, 27, 0.06) 66% 67%, transparent 67%),
+        linear-gradient(180deg, transparent 0 18%, rgba(23, 32, 27, 0.04) 18% 19%, transparent 19% 48%, rgba(23, 32, 27, 0.04) 48% 49%, transparent 49%);
+      pointer-events: none;
+    }
+
+    .column {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .band {
+      border: 1px solid var(--line);
+      background: rgba(255, 253, 247, 0.92);
+      padding: 14px;
+    }
+
+    .band h2,
+    .lane h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      border: 1px solid rgba(23, 32, 27, 0.16);
+      background: #fffdf9;
+      padding: 10px 11px;
+      min-height: 74px;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 15px;
+    }
+
+    .card p,
+    .lane li,
+    .small {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .card.entry { border-top: 4px solid var(--entry); }
+    .card.kernel { border-top: 4px solid var(--kernel); }
+    .card.data { border-top: 4px solid var(--data); }
+    .card.risk { border-top: 4px solid var(--risk); }
+    .card.future { border-top: 4px solid var(--future); }
+
+    .kernel-core {
+      position: relative;
+      padding: 22px;
+      border: 2px solid rgba(31, 111, 91, 0.55);
+      background:
+        linear-gradient(145deg, rgba(31, 111, 91, 0.1), rgba(255, 253, 247, 0.94));
+      min-height: 320px;
+    }
+
+    .kernel-core h2 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    .rings {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .ring {
+      border: 1px solid rgba(31, 111, 91, 0.34);
+      background: rgba(255, 253, 247, 0.78);
+      padding: 12px;
+      min-height: 110px;
+    }
+
+    .ring strong {
+      display: block;
+      color: var(--kernel);
+      margin-bottom: 6px;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .step {
+      border: 1px solid rgba(23, 32, 27, 0.18);
+      background: rgba(255, 253, 247, 0.9);
+      padding: 9px;
+      text-align: center;
+      font-size: 13px;
+      min-height: 62px;
+    }
+
+    .step b {
+      display: block;
+      font-size: 14px;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .lane {
+      border: 1px solid rgba(23, 32, 27, 0.16);
+      background: rgba(255, 253, 247, 0.88);
+      padding: 12px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .phase {
+      border: 1px solid rgba(120, 99, 60, 0.34);
+      background: rgba(255, 251, 239, 0.92);
+      padding: 12px;
+      min-height: 148px;
+    }
+
+    .phase strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--future);
+    }
+
+    .phase p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .score {
+      border: 1px solid rgba(23, 32, 27, 0.16);
+      background: rgba(255, 253, 247, 0.9);
+      padding: 12px;
+    }
+
+    .score b {
+      display: block;
+      font-size: 26px;
+      color: var(--kernel);
+    }
+
+    .wide-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    footer {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 1100px) {
+      header,
+      .map,
+      .wide-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .pipeline,
+      .roadmap,
+      .matrix {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 680px) {
+      .page {
+        width: min(100vw - 24px, 1680px);
+        padding-top: 18px;
+      }
+
+      .cards,
+      .rings,
+      .pipeline,
+      .roadmap,
+      .matrix,
+      .scoreboard {
+        grid-template-columns: 1fr;
+      }
+
+      .map {
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <section>
+        <h1>Meat Memory V2.9 - V2.97 功能设计与架构图</h1>
+        <p class="subtitle">一张图看清：现有 V2.9 可信记忆内核、CLI / HTTP / MCP / Browser Console 接入面、benchmark / trace / health / passport 能力闭环，以及 V2.97 追平 Supermemory / mem0 的完整路线。</p>
+      </section>
+      <aside class="stamp">
+        <strong>V2.9 Kernel + V2.97 Parity</strong>
+        <span>Local-first, explainable, governable, portable memory infrastructure</span>
+      </aside>
+    </header>
+
+    <section class="legend" aria-label="图例">
+      <span><i class="dot entry"></i>接入与用户体验</span>
+      <span><i class="dot"></i>内核与核心设计</span>
+      <span><i class="dot data"></i>数据、证据、存储</span>
+      <span><i class="dot risk"></i>安全、治理、门禁</span>
+      <span><i class="dot future"></i>V2.97 追平与超越路线</span>
+    </section>
+
+    <section class="map" aria-label="总体架构图">
+      <div class="column">
+        <section class="band">
+          <h2>入口层</h2>
+          <div class="cards">
+            <article class="card entry"><strong>CLI</strong><p>remember、search、benchmark、trace、health、passport、compat。</p></article>
+            <article class="card entry"><strong>HTTP API</strong><p>/api/v1 memories、context、lifecycle、reports、manifest。</p></article>
+            <article class="card entry"><strong>MCP Tools</strong><p>Agent 安全入口：search、context、docs、trace、health、passport manifest。</p></article>
+            <article class="card entry"><strong>Browser Console</strong><p>V2.96 目标：benchmark、trace、health、passport 运营视图。</p></article>
+          </div>
+        </section>
+
+        <section class="band">
+          <h2>外部数据入口</h2>
+          <div class="cards">
+            <article class="card future"><strong>Connectors MVP</strong><p>Notion、Google Drive、OneDrive、web crawler。</p></article>
+            <article class="card future"><strong>Local Sources</strong><p>local-git、markdown-docs、chat-export 从 skeleton 走向 sync。</p></article>
+            <article class="card future"><strong>Import Adapters</strong><p>mem0 JSON、Supermemory documents、迁移 dry-run report。</p></article>
+            <article class="card future"><strong>Multimodal</strong><p>audio、video、image OCR、web page evidence。</p></article>
+          </div>
+        </section>
+
+        <section class="band">
+          <h2>竞品追平焦点</h2>
+          <div class="scoreboard">
+            <article class="score"><b>9.0</b><span>Supermemory connectors / profile / router 体验待追平</span></article>
+            <article class="score"><b>9.0</b><span>mem0 Graph Memory / namespace / OSS 生态待追平</span></article>
+            <article class="score"><b>9.5</b><span>V2.9 trace / health / passport / governance 当前领先</span></article>
+          </div>
+        </section>
+      </div>
+
+      <div class="column">
+        <section class="kernel-core">
+          <h2>memory-kernel</h2>
+          <p class="small">所有能力优先收敛在 kernel 编排：写入、检索、治理、解释、评测、迁移和安全门禁都从同一套规则出发。</p>
+          <div class="rings">
+            <article class="ring"><strong>Benchmark Runner</strong><p class="small">Meat Code ZH、recall@1/5、latency、leakage、failure reason。</p></article>
+            <article class="ring"><strong>Recall Trace</strong><p class="small">候选、过滤、排序、预算、未召回原因、trace inspect。</p></article>
+            <article class="ring"><strong>Health Analyzer</strong><p class="small">重复、冲突、过期、低置信、高敏感、无人审阅、secret finding。</p></article>
+            <article class="ring"><strong>Memory Passport</strong><p class="small">export、verify、import、provenance、manifest hash、object hash。</p></article>
+            <article class="ring"><strong>Governance</strong><p class="small">lifecycle、proposal、review、timeline、rollback、audit。</p></article>
+            <article class="ring"><strong>Security Guard</strong><p class="small">PII / secret detect、ingest guard、recall guard、hard delete redaction。</p></article>
+          </div>
+        </section>
+
+        <section class="band">
+          <h2>记忆处理主链路</h2>
+          <div class="pipeline">
+            <div class="step"><b>Ingest</b>text / image / docs / connectors</div>
+            <div class="step"><b>Extract</b>memory / entity / relation / evidence</div>
+            <div class="step"><b>Govern</b>policy / proposal / lifecycle</div>
+            <div class="step"><b>Index</b>keyword / vector / graph</div>
+            <div class="step"><b>Recall</b>search / graph / budget</div>
+            <div class="step"><b>Explain</b>trace / health / passport</div>
+          </div>
+        </section>
+
+        <section class="band">
+          <h2>设计原则</h2>
+          <div class="matrix">
+            <article class="lane"><h3>Measurable</h3><ul><li>benchmark 先行</li><li>失败样例可复现</li></ul></article>
+            <article class="lane"><h3>Explainable</h3><ul><li>解释每次召回</li><li>预算取舍可见</li></ul></article>
+            <article class="lane"><h3>Governable</h3><ul><li>高风险走 proposal</li><li>审计与 rollback 保留</li></ul></article>
+            <article class="lane"><h3>Portable</h3><ul><li>Memory Passport</li><li>本地优先可恢复</li></ul></article>
+          </div>
+        </section>
+      </div>
+
+      <div class="column">
+        <section class="band">
+          <h2>数据与存储层</h2>
+          <div class="cards">
+            <article class="card data"><strong>memory-domain</strong><p>Memory、Artifact、Scope、EvidenceSpan、Passport、Benchmark、Trace。</p></article>
+            <article class="card data"><strong>memory-store-md</strong><p>Markdown projection，本地可读、可 diff、可迁移。</p></article>
+            <article class="card data"><strong>memory-store-pg</strong><p>benchmark、trace、secret findings、passport metadata、governance。</p></article>
+            <article class="card data"><strong>memory-assets</strong><p>image / audio / video / export bundle 的 asset 引用底座。</p></article>
+          </div>
+        </section>
+
+        <section class="band">
+          <h2>V2.97 新能力层</h2>
+          <div class="cards">
+            <article class="card future"><strong>Namespace API</strong><p>user、agent、app、run、org、project 显式建模。</p></article>
+            <article class="card future"><strong>Graph Memory</strong><p>entity resolver、relation extractor、graph search、path explanation。</p></article>
+            <article class="card future"><strong>Profile + Router</strong><p>profile endpoint、OpenAI / Anthropic wrapper、低侵入接入。</p></article>
+            <article class="card future"><strong>SDK Ecosystem</strong><p>TypeScript、Python、LangChain、LlamaIndex、MCP examples。</p></article>
+          </div>
+        </section>
+
+        <section class="band">
+          <h2>生产门禁</h2>
+          <div class="cards">
+            <article class="card risk"><strong>100% Targeted Coverage</strong><p>新增生产代码 line / function / region coverage gate。</p></article>
+            <article class="card risk"><strong>Security Regression</strong><p>secret / PII / recall leak / hard delete redaction。</p></article>
+            <article class="card risk"><strong>Perf Benchmarks</strong><p>10K、100K、1M memory benchmark skeleton。</p></article>
+            <article class="card risk"><strong>Acceptance Scripts</strong><p>V2.91 - V2.97 独立验收与报告产物。</p></article>
+          </div>
+        </section>
+      </div>
+
+      <section class="band full">
+        <h2>V2.97 追平与超越路线</h2>
+        <div class="roadmap">
+          <article class="phase"><strong>V2.97-A Connectors</strong><p>Notion、Drive、OneDrive、web crawler、local-git、markdown-docs、chat-export 可 dry-run / sync。</p></article>
+          <article class="phase"><strong>V2.97-B Graph + Namespace</strong><p>追平 mem0：Graph Memory store、entity resolver、relation extractor、namespace API。</p></article>
+          <article class="phase"><strong>V2.97-C Profile + SDK</strong><p>追平 Supermemory：profile + search combined endpoint、Memory Router、TS / Python SDK。</p></article>
+          <article class="phase"><strong>V2.97-D Import Compatibility</strong><p>mem0 / Supermemory 真实 adapter、scope mapping、id mapping、validation report。</p></article>
+          <article class="phase"><strong>V2.97-E Multimodal</strong><p>audio ASR、video keyframes、image OCR、web snapshot、multimodal passport。</p></article>
+          <article class="phase"><strong>V2.97-F Superiority</strong><p>Recall Trace Studio、Memory Health Ops、Policy DSL、Encrypted Passport、public benchmark pack。</p></article>
+        </div>
+      </section>
+
+      <section class="band full">
+        <h2>功能全集矩阵</h2>
+        <div class="wide-grid">
+          <article class="lane">
+            <h3>V2.91 - V2.94 已成型底座</h3>
+            <ul>
+              <li>Benchmark runner 与报告</li>
+              <li>Recall trace / explanation / budget packer</li>
+              <li>Secret guard / health report</li>
+              <li>Evidence span / provenance / passport</li>
+            </ul>
+          </article>
+          <article class="lane">
+            <h3>V2.95 - V2.96 收口能力</h3>
+            <ul>
+              <li>Supermemory / mem0 / MemoryLake capability mapping</li>
+              <li>CLI / HTTP / MCP read-only surface parity</li>
+              <li>Browser Console benchmark / trace / health / passport views</li>
+              <li>Production gate、coverage gate、perf reports</li>
+            </ul>
+          </article>
+          <article class="lane">
+            <h3>V2.97 追平与超越</h3>
+            <ul>
+              <li>Connectors、Graph Memory、Namespace</li>
+              <li>Profile、Router、TypeScript / Python SDK</li>
+              <li>Audio / video / OCR / web page ingest</li>
+              <li>Policy DSL、Encrypted Passport、Trace Studio</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </section>
+
+    <footer>
+      文件：docs/V2.9/V2.9-v2.97-architecture-map.html。依据：V2.9 overall plan、V2.97 Supermemory / mem0 parity roadmap、当前 CLI / HTTP / MCP / Kernel 实装能力。
+    </footer>
+  </main>
+</body>
+</html>
