@@ -15,6 +15,7 @@ use memory_kernel::{
     BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkSuiteKind,
     ChangeMemoryLifecycleStatusRequest, ChangeMemoryLifecycleStatusResult,
     CompetitorCompatibilityReport, CompetitorCompatibilityReportPaths, ComposedDistillationProfile,
+    ConnectorDryRunReport, ConnectorDryRunReportPaths, ConnectorDryRunRequest,
     CreateAccessKeyRequest, DistillationCandidate, DistillationPromptSegment,
     DistillationSessionOverride, GetMemoryProposalRequest, GetMemoryTimelineRequest,
     ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult,
@@ -29,9 +30,11 @@ use memory_kernel::{
     RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
     TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
     UpsertAgentContextRequest, UpsertDistillationProfileRequest,
-    build_competitor_compatibility_report, bundle_json, compatibility_report_json, health_json,
-    verification_json, verify_memory_passport_bundle, write_competitor_compatibility_report,
-    write_memory_health_report, write_memory_passport_bundle, write_recall_trace_report,
+    build_competitor_compatibility_report, bundle_json, compatibility_report_json,
+    connector_dry_run_json, health_json, run_connector_dry_run, verification_json,
+    verify_memory_passport_bundle, write_competitor_compatibility_report,
+    write_connector_dry_run_report, write_memory_health_report, write_memory_passport_bundle,
+    write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -1515,6 +1518,7 @@ async fn passport_command(args: PassportArgs) -> Result<()> {
 fn compat_command(args: CompatArgs) -> Result<()> {
     match args.command {
         CompatCommand::Report(report) => compat_report_command(report),
+        CompatCommand::ConnectorDryRun(dry_run) => compat_connector_dry_run_command(dry_run),
     }
 }
 
@@ -1530,6 +1534,23 @@ fn compat_report_command(args: CompatReportArgs) -> Result<()> {
         print_json(compat_report_output_json(&report, &paths))?;
     } else {
         for line in compat_report_lines(&report, &paths) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn compat_connector_dry_run_command(args: CompatConnectorDryRunArgs) -> Result<()> {
+    let mut request = ConnectorDryRunRequest::new(args.connector, args.root_path);
+    request.max_items = args.max_items;
+    let report = run_connector_dry_run(request)?;
+    let paths = write_connector_dry_run_report(&args.output_dir, &report)?;
+
+    if args.json {
+        print_json(connector_dry_run_output_json(&report, &paths))?;
+    } else {
+        for line in connector_dry_run_lines(&report, &paths) {
             println!("{line}");
         }
     }
@@ -1763,6 +1784,39 @@ fn compat_report_lines(
         format!("Adapter drafts: {}", report.adapter_drafts.len()),
         "New feature coverage gate: 100%".to_string(),
         format!("Compatibility report: {}", paths.markdown.display()),
+    ]
+}
+
+fn connector_dry_run_output_json(
+    report: &ConnectorDryRunReport,
+    paths: &ConnectorDryRunReportPaths,
+) -> serde_json::Value {
+    let mut value = connector_dry_run_json(report);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "report_paths".to_string(),
+            json!({
+                "json": paths.json.display().to_string(),
+                "markdown": paths.markdown.display().to_string(),
+            }),
+        );
+    }
+    value
+}
+
+fn connector_dry_run_lines(
+    report: &ConnectorDryRunReport,
+    paths: &ConnectorDryRunReportPaths,
+) -> Vec<String> {
+    vec![
+        format!("Connector schema: {}", report.schema_version),
+        format!("Connector: {}", report.connector),
+        format!("Mode: {}", report.mode),
+        format!("Status: {}", report.status),
+        format!("Candidates: {}", report.candidate_count),
+        format!("Failures: {}", report.failures.len()),
+        "New feature coverage gate: 100%".to_string(),
+        format!("Connector dry-run report: {}", paths.markdown.display()),
     ]
 }
 

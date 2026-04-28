@@ -76,11 +76,13 @@ pub use v29_benchmark::{
 };
 pub use v29_compat::{
     CompetitorAdapterDraft, CompetitorCapabilityMapping, CompetitorCompatibilityReport,
-    CompetitorCompatibilityReportPaths, ConnectorSkeleton, MarkdownProjectionCompatibility,
-    adapt_mem0_memory_json, adapt_memorylake_passport_json, adapt_supermemory_document_json,
-    build_competitor_compatibility_report, compatibility_report_json,
-    competitor_capability_mappings, connector_skeletons, markdown_projection_compatibility,
-    write_competitor_compatibility_report,
+    CompetitorCompatibilityReportPaths, ConnectorDryRunItem, ConnectorDryRunReport,
+    ConnectorDryRunReportPaths, ConnectorDryRunRequest, ConnectorSkeleton,
+    MarkdownProjectionCompatibility, adapt_mem0_memory_json, adapt_memorylake_passport_json,
+    adapt_supermemory_document_json, build_competitor_compatibility_report,
+    compatibility_report_json, competitor_capability_mappings, connector_dry_run_json,
+    connector_skeletons, markdown_projection_compatibility, run_connector_dry_run,
+    write_competitor_compatibility_report, write_connector_dry_run_report,
 };
 pub use v29_passport::{
     MemoryPassportBundle, MemoryPassportExportRequest, MemoryPassportIdMapping,

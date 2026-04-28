@@ -766,6 +766,7 @@ pub(super) enum PassportCommand {
 #[derive(Debug, Clone, Subcommand)]
 pub(super) enum CompatCommand {
     Report(CompatReportArgs),
+    ConnectorDryRun(CompatConnectorDryRunArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -838,6 +839,20 @@ pub(super) struct CompatReportArgs {
     pub(super) scope_id: Option<String>,
     #[arg(long, default_value = "tests/reports/compat/latest")]
     pub(super) output_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct CompatConnectorDryRunArgs {
+    #[arg(long)]
+    pub(super) connector: String,
+    #[arg(long, default_value = ".")]
+    pub(super) root_path: PathBuf,
+    #[arg(long, default_value = "tests/reports/compat/latest")]
+    pub(super) output_dir: PathBuf,
+    #[arg(long, default_value_t = 50)]
+    pub(super) max_items: usize,
     #[arg(long)]
     pub(super) json: bool,
 }

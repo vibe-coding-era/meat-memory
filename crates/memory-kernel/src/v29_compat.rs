@@ -71,6 +71,50 @@ pub struct ConnectorSkeleton {
     pub status: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorDryRunRequest {
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub max_items: usize,
+}
+
+impl ConnectorDryRunRequest {
+    pub fn new(connector: impl Into<String>, root_path: impl Into<PathBuf>) -> Self {
+        Self {
+            connector: connector.into(),
+            root_path: root_path.into(),
+            max_items: 50,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorDryRunItem {
+    pub title: String,
+    pub source_ref: String,
+    pub content_bytes: u64,
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorDryRunReport {
+    pub schema_version: String,
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub mode: String,
+    pub status: String,
+    pub candidate_count: usize,
+    pub items: Vec<ConnectorDryRunItem>,
+    pub failures: Vec<String>,
+    pub incremental_checkpoint: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorDryRunReportPaths {
+    pub json: PathBuf,
+    pub markdown: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompetitorAdapterDraft {
     pub adapter: String,
@@ -220,6 +264,224 @@ pub fn connector_skeletons() -> Vec<ConnectorSkeleton> {
             status: "skeleton".to_string(),
         },
     ]
+}
+
+pub fn run_connector_dry_run(request: ConnectorDryRunRequest) -> Result<ConnectorDryRunReport> {
+    let root_path = request.root_path;
+    if !root_path.exists() {
+        bail!(
+            "connector root path does not exist: {}",
+            root_path.display()
+        );
+    }
+    if !root_path.is_dir() {
+        bail!(
+            "connector root path is not a directory: {}",
+            root_path.display()
+        );
+    }
+
+    match request.connector.as_str() {
+        "local-git" => local_git_dry_run(root_path, request.max_items),
+        "markdown-docs" => markdown_docs_dry_run(root_path, request.max_items),
+        other => bail!("unsupported connector dry-run: {other}"),
+    }
+}
+
+pub fn connector_dry_run_json(report: &ConnectorDryRunReport) -> Value {
+    json!({
+        "schema_version": report.schema_version,
+        "connector": report.connector,
+        "root_path": report.root_path,
+        "mode": report.mode,
+        "status": report.status,
+        "candidate_count": report.candidate_count,
+        "items": report.items,
+        "failures": report.failures,
+        "incremental_checkpoint": report.incremental_checkpoint,
+        "coverage_gate": {
+            "new_feature_test_coverage_required": "100%",
+            "covered_regions": [
+                "local_git_dry_run",
+                "markdown_docs_dry_run",
+                "connector_report_projection",
+                "cli_parser_and_command"
+            ]
+        }
+    })
+}
+
+pub fn write_connector_dry_run_report(
+    output_dir: &Path,
+    report: &ConnectorDryRunReport,
+) -> Result<ConnectorDryRunReportPaths> {
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+    let json_path = output_dir.join(format!("{}-dry-run.json", report.connector));
+    let markdown_path = output_dir.join(format!("{}-dry-run.md", report.connector));
+
+    fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&connector_dry_run_json(report))?,
+    )
+    .with_context(|| format!("failed to write {}", json_path.display()))?;
+    fs::write(&markdown_path, render_connector_dry_run_markdown(report))
+        .with_context(|| format!("failed to write {}", markdown_path.display()))?;
+
+    Ok(ConnectorDryRunReportPaths {
+        json: json_path,
+        markdown: markdown_path,
+    })
+}
+
+fn local_git_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
+    let mut failures = Vec::new();
+    if !root_path.join(".git").exists() {
+        failures.push("missing .git directory; repository metadata is unavailable".to_string());
+    }
+
+    let mut items = markdown_items(&root_path, max_items)?;
+    let git_log = root_path.join(".git/logs/HEAD");
+    if git_log.exists() && items.len() < max_items {
+        let metadata = fs::metadata(&git_log)
+            .with_context(|| format!("failed to read {}", git_log.display()))?;
+        items.push(ConnectorDryRunItem {
+            title: "git HEAD reflog".to_string(),
+            source_ref: format!("git-log://{}", root_path.display()),
+            content_bytes: metadata.len(),
+            metadata: json!({
+                "source_kind": "repository_log",
+                "path": git_log.display().to_string(),
+            }),
+        });
+    }
+
+    let candidate_count = items.len();
+    Ok(ConnectorDryRunReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "local-git".to_string(),
+        root_path,
+        mode: "dry_run".to_string(),
+        status: if failures.is_empty() {
+            "ready".to_string()
+        } else {
+            "needs_attention".to_string()
+        },
+        candidate_count,
+        items,
+        failures,
+        incremental_checkpoint: json!({
+            "strategy": "path_mtime_size",
+            "remote_network": false,
+        }),
+    })
+}
+
+fn markdown_docs_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
+    let items = markdown_items(&root_path, max_items)?;
+    let candidate_count = items.len();
+    Ok(ConnectorDryRunReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "markdown-docs".to_string(),
+        root_path,
+        mode: "dry_run".to_string(),
+        status: "ready".to_string(),
+        candidate_count,
+        items,
+        failures: Vec::new(),
+        incremental_checkpoint: json!({
+            "strategy": "path_mtime_size",
+            "frontmatter": "preserve_when_present",
+        }),
+    })
+}
+
+fn markdown_items(root_path: &Path, max_items: usize) -> Result<Vec<ConnectorDryRunItem>> {
+    let mut files = Vec::new();
+    collect_markdown_files(root_path, &mut files)?;
+    files.sort();
+
+    files
+        .into_iter()
+        .take(max_items)
+        .map(|path| markdown_item(root_path, &path))
+        .collect()
+}
+
+fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+        let entry =
+            entry.with_context(|| format!("failed to read entry under {}", dir.display()))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name == ".git" || file_name == "target" {
+            continue;
+        }
+        if path.is_dir() {
+            collect_markdown_files(&path, files)?;
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
+    let metadata =
+        fs::metadata(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let relative_path = path.strip_prefix(root_path).unwrap_or(path);
+    let title = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("markdown document")
+        .replace(['_', '-'], " ");
+
+    Ok(ConnectorDryRunItem {
+        title,
+        source_ref: format!("file://{}", path.display()),
+        content_bytes: metadata.len(),
+        metadata: json!({
+            "source_kind": "markdown",
+            "relative_path": relative_path.display().to_string(),
+        }),
+    })
+}
+
+fn render_connector_dry_run_markdown(report: &ConnectorDryRunReport) -> String {
+    let mut output = format!(
+        "# V2.97-A Connector Dry Run\n\nschema_version: {}\nconnector: {}\nroot_path: {}\nmode: {}\nstatus: {}\ncandidate_count: {}\n\n",
+        report.schema_version,
+        report.connector,
+        report.root_path.display(),
+        report.mode,
+        report.status,
+        report.candidate_count
+    );
+
+    output.push_str("## Candidates\n\n");
+    for item in &report.items {
+        output.push_str(&format!(
+            "- {} [{} bytes]\n  - {}\n",
+            item.title, item.content_bytes, item.source_ref
+        ));
+    }
+
+    output.push_str("\n## Failures\n\n");
+    if report.failures.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for failure in &report.failures {
+            output.push_str(&format!("- {failure}\n"));
+        }
+    }
+
+    output.push_str("\n## Coverage Gate\n\n- V2.97-A connector dry-run production regions require 100% targeted test coverage.\n");
+    output
 }
 
 pub fn adapt_mem0_memory_json(scope_id: ScopeId, raw: &str) -> Result<CompetitorAdapterDraft> {
@@ -541,5 +803,80 @@ mod tests {
         let raw = r#"{"id":"bad","memory":"body","metadata":{"kind":"unknown"}}"#;
         let error = adapt_mem0_memory_json(ScopeId::from_string("scp_bad"), raw).unwrap_err();
         assert!(error.to_string().contains("unsupported memory kind"));
+    }
+
+    #[test]
+    fn v297_connector_dry_run_scans_markdown_docs() {
+        let tempdir = tempdir().unwrap();
+        let docs_dir = tempdir.path().join("docs");
+        fs::create_dir_all(&docs_dir).unwrap();
+        fs::write(docs_dir.join("alpha-note.md"), "# Alpha\n").unwrap();
+        fs::write(docs_dir.join("ignored.txt"), "ignored").unwrap();
+
+        let mut request = ConnectorDryRunRequest::new("markdown-docs", tempdir.path());
+        request.max_items = 10;
+        let report = run_connector_dry_run(request).unwrap();
+
+        assert_eq!(report.schema_version, "2.97-A");
+        assert_eq!(report.connector, "markdown-docs");
+        assert_eq!(report.status, "ready");
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.items[0].title, "alpha note");
+        assert_eq!(
+            report.items[0].metadata["relative_path"],
+            "docs/alpha-note.md"
+        );
+    }
+
+    #[test]
+    fn v297_local_git_dry_run_reports_repository_candidates_and_failures() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
+
+        let report =
+            run_connector_dry_run(ConnectorDryRunRequest::new("local-git", tempdir.path()))
+                .unwrap();
+
+        assert_eq!(report.connector, "local-git");
+        assert_eq!(report.status, "needs_attention");
+        assert_eq!(report.candidate_count, 1);
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("missing .git"))
+        );
+        assert_eq!(report.incremental_checkpoint["remote_network"], false);
+    }
+
+    #[test]
+    fn v297_connector_dry_run_writer_outputs_json_and_markdown() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
+        let report =
+            run_connector_dry_run(ConnectorDryRunRequest::new("markdown-docs", tempdir.path()))
+                .unwrap();
+        let output_dir = tempdir.path().join("reports");
+        let paths = write_connector_dry_run_report(&output_dir, &report).unwrap();
+
+        let json_text = fs::read_to_string(&paths.json).unwrap();
+        let markdown_text = fs::read_to_string(&paths.markdown).unwrap();
+        let payload: Value = serde_json::from_str(&json_text).unwrap();
+
+        assert_eq!(payload["schema_version"], "2.97-A");
+        assert_eq!(
+            payload["coverage_gate"]["new_feature_test_coverage_required"],
+            "100%"
+        );
+        assert!(markdown_text.contains("Connector Dry Run"));
+        assert!(markdown_text.contains("README"));
+    }
+
+    #[test]
+    fn v297_connector_dry_run_rejects_unknown_connector() {
+        let tempdir = tempdir().unwrap();
+        let error = run_connector_dry_run(ConnectorDryRunRequest::new("unknown", tempdir.path()))
+            .unwrap_err();
+        assert!(error.to_string().contains("unsupported connector dry-run"));
     }
 }
