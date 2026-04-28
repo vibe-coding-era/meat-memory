@@ -98,7 +98,7 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::Trace(args) => trace_command(args).await,
         Command::Health(args) => health_command(args).await,
         Command::Passport(args) => passport_command(args).await,
-        Command::Compat(args) => compat_command(args),
+        Command::Compat(args) => compat_command(args).await,
     }
 }
 
@@ -1517,12 +1517,12 @@ async fn passport_command(args: PassportArgs) -> Result<()> {
     }
 }
 
-fn compat_command(args: CompatArgs) -> Result<()> {
+async fn compat_command(args: CompatArgs) -> Result<()> {
     match args.command {
         CompatCommand::Report(report) => compat_report_command(report),
         CompatCommand::ConnectorDryRun(dry_run) => compat_connector_dry_run_command(dry_run),
         CompatCommand::ConnectorSyncPlan(sync_plan) => {
-            compat_connector_sync_plan_command(sync_plan)
+            compat_connector_sync_plan_command(sync_plan).await
         }
     }
 }
@@ -1563,20 +1563,45 @@ fn compat_connector_dry_run_command(args: CompatConnectorDryRunArgs) -> Result<(
     Ok(())
 }
 
-fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -> Result<()> {
+async fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -> Result<()> {
     let mut request = ConnectorSyncPlanRequest::new(
         args.connector,
-        args.root_path,
-        ScopeId::from_string(args.scope_id),
+        args.root_path.clone(),
+        ScopeId::from_string(args.scope_id.clone()),
     );
     request.max_items = args.max_items;
     let output = build_connector_sync_plan(request)?;
     let paths = write_connector_sync_plan_report(&args.output_dir, &output.report)?;
+    let mut imported = Vec::new();
+
+    if args.apply {
+        let source_id = args
+            .source_id
+            .as_deref()
+            .context("--source-id is required when --apply is set")?;
+        let (_, kernel, _) = bootstrap_runtime().await?;
+        let context = resolve_required_cli_request_context(&kernel, args.key.as_deref()).await?;
+        let source = get_source_for_context(&kernel, &context, source_id).await?;
+        let result = kernel
+            .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+                source_id: source.id,
+                scope_id: ScopeId::from_string(args.scope_id),
+                plan: output.plan,
+                context: Some(context),
+            })
+            .await?;
+        imported = result.imported;
+    }
 
     if args.json {
-        print_json(connector_sync_plan_output_json(&output.report, &paths))?;
+        print_json(connector_sync_plan_output_json(
+            args.apply,
+            &output.report,
+            &paths,
+            &imported,
+        ))?;
     } else {
-        for line in connector_sync_plan_lines(&output.report, &paths) {
+        for line in connector_sync_plan_lines(args.apply, &output.report, &paths, &imported) {
             println!("{line}");
         }
     }
@@ -1847,11 +1872,23 @@ fn connector_dry_run_lines(
 }
 
 fn connector_sync_plan_output_json(
+    apply: bool,
     report: &ConnectorSyncPlanReport,
     paths: &ConnectorSyncPlanReportPaths,
+    imported: &[memory_domain::ProjectDocument],
 ) -> serde_json::Value {
     let mut value = connector_sync_plan_json(report);
     if let Some(object) = value.as_object_mut() {
+        object.insert("apply".to_string(), json!(apply));
+        object.insert(
+            "imported".to_string(),
+            json!(
+                imported
+                    .iter()
+                    .map(project_document_json)
+                    .collect::<Vec<_>>()
+            ),
+        );
         object.insert(
             "report_paths".to_string(),
             json!({
@@ -1864,14 +1901,18 @@ fn connector_sync_plan_output_json(
 }
 
 fn connector_sync_plan_lines(
+    apply: bool,
     report: &ConnectorSyncPlanReport,
     paths: &ConnectorSyncPlanReportPaths,
+    imported: &[memory_domain::ProjectDocument],
 ) -> Vec<String> {
     vec![
         format!("Connector schema: {}", report.schema_version),
         format!("Connector: {}", report.connector),
         format!("Mode: {}", report.mode),
+        format!("Apply: {apply}"),
         format!("Planned documents: {}", report.planned_count),
+        format!("Imported documents: {}", imported.len()),
         format!("Missing documents: {}", report.missing_count),
         format!("Conflicts: {}", report.conflict_count),
         format!("Evidence preview: {}", report.evidence_preview.len()),

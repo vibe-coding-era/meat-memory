@@ -1109,11 +1109,13 @@ fn connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate()
     ))
     .unwrap();
     let paths = write_connector_sync_plan_report(tempdir.path(), &output.report).unwrap();
-    let rendered = connector_sync_plan_output_json(&output.report, &paths);
-    let lines = connector_sync_plan_lines(&output.report, &paths);
+    let rendered = connector_sync_plan_output_json(false, &output.report, &paths, &[]);
+    let lines = connector_sync_plan_lines(false, &output.report, &paths, &[]);
 
     assert_eq!(rendered["schema_version"], "2.97-A");
+    assert_eq!(rendered["apply"], false);
     assert_eq!(rendered["planned_count"], 1);
+    assert_eq!(rendered["imported"].as_array().unwrap().len(), 0);
     assert_eq!(rendered["evidence_preview"][0]["quote"], "# Project");
     assert_eq!(
         rendered["coverage_gate"]["new_feature_test_coverage_required"],
@@ -1130,33 +1132,63 @@ fn connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate()
     assert!(lines.iter().any(|line| line == "Evidence preview: 1"));
 }
 
-#[test]
-fn compat_connector_sync_plan_command_writes_report() {
+#[tokio::test]
+async fn compat_connector_sync_plan_command_writes_report() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
     let output_dir = tempdir.path().join("reports");
 
     compat_connector_sync_plan_command(super::CompatConnectorSyncPlanArgs {
+        key: None,
         connector: "markdown-docs".to_string(),
         root_path: tempdir.path().to_path_buf(),
+        source_id: None,
         scope_id: "scp_cli_connector_sync".to_string(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        apply: false,
         json: false,
     })
+    .await
     .unwrap();
     compat_connector_sync_plan_command(super::CompatConnectorSyncPlanArgs {
+        key: None,
         connector: "markdown-docs".to_string(),
         root_path: tempdir.path().to_path_buf(),
+        source_id: None,
         scope_id: "scp_cli_connector_sync".to_string(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        apply: false,
         json: true,
     })
+    .await
     .unwrap();
 
     assert!(output_dir.join("markdown-docs-sync-plan.json").exists());
     assert!(output_dir.join("markdown-docs-sync-plan.md").exists());
+}
+
+#[tokio::test]
+async fn compat_connector_sync_plan_apply_requires_source_id() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
+
+    let error = compat_connector_sync_plan_command(super::CompatConnectorSyncPlanArgs {
+        key: None,
+        connector: "markdown-docs".to_string(),
+        root_path: tempdir.path().to_path_buf(),
+        source_id: None,
+        scope_id: "scp_cli_connector_sync".to_string(),
+        output_dir: tempdir.path().join("reports"),
+        max_items: 10,
+        apply: true,
+        json: false,
+    })
+    .await
+    .unwrap_err();
+
+    assert!(error.to_string().contains("--source-id is required"));
 }
 
 #[test]
@@ -1455,16 +1487,21 @@ fn compat_cli_parser_accepts_connector_sync_plan() {
         "memory-cli",
         "compat",
         "connector-sync-plan",
+        "--key",
+        "mk_parser",
         "--connector",
         "markdown-docs",
         "--root-path",
         "docs",
+        "--source-id",
+        "src_parser",
         "--scope-id",
         "scp_parser",
         "--output-dir",
         "tests/reports/compat/latest",
         "--max-items",
         "7",
+        "--apply",
         "--json",
     ])
     .unwrap();
@@ -1472,14 +1509,17 @@ fn compat_cli_parser_accepts_connector_sync_plan() {
         super::Command::Compat(super::CompatArgs {
             command: super::CompatCommand::ConnectorSyncPlan(args),
         }) => {
+            assert_eq!(args.key.as_deref(), Some("mk_parser"));
             assert_eq!(args.connector, "markdown-docs");
             assert_eq!(args.root_path, PathBuf::from("docs"));
+            assert_eq!(args.source_id.as_deref(), Some("src_parser"));
             assert_eq!(args.scope_id, "scp_parser");
             assert_eq!(
                 args.output_dir,
                 PathBuf::from("tests/reports/compat/latest")
             );
             assert_eq!(args.max_items, 7);
+            assert!(args.apply);
             assert!(args.json);
         }
         _ => panic!("expected compat connector sync-plan command"),
@@ -3946,6 +3986,33 @@ async fn cli_command_functions_cover_pg_management_paths() {
     })
     .await
     .unwrap();
+    compat_connector_sync_plan_command(super::CompatConnectorSyncPlanArgs {
+        key: Some(raw_key.clone()),
+        connector: "markdown-docs".to_string(),
+        root_path: docs_root.clone(),
+        source_id: Some(source.id.as_str().to_string()),
+        scope_id: scope_id.as_str().to_string(),
+        output_dir: tempdir.path().join("compat-reports"),
+        max_items: 10,
+        apply: true,
+        json: true,
+    })
+    .await
+    .unwrap();
+    let synced_documents = kernel
+        .list_project_documents(memory_kernel::ListProjectDocumentsRequest {
+            source_id: source.id.clone(),
+            limit: 10,
+            query: Some("Sync".to_string()),
+            context: Some(context.clone()),
+        })
+        .await
+        .unwrap();
+    assert!(
+        synced_documents
+            .iter()
+            .any(|document| document.title == "Sync")
+    );
 
     let mut remember_request = memory_kernel::RememberTextRequest::new(
         scope_id.clone(),
