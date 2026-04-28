@@ -25,10 +25,10 @@ use memory_kernel::{
     TimelineVersion,
 };
 use serde::Deserialize;
-use std::env;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{env, fs};
 use tempfile::tempdir;
 use tower::ServiceExt;
 
@@ -168,7 +168,12 @@ fn exposes_fetch_context_tool() {
     assert!(tool_supported("memory.lifecycle.forget"));
     assert!(tool_supported("memory.lifecycle.restore"));
     assert!(tool_supported("memory.lifecycle.report"));
-    assert_eq!(TOOL_SPECS.len(), 28);
+    assert!(tool_supported("memory.benchmark.report"));
+    assert!(tool_supported("memory.trace.inspect"));
+    assert!(tool_supported("memory.health.report"));
+    assert!(tool_supported("memory.passport.manifest"));
+    assert!(tool_supported("memory.compat.report"));
+    assert_eq!(TOOL_SPECS.len(), 33);
 }
 
 #[test]
@@ -208,6 +213,89 @@ async fn dispatch_rejects_unknown_tool() {
         .unwrap_err();
 
     assert_eq!(error.status, axum::http::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn dispatch_v29_compat_and_health_reports() {
+    let tempdir = tempdir().unwrap();
+    let server = test_server(tempdir.path());
+
+    let compat = server
+        .dispatch(ToolCallRequest {
+            name: "memory.compat.report".to_string(),
+            arguments: serde_json::json!({"scope_id":"scp_mcp_compat"}),
+        })
+        .await
+        .unwrap();
+    assert_eq!(compat.tool, "memory.compat.report");
+    assert_eq!(compat.data["schema_version"], "2.95");
+    assert_eq!(
+        compat.data["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+
+    let health = server
+        .dispatch(ToolCallRequest {
+            name: "memory.health.report".to_string(),
+            arguments: serde_json::json!({"scope_id":"scp_mcp_compat"}),
+        })
+        .await
+        .unwrap();
+    assert_eq!(health.tool, "memory.health.report");
+    assert_eq!(health.data["scope_id"], "scp_mcp_compat");
+    assert!(health.data["risks"].is_array());
+}
+
+#[tokio::test]
+async fn dispatch_v29_benchmark_and_trace_report_readers() {
+    let tempdir = tempdir().unwrap();
+    let server = test_server(tempdir.path());
+    let benchmark_dir = tempdir.path().join("benchmark");
+    let trace_dir = tempdir.path().join("trace");
+    fs::create_dir_all(&benchmark_dir).unwrap();
+    fs::create_dir_all(&trace_dir).unwrap();
+    fs::write(benchmark_dir.join("summary.md"), "# Benchmark Summary\n").unwrap();
+    fs::write(
+        benchmark_dir.join("metrics.json"),
+        serde_json::json!({"suite":{"name":"meat-code-zh"},"metrics":{"recall_at_1":1.0}})
+            .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        trace_dir.join("trace.json"),
+        serde_json::json!({"trace":{"id":"rtr_mcp"},"budget_pack":{"used_chars":42}}).to_string(),
+    )
+    .unwrap();
+    fs::write(trace_dir.join("explanation.md"), "# Explanation\n").unwrap();
+
+    let benchmark = server
+        .dispatch(ToolCallRequest {
+            name: "memory.benchmark.report".to_string(),
+            arguments: serde_json::json!({"input_dir": benchmark_dir.display().to_string()}),
+        })
+        .await
+        .unwrap();
+    assert_eq!(benchmark.tool, "memory.benchmark.report");
+    assert_eq!(benchmark.data["metrics"]["suite"]["name"], "meat-code-zh");
+
+    let trace = server
+        .dispatch(ToolCallRequest {
+            name: "memory.trace.inspect".to_string(),
+            arguments: serde_json::json!({
+                "input_dir": trace_dir.display().to_string(),
+                "trace_id": "rtr_mcp"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(trace.tool, "memory.trace.inspect");
+    assert_eq!(trace.data["trace"]["trace"]["id"], "rtr_mcp");
+    assert!(
+        trace.data["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("Explanation")
+    );
 }
 
 #[tokio::test]

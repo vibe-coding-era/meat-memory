@@ -26,10 +26,10 @@ use memory_models::{
 };
 use memory_store_pg::PgStore as TestPgStore;
 use std::collections::BTreeSet;
-use std::env;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{env, fs};
 use tempfile::tempdir;
 use tower::ServiceExt;
 
@@ -223,6 +223,11 @@ async fn exposes_http_routes() {
     ));
     assert!(has_route("/api/v1/lifecycle/audit"));
     assert!(has_route("/api/v1/lifecycle/report"));
+    assert!(has_route("/api/v1/benchmark/report"));
+    assert!(has_route("/api/v1/recall/traces/inspect"));
+    assert!(has_route("/api/v1/health/report"));
+    assert!(has_route("/api/v1/passports/manifest"));
+    assert!(has_route("/api/v1/compat/report"));
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
@@ -280,6 +285,111 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/explorer/memories"));
     assert!(text.contains("/api/v1/assistant/chat"));
     assert!(text.contains("/api/v1/metrics/keys"));
+}
+
+#[tokio::test]
+async fn v29_surface_http_reports_compat_and_health() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+
+    let compat = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/compat/report?scope_id=scp_http_compat")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(compat.status(), axum::http::StatusCode::OK);
+    let compat_payload = response_json(compat).await;
+    assert_eq!(compat_payload["schema_version"], "2.95");
+    assert_eq!(
+        compat_payload["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+
+    let health = app
+        .oneshot(
+            Request::get("/api/v1/health/report?scope_id=scp_http_compat")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(health.status(), axum::http::StatusCode::OK);
+    let health_payload = response_json(health).await;
+    assert_eq!(health_payload["scope_id"], "scp_http_compat");
+    assert!(health_payload["risks"].is_array());
+}
+
+#[tokio::test]
+async fn v29_surface_http_reads_benchmark_and_trace_reports() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let benchmark_dir = tempdir.path().join("benchmark");
+    let trace_dir = tempdir.path().join("trace");
+    fs::create_dir_all(&benchmark_dir).unwrap();
+    fs::create_dir_all(&trace_dir).unwrap();
+    fs::write(benchmark_dir.join("summary.md"), "# Benchmark Summary\n").unwrap();
+    fs::write(
+        benchmark_dir.join("metrics.json"),
+        serde_json::json!({"suite":{"name":"meat-code-zh"},"metrics":{"recall_at_1":1.0}})
+            .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        trace_dir.join("trace.json"),
+        serde_json::json!({"trace":{"id":"rtr_http"},"budget_pack":{"used_chars":42}}).to_string(),
+    )
+    .unwrap();
+    fs::write(trace_dir.join("explanation.md"), "# Explanation\n").unwrap();
+
+    let benchmark = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/benchmark/report?input_dir={}",
+                benchmark_dir.display()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(benchmark.status(), axum::http::StatusCode::OK);
+    let benchmark_payload = response_json(benchmark).await;
+    assert_eq!(
+        benchmark_payload["metrics"]["suite"]["name"],
+        "meat-code-zh"
+    );
+    assert!(
+        benchmark_payload["summary"]
+            .as_str()
+            .unwrap()
+            .contains("Benchmark Summary")
+    );
+
+    let trace = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/recall/traces/inspect?input_dir={}&trace_id=rtr_http",
+                trace_dir.display()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(trace.status(), axum::http::StatusCode::OK);
+    let trace_payload = response_json(trace).await;
+    assert_eq!(trace_payload["trace"]["trace"]["id"], "rtr_http");
+    assert!(
+        trace_payload["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("Explanation")
+    );
 }
 
 #[tokio::test]

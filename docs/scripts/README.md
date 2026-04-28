@@ -98,6 +98,7 @@
 ./docs/scripts/v2_92-acceptance.sh
 ./docs/scripts/v2_93-acceptance.sh
 ./docs/scripts/v2_94-acceptance.sh
+./docs/scripts/v2_95-acceptance.sh
 ./docs/scripts/v2_7-production-gate.sh
 ./docs/scripts/v2_8-production-gate.sh
 ```
@@ -113,6 +114,7 @@
 - `v2_92-acceptance.sh`：V2.92 recall trace、explanation、budget packer、trace CLI 和新增代码 100% 覆盖率说明
 - `v2_93-acceptance.sh`：V2.93 secret / PII guard、health report、CLI health 投影和新增代码 100% 覆盖率说明
 - `v2_94-acceptance.sh`：V2.94 evidence span、Memory Passport export / verify / import / provenance 和新增代码 100% 覆盖率说明
+- `v2_95-acceptance.sh`：V2.95 竞品映射、adapter skeleton、CLI / HTTP / MCP surface parity 和新增代码 100% 覆盖率说明
 - `v2_7-production-gate.sh`：V2.7 商用生产门禁，覆盖格式、接口、P1 回归、存储、接入面、安全和严格 PG 验收
 - `v2_8-production-gate.sh`：V2.8 发布门禁，覆盖格式、接口、V2.8 核心套件、接入面、安全和 strict acceptance
 

@@ -1,0 +1,183 @@
+{
+  "adapter_drafts": [
+    {
+      "adapter": "mem0-style-json",
+      "body": "User prefers local-first memory with deterministic export.",
+      "external_id": "mem0_fixture_001",
+      "memory_kind": "Preference",
+      "metadata": {
+        "kind": "preference",
+        "source": "mem0-style-json"
+      },
+      "scope_id": "scp_v295_acceptance",
+      "source_refs": [
+        "mem0://user/usr_v295/memory/mem0_fixture_001"
+      ],
+      "title": "mem0 memory mem0_fixture_001"
+    },
+    {
+      "adapter": "supermemory-style-document",
+      "body": "Supermemory-style document content maps into project-scoped evidence-backed memory.",
+      "external_id": "sm_doc_001",
+      "memory_kind": "Summary",
+      "metadata": {
+        "kind": "summary",
+        "source": "supermemory-style-document"
+      },
+      "scope_id": "scp_v295_acceptance",
+      "source_refs": [
+        "supermemory://container/container_project_v295/document/sm_doc_001"
+      ],
+      "title": "Project memory container"
+    },
+    {
+      "adapter": "memorylake-style-passport",
+      "body": "MemoryLake-style passport data maps to Meat Memory passport import drafts.",
+      "external_id": "lake_mem_001",
+      "memory_kind": "Fact",
+      "metadata": {
+        "passport_id": "lake_passport_001",
+        "source_scope_id": "scp_lake"
+      },
+      "scope_id": "scp_v295_acceptance",
+      "source_refs": [
+        "memorylake://passport/lake_passport_001/memory/lake_mem_001"
+      ],
+      "title": "Portable provenance fact"
+    }
+  ],
+  "connector_skeletons": [
+    {
+      "capability": "Read repository metadata, commits, and important docs as project context.",
+      "name": "local-git",
+      "safe_default": "read_only_no_remote_push",
+      "source_kind": "repository",
+      "status": "skeleton"
+    },
+    {
+      "capability": "Scan local markdown docs into project documents and evidence refs.",
+      "name": "markdown-docs",
+      "safe_default": "local_files_only",
+      "source_kind": "document_tree",
+      "status": "skeleton"
+    },
+    {
+      "capability": "Normalize chat exports into timestamped message memory drafts.",
+      "name": "chat-export",
+      "safe_default": "explicit_import_only",
+      "source_kind": "conversation_export",
+      "status": "skeleton"
+    }
+  ],
+  "coverage_gate": {
+    "covered_regions": [
+      "capability_mappings",
+      "adapter_fixtures",
+      "connector_skeletons",
+      "cli_http_mcp_surface_parity"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "generated_at": [
+    2026,
+    118,
+    12,
+    48,
+    38,
+    419894000,
+    0,
+    0,
+    0
+  ],
+  "mappings": [
+    {
+      "compatibility_level": "mapped",
+      "competitor": "Supermemory",
+      "external_concept": "container / user / project memory",
+      "meat_memory_mapping": "ScopeId plus visibility and source_refs",
+      "notes": "Containers map to scopes; user/project separation stays explicit instead of SaaS-tenant hidden."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "Supermemory",
+      "external_concept": "memory graph",
+      "meat_memory_mapping": "ContextBundle memories/entities/relations",
+      "notes": "Graph retrieval maps to existing entity and relation context payloads."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "Supermemory",
+      "external_concept": "document RAG",
+      "meat_memory_mapping": "project documents, evidence spans, recall traces",
+      "notes": "Document chunks become source-backed memory plus traceable evidence."
+    },
+    {
+      "compatibility_level": "skeleton",
+      "competitor": "Supermemory",
+      "external_concept": "connectors",
+      "meat_memory_mapping": "local connector skeletons",
+      "notes": "V2.95 defines safe local connector shapes; external SaaS sync remains explicit."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "mem0",
+      "external_concept": "user / session / agent / org memory",
+      "meat_memory_mapping": "ScopeId, AgentContext, Visibility",
+      "notes": "User and org map to scopes; session and agent memory use short-term AgentContext."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "mem0",
+      "external_concept": "add / search / delete",
+      "meat_memory_mapping": "remember / search / lifecycle forget-delete",
+      "notes": "Core operations already exist across CLI, HTTP, and MCP."
+    },
+    {
+      "compatibility_level": "superset",
+      "competitor": "mem0",
+      "external_concept": "OSS local runtime",
+      "meat_memory_mapping": "markdown-first local runtime with optional PostgreSQL",
+      "notes": "Meat Memory keeps local markdown as a first-class store and can add PG without losing portability."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "MemoryLake",
+      "external_concept": "passport",
+      "meat_memory_mapping": "Memory Passport manifest and bundle",
+      "notes": "V2.94 passport export, verify, import, and manifest inspection are reused."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "MemoryLake",
+      "external_concept": "provenance",
+      "meat_memory_mapping": "EvidenceSpan and source_refs",
+      "notes": "Each imported draft keeps external source references for later evidence promotion."
+    },
+    {
+      "compatibility_level": "mapped",
+      "competitor": "MemoryLake",
+      "external_concept": "conflict / version / audit",
+      "meat_memory_mapping": "document conflicts, timeline, lifecycle audit",
+      "notes": "Existing V2.7/V2.8 governance primitives cover the compatibility contract."
+    }
+  ],
+  "markdown_compatibility": [
+    {
+      "compatibility_level": "full_read",
+      "current_projection": "memory markdown plus V2.9 reports under tests/reports/*",
+      "legacy_projection": "memory markdown frontmatter + body",
+      "notes": "V2.95 keeps old memory markdown readable and only adds report projections beside it."
+    },
+    {
+      "compatibility_level": "additive",
+      "current_projection": "project document projection with optional evidence references",
+      "legacy_projection": "project document projection",
+      "notes": "Old docs projection remains valid; evidence metadata is optional and can be absent."
+    }
+  ],
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest/compatibility.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest/compatibility.md"
+  },
+  "schema_version": "2.95"
+}

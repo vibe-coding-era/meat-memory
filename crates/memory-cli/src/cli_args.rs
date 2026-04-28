@@ -39,6 +39,7 @@ pub(super) enum Command {
     Trace(TraceArgs),
     Health(HealthArgs),
     Passport(PassportArgs),
+    Compat(CompatArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -748,12 +749,23 @@ pub(super) struct PassportArgs {
     pub(super) command: PassportCommand,
 }
 
+#[derive(Debug, Clone, Args)]
+pub(super) struct CompatArgs {
+    #[command(subcommand)]
+    pub(super) command: CompatCommand,
+}
+
 #[derive(Debug, Clone, Subcommand)]
 pub(super) enum PassportCommand {
     Export(PassportExportArgs),
     Verify(PassportVerifyArgs),
     Import(PassportImportArgs),
     Provenance(PassportProvenanceArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(super) enum CompatCommand {
+    Report(CompatReportArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -816,6 +828,16 @@ pub(super) struct PassportProvenanceArgs {
     pub(super) scope_id: Option<String>,
     #[arg(long)]
     pub(super) memory_id: String,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct CompatReportArgs {
+    #[arg(long)]
+    pub(super) scope_id: Option<String>,
+    #[arg(long, default_value = "tests/reports/compat/latest")]
+    pub(super) output_dir: PathBuf,
     #[arg(long)]
     pub(super) json: bool,
 }

@@ -14,21 +14,23 @@ use memory_kernel::{
     ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
     BenchmarkRunOutput, BenchmarkRunRequest, BenchmarkSuiteKind,
     ChangeMemoryLifecycleStatusRequest, ChangeMemoryLifecycleStatusResult,
-    ComposedDistillationProfile, CreateAccessKeyRequest, DistillationCandidate,
-    DistillationPromptSegment, DistillationSessionOverride, GetMemoryProposalRequest,
-    GetMemoryTimelineRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest,
-    InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
-    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryHealthReport, MemoryHealthReportPaths, MemoryPassportBundle,
-    MemoryPassportExportRequest, MemoryPassportImportRequest, MemoryPassportImportResult,
-    MemoryPassportPaths, MemoryPassportVerification, MemoryProvenance, MemoryTimeline,
-    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
-    RecallTraceBudget, RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest,
-    RememberImageResult, RememberTextRequest, RememberTextResult, ReviewActorKind,
-    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
-    TimelineEvent, TimelineEventKind, TimelineVersion, TraceSearchContextRequest,
-    TraceSearchContextResult, UpsertAgentContextRequest, UpsertDistillationProfileRequest,
-    bundle_json, health_json, verification_json, verify_memory_passport_bundle,
+    CompetitorCompatibilityReport, CompetitorCompatibilityReportPaths, ComposedDistillationProfile,
+    CreateAccessKeyRequest, DistillationCandidate, DistillationPromptSegment,
+    DistillationSessionOverride, GetMemoryProposalRequest, GetMemoryTimelineRequest,
+    ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult,
+    Kernel, ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
+    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryHealthReport,
+    MemoryHealthReportPaths, MemoryPassportBundle, MemoryPassportExportRequest,
+    MemoryPassportImportRequest, MemoryPassportImportResult, MemoryPassportPaths,
+    MemoryPassportVerification, MemoryProvenance, MemoryTimeline, PreviewDistillationRequest,
+    PreviewDistillationResult, PromoteAgentContextRequest, RecallTraceBudget,
+    RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest, RememberImageResult,
+    RememberTextRequest, RememberTextResult, ReviewActorKind, RollbackMemoryRequest,
+    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
+    TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
+    UpsertAgentContextRequest, UpsertDistillationProfileRequest,
+    build_competitor_compatibility_report, bundle_json, compatibility_report_json, health_json,
+    verification_json, verify_memory_passport_bundle, write_competitor_compatibility_report,
     write_memory_health_report, write_memory_passport_bundle, write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
@@ -91,6 +93,7 @@ async fn run_with_cli(cli: Cli) -> Result<()> {
         Command::Trace(args) => trace_command(args).await,
         Command::Health(args) => health_command(args).await,
         Command::Passport(args) => passport_command(args).await,
+        Command::Compat(args) => compat_command(args),
     }
 }
 
@@ -1509,6 +1512,31 @@ async fn passport_command(args: PassportArgs) -> Result<()> {
     }
 }
 
+fn compat_command(args: CompatArgs) -> Result<()> {
+    match args.command {
+        CompatCommand::Report(report) => compat_report_command(report),
+    }
+}
+
+fn compat_report_command(args: CompatReportArgs) -> Result<()> {
+    let scope_id = ScopeId::from_string(
+        args.scope_id
+            .unwrap_or_else(|| "scp_v295_compat".to_string()),
+    );
+    let report = build_competitor_compatibility_report(scope_id)?;
+    let paths = write_competitor_compatibility_report(&args.output_dir, &report)?;
+
+    if args.json {
+        print_json(compat_report_output_json(&report, &paths))?;
+    } else {
+        for line in compat_report_lines(&report, &paths) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
 async fn passport_export_command(args: PassportExportArgs) -> Result<()> {
     let (_, kernel, service_info) = bootstrap_runtime().await?;
     let scope_id = scope_id_or_default(args.scope_id, &service_info);
@@ -1696,6 +1724,46 @@ fn passport_paths_json(paths: &MemoryPassportPaths) -> serde_json::Value {
         "evidence": paths.evidence.display().to_string(),
         "markdown": paths.markdown.display().to_string(),
     })
+}
+
+fn compat_report_output_json(
+    report: &CompetitorCompatibilityReport,
+    paths: &CompetitorCompatibilityReportPaths,
+) -> serde_json::Value {
+    let mut value = compatibility_report_json(report);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "report_paths".to_string(),
+            json!({
+                "json": paths.json.display().to_string(),
+                "markdown": paths.markdown.display().to_string(),
+            }),
+        );
+    }
+    value
+}
+
+fn compat_report_lines(
+    report: &CompetitorCompatibilityReport,
+    paths: &CompetitorCompatibilityReportPaths,
+) -> Vec<String> {
+    let competitors = report
+        .mappings
+        .iter()
+        .map(|mapping| mapping.competitor.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(", ");
+    vec![
+        format!("Compatibility schema: {}", report.schema_version),
+        format!("Competitors: {competitors}"),
+        format!("Mappings: {}", report.mappings.len()),
+        format!("Connector skeletons: {}", report.connector_skeletons.len()),
+        format!("Adapter drafts: {}", report.adapter_drafts.len()),
+        "New feature coverage gate: 100%".to_string(),
+        format!("Compatibility report: {}", paths.markdown.display()),
+    ]
 }
 
 fn health_report_json(

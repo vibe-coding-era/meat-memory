@@ -18,6 +18,8 @@ use memory_kernel::{
     ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
     PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, RememberTextResult,
     SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+    build_competitor_compatibility_report, compatibility_report_json, health_json,
+    verification_json, verify_memory_passport_bundle,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -25,7 +27,7 @@ use memory_sync::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::error;
 
@@ -65,6 +67,11 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/lifecycle/memories/{scope_id}/{memory_id}/restore",
     "/api/v1/lifecycle/audit",
     "/api/v1/lifecycle/report",
+    "/api/v1/benchmark/report",
+    "/api/v1/recall/traces/inspect",
+    "/api/v1/health/report",
+    "/api/v1/passports/manifest",
+    "/api/v1/compat/report",
     "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
@@ -405,6 +412,22 @@ pub struct LifecycleReportQuery {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ReportInputQuery {
+    pub input_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TraceInspectQuery {
+    pub input_dir: Option<String>,
+    pub trace_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CompatReportQuery {
+    pub scope_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LifecycleStatusHttpRequest {
     pub status: Option<String>,
@@ -624,6 +647,11 @@ pub fn build_router(state: HttpAppState) -> Router {
         )
         .route("/api/v1/lifecycle/audit", get(list_lifecycle_audit))
         .route("/api/v1/lifecycle/report", get(lifecycle_report))
+        .route("/api/v1/benchmark/report", get(benchmark_report))
+        .route("/api/v1/recall/traces/inspect", get(trace_inspect))
+        .route("/api/v1/health/report", get(health_report))
+        .route("/api/v1/passports/manifest", get(passport_manifest))
+        .route("/api/v1/compat/report", get(compat_report))
         .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
         .route("/api/v1/context/search", post(search_context))
@@ -1696,6 +1724,106 @@ async fn lifecycle_report(
         "source_backed": report.source_backed,
         "generated_at": format_timestamp(report.generated_at),
     })))
+}
+
+async fn benchmark_report(
+    Query(query): Query<ReportInputQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let input_dir = report_input_dir(query.input_dir, "tests/reports/benchmark/latest");
+    let summary_path = input_dir.join("summary.md");
+    let metrics_path = input_dir.join("metrics.json");
+    let summary = read_report_text(&summary_path)?;
+    let metrics = read_report_json(&metrics_path)?;
+
+    Ok(Json(json!({
+        "input_dir": input_dir.display().to_string(),
+        "summary": summary,
+        "metrics": metrics,
+    })))
+}
+
+async fn trace_inspect(
+    Query(query): Query<TraceInspectQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let input_dir = report_input_dir(query.input_dir, "tests/reports/trace/latest");
+    let trace_path = input_dir.join("trace.json");
+    let explanation_path = input_dir.join("explanation.md");
+    let trace = read_report_json(&trace_path)?;
+    if let Some(expected_trace_id) = query.trace_id.as_deref() {
+        let actual_trace_id = trace
+            .pointer("/trace/id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if actual_trace_id != expected_trace_id {
+            return Err(ApiError::bad_request(format!(
+                "trace id mismatch: expected {expected_trace_id}, found {actual_trace_id}"
+            )));
+        }
+    }
+    let explanation = fs::read_to_string(&explanation_path).ok();
+
+    Ok(Json(json!({
+        "input_dir": input_dir.display().to_string(),
+        "trace": trace,
+        "explanation": explanation,
+    })))
+}
+
+async fn health_report(
+    State(state): State<HttpAppState>,
+    Query(query): Query<LifecycleReportQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let report = state
+        .kernel
+        .memory_health_report(
+            query.scope_id.map(ScopeId::from_string),
+            query.limit.unwrap_or(500),
+        )
+        .await
+        .map_err(api_error_from_anyhow)?;
+
+    Ok(Json(health_json(&report)))
+}
+
+async fn passport_manifest(
+    Query(query): Query<ReportInputQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let input_dir = report_input_dir(query.input_dir, "tests/reports/passport/latest");
+    let verification = verify_memory_passport_bundle(&input_dir).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(verification_json(&verification)))
+}
+
+async fn compat_report(
+    State(state): State<HttpAppState>,
+    Query(query): Query<CompatReportQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let scope_id = query
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let report = build_competitor_compatibility_report(scope_id).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(compatibility_report_json(&report)))
+}
+
+fn report_input_dir(input_dir: Option<String>, default_dir: &str) -> PathBuf {
+    input_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_dir.into())
+}
+
+fn read_report_text(path: &PathBuf) -> Result<String, ApiError> {
+    fs::read_to_string(path).map_err(|error| {
+        ApiError::bad_request(format!("failed to read {}: {error}", path.display()))
+    })
+}
+
+fn read_report_json(path: &PathBuf) -> Result<serde_json::Value, ApiError> {
+    let raw = read_report_text(path)?;
+    serde_json::from_str(&raw).map_err(|error| {
+        ApiError::bad_request(format!("failed to parse {}: {error}", path.display()))
+    })
 }
 
 async fn search_context(

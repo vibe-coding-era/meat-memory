@@ -24,13 +24,14 @@ use memory_kernel::{
     RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind, RollbackMemoryRequest,
     RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
     TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
-    UpsertDistillationProfileRequest,
+    UpsertDistillationProfileRequest, build_competitor_compatibility_report,
+    compatibility_report_json, health_json, verification_json, verify_memory_passport_bundle,
 };
 use memory_observability::operation_span;
 use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc};
 use tracing::{Instrument, info};
 use ulid::Ulid;
 
@@ -133,6 +134,26 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
         description: "Return a memory health report. Optional: scope_id, limit.",
     },
     ToolSpec {
+        name: "memory.benchmark.report",
+        description: "Read the latest V2.9 benchmark report without running a benchmark. Optional: input_dir.",
+    },
+    ToolSpec {
+        name: "memory.trace.inspect",
+        description: "Read a V2.9 recall trace report. Optional: input_dir, trace_id.",
+    },
+    ToolSpec {
+        name: "memory.health.report",
+        description: "Return the V2.9 memory health summary including risks and suggested actions. Optional: scope_id, limit.",
+    },
+    ToolSpec {
+        name: "memory.passport.manifest",
+        description: "Inspect and verify a V2.9 Memory Passport manifest without importing it. Optional: input_dir.",
+    },
+    ToolSpec {
+        name: "memory.compat.report",
+        description: "Return the V2.95 Supermemory / mem0 / MemoryLake compatibility mapping. Optional: scope_id.",
+    },
+    ToolSpec {
         name: "memory.context.upsert",
         description: "Create or refresh short-term Agent context. Required arguments: key, session_id, title, body. Optional: scope_id, task_id, labels.",
     },
@@ -184,6 +205,11 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory.lifecycle.forget",
     "memory.lifecycle.restore",
     "memory.lifecycle.report",
+    "memory.benchmark.report",
+    "memory.trace.inspect",
+    "memory.health.report",
+    "memory.passport.manifest",
+    "memory.compat.report",
     "memory.context.upsert",
     "memory.context.list",
     "memory.context.promote",
@@ -316,6 +342,22 @@ impl McpServer {
                 "memory.lifecycle.report" => {
                     self.handle_lifecycle_report(&trace_id, request.arguments)
                         .await?
+                }
+                "memory.benchmark.report" => {
+                    self.handle_benchmark_report(&trace_id, request.arguments)?
+                }
+                "memory.trace.inspect" => {
+                    self.handle_trace_inspect(&trace_id, request.arguments)?
+                }
+                "memory.health.report" => {
+                    self.handle_health_report(&trace_id, request.arguments)
+                        .await?
+                }
+                "memory.passport.manifest" => {
+                    self.handle_passport_manifest(&trace_id, request.arguments)?
+                }
+                "memory.compat.report" => {
+                    self.handle_compat_report(&trace_id, request.arguments)?
                 }
                 "memory.context.upsert" => {
                     self.handle_context_upsert(&trace_id, request.arguments)
@@ -1095,6 +1137,121 @@ impl McpServer {
         })
     }
 
+    fn handle_benchmark_report(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ReportInputToolArgs>(arguments)?;
+        let input_dir = report_input_dir(payload.input_dir, "tests/reports/benchmark/latest");
+        let summary = read_report_text(&input_dir.join("summary.md"))?;
+        let metrics = read_report_json(&input_dir.join("metrics.json"))?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.benchmark.report".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "input_dir": input_dir.display().to_string(),
+                "summary": summary,
+                "metrics": metrics,
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    fn handle_trace_inspect(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<TraceInspectToolArgs>(arguments)?;
+        let input_dir = report_input_dir(payload.input_dir, "tests/reports/trace/latest");
+        let trace = read_report_json(&input_dir.join("trace.json"))?;
+        if let Some(expected_trace_id) = payload.trace_id.as_deref() {
+            let actual_trace_id = trace
+                .pointer("/trace/id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if actual_trace_id != expected_trace_id {
+                return Err(McpError::invalid_arguments(format!(
+                    "trace id mismatch: expected {expected_trace_id}, found {actual_trace_id}"
+                )));
+            }
+        }
+        let explanation = fs::read_to_string(input_dir.join("explanation.md")).ok();
+
+        Ok(ToolCallResponse {
+            tool: "memory.trace.inspect".to_string(),
+            trace_id: trace_id.to_string(),
+            data: json!({
+                "input_dir": input_dir.display().to_string(),
+                "trace": trace,
+                "explanation": explanation,
+            }),
+            warnings: Vec::new(),
+        })
+    }
+
+    async fn handle_health_report(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<LifecycleReportToolArgs>(arguments)?;
+        let report = self
+            .kernel
+            .memory_health_report(
+                payload.scope_id.map(ScopeId::from_string),
+                payload.limit.unwrap_or(500),
+            )
+            .await
+            .map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.health.report".to_string(),
+            trace_id: trace_id.to_string(),
+            data: health_json(&report),
+            warnings: Vec::new(),
+        })
+    }
+
+    fn handle_passport_manifest(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ReportInputToolArgs>(arguments)?;
+        let input_dir = report_input_dir(payload.input_dir, "tests/reports/passport/latest");
+        let verification = verify_memory_passport_bundle(&input_dir).map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.passport.manifest".to_string(),
+            trace_id: trace_id.to_string(),
+            data: verification_json(&verification),
+            warnings: Vec::new(),
+        })
+    }
+
+    fn handle_compat_report(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<CompatReportToolArgs>(arguments)?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| self.default_scope_id.clone());
+        let report = build_competitor_compatibility_report(scope_id).map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.compat.report".to_string(),
+            trace_id: trace_id.to_string(),
+            data: compatibility_report_json(&report),
+            warnings: Vec::new(),
+        })
+    }
+
     async fn handle_context_upsert(
         &self,
         trace_id: &str,
@@ -1592,6 +1749,22 @@ struct LifecycleReportToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct ReportInputToolArgs {
+    input_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TraceInspectToolArgs {
+    input_dir: Option<String>,
+    trace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompatReportToolArgs {
+    scope_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct ContextUpsertToolArgs {
     scope_id: Option<String>,
     session_id: String,
@@ -1794,6 +1967,25 @@ where
 {
     serde_json::from_value(arguments)
         .map_err(|error| McpError::invalid_arguments(error.to_string()))
+}
+
+fn report_input_dir(input_dir: Option<String>, default_dir: &str) -> PathBuf {
+    input_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_dir.into())
+}
+
+fn read_report_text(path: &PathBuf) -> Result<String, McpError> {
+    fs::read_to_string(path).map_err(|error| {
+        McpError::invalid_arguments(format!("failed to read {}: {error}", path.display()))
+    })
+}
+
+fn read_report_json(path: &PathBuf) -> Result<Value, McpError> {
+    let raw = read_report_text(path)?;
+    serde_json::from_str(&raw).map_err(|error| {
+        McpError::invalid_arguments(format!("failed to parse {}: {error}", path.display()))
+    })
 }
 
 fn parse_artifact_kind(raw: &str) -> Result<ArtifactKind, McpError> {

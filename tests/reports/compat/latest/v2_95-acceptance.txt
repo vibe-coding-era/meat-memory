@@ -1,0 +1,71 @@
+[v2.95] acceptance started
+[v2.95] report: /Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest/v2_95-acceptance.txt
+[v2.95] compat output: /Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest
+[v2.95] format check
+[v2.95] interface check
+    Blocking waiting for file lock on build directory
+    Checking memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+    Checking memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+    Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.50s
+[v2.95] competitor mapping and adapter fixtures
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
+
+running 4 tests
+test v29_compat::tests::v29_compat_adapters_parse_competitor_fixtures ... ok
+test v29_compat::tests::v29_compat_mappings_cover_expected_competitors_and_connectors ... ok
+test v29_compat::tests::v29_compat_rejects_unknown_fixture_kind ... ok
+test v29_compat::tests::v29_compat_report_writer_outputs_json_and_markdown ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 110 filtered out; finished in 0.01s
+
+[v2.95] CLI compat report helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
+
+running 3 tests
+test app::main_tests::compat_cli_parser_accepts_report ... ok
+test app::main_tests::compat_output_helpers_include_mappings_paths_and_coverage_gate ... ok
+test app::main_tests::compat_report_command_writes_report ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 59 filtered out; finished in 0.00s
+
+[v2.95] HTTP V2.9 read-only surface
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/memory_http-a69fb5bc13441700)
+
+running 2 tests
+test app::lib_tests::v29_surface_http_reads_benchmark_and_trace_reports ... ok
+test app::lib_tests::v29_surface_http_reports_compat_and_health ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.00s
+
+[v2.95] MCP V2.9 read-only surface
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/memory_mcp-762b95db191e7ada)
+
+running 2 tests
+test app::lib_tests::dispatch_v29_benchmark_and_trace_report_readers ... ok
+test app::lib_tests::dispatch_v29_compat_and_health_reports ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.02s
+
+[v2.95] CLI / HTTP / MCP surface parity
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
+
+running 1 test
+test app::main_tests::surface_parity_smoke_covers_mcp_cli_and_http_contracts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 61 filtered out; finished in 0.01s
+
+[v2.95] generate compat report
+   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.82s
+     Running `target/debug/memory-cli compat report --scope-id scp_v295_acceptance --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest --json`
+[v2.95] acceptance passed

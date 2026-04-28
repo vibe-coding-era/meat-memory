@@ -3,15 +3,16 @@ use super::{
     benchmark_run_output_lines, bootstrap_loaded_config, bootstrap_runtime, build_cli_router,
     build_distillation_session_override, build_kernel, build_non_interactive_project_init_request,
     build_remember_image_request, build_remember_request, build_search_request,
-    check_mcp_http_endpoint, config_check_json, config_check_lines, config_check_report,
-    config_command, config_summary_json, config_summary_lines, context_command,
-    detect_image_media_type, distill_command, distillation_preview_result_json,
-    distillation_profile_json, docs_command, ensure_default_key_material, export_skill_bundle,
-    generated_project_scope_id, health_report_json, health_report_lines, key_command,
-    lifecycle_command, lifecycle_inspect_json, lifecycle_status_json, load_body,
-    load_body_from_reader, mcp_command, mcp_info_json, mcp_info_lines, memory_proposal_json,
-    memory_provenance_json, memory_provenance_lines, memory_timeline_json, memory_version_json,
-    parse_artifact_kind, parse_distillation_profile_level, parse_distillation_profile_status,
+    check_mcp_http_endpoint, compat_report_command, compat_report_lines, compat_report_output_json,
+    config_check_json, config_check_lines, config_check_report, config_command,
+    config_summary_json, config_summary_lines, context_command, detect_image_media_type,
+    distill_command, distillation_preview_result_json, distillation_profile_json, docs_command,
+    ensure_default_key_material, export_skill_bundle, generated_project_scope_id,
+    health_report_json, health_report_lines, key_command, lifecycle_command,
+    lifecycle_inspect_json, lifecycle_status_json, load_body, load_body_from_reader, mcp_command,
+    mcp_info_json, mcp_info_lines, memory_proposal_json, memory_provenance_json,
+    memory_provenance_lines, memory_timeline_json, memory_version_json, parse_artifact_kind,
+    parse_distillation_profile_level, parse_distillation_profile_status,
     parse_document_conflict_state, parse_document_sync_state, parse_key_scope, parse_key_source,
     parse_memory_kind, parse_record_status, parse_review_actor_kind, parse_sensitivity,
     parse_source_sync_mode, parse_storage_mode, parse_visibility, passport_export_json,
@@ -56,6 +57,7 @@ use memory_kernel::{
     RecallExplainer, RecallTraceReportPaths, RememberImageResult, RememberTextResult,
     ReviewActorKind, RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent,
     TimelineEventKind, TimelineVersion, TraceSearchContextResult,
+    build_competitor_compatibility_report, write_competitor_compatibility_report,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -982,6 +984,57 @@ fn passport_output_helpers_include_manifest_paths_and_counts() {
 }
 
 #[test]
+fn compat_output_helpers_include_mappings_paths_and_coverage_gate() {
+    let tempdir = tempdir().unwrap();
+    let report =
+        build_competitor_compatibility_report(ScopeId::from_string("scp_cli_compat")).unwrap();
+    let paths = write_competitor_compatibility_report(tempdir.path(), &report).unwrap();
+    let rendered = compat_report_output_json(&report, &paths);
+    let lines = compat_report_lines(&report, &paths);
+
+    assert_eq!(rendered["schema_version"], "2.95");
+    assert_eq!(
+        rendered["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+    assert_eq!(
+        rendered["report_paths"]["markdown"],
+        tempdir
+            .path()
+            .join("compatibility.md")
+            .display()
+            .to_string()
+    );
+    assert!(lines.iter().any(|line| line.contains("Supermemory")));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "New feature coverage gate: 100%")
+    );
+}
+
+#[test]
+fn compat_report_command_writes_report() {
+    let tempdir = tempdir().unwrap();
+
+    compat_report_command(super::CompatReportArgs {
+        scope_id: Some("scp_cli_compat".to_string()),
+        output_dir: tempdir.path().to_path_buf(),
+        json: false,
+    })
+    .unwrap();
+    compat_report_command(super::CompatReportArgs {
+        scope_id: Some("scp_cli_compat".to_string()),
+        output_dir: tempdir.path().to_path_buf(),
+        json: true,
+    })
+    .unwrap();
+
+    assert!(tempdir.path().join("compatibility.json").exists());
+    assert!(tempdir.path().join("compatibility.md").exists());
+}
+
+#[test]
 fn benchmark_cli_parser_accepts_run_and_report() {
     let run_cli = Cli::try_parse_from([
         "memory-cli",
@@ -1206,6 +1259,34 @@ fn passport_cli_parser_accepts_export_verify_import_and_provenance() {
             assert!(args.json);
         }
         _ => panic!("expected passport provenance command"),
+    }
+}
+
+#[test]
+fn compat_cli_parser_accepts_report() {
+    let cli = Cli::try_parse_from([
+        "memory-cli",
+        "compat",
+        "report",
+        "--scope-id",
+        "scp_parser",
+        "--output-dir",
+        "tests/reports/compat/latest",
+        "--json",
+    ])
+    .unwrap();
+    match cli.command {
+        super::Command::Compat(super::CompatArgs {
+            command: super::CompatCommand::Report(args),
+        }) => {
+            assert_eq!(args.scope_id.as_deref(), Some("scp_parser"));
+            assert_eq!(
+                args.output_dir,
+                PathBuf::from("tests/reports/compat/latest")
+            );
+            assert!(args.json);
+        }
+        _ => panic!("expected compat report command"),
     }
 }
 
@@ -1830,6 +1911,16 @@ fn cli_parser_accepts_all_subcommands_and_nested_shapes() {
             "mem_parser",
             "--json",
         ],
+        &[
+            "memory-cli",
+            "compat",
+            "report",
+            "--scope-id",
+            "scp_parser",
+            "--output-dir",
+            "tests/reports/compat/latest",
+            "--json",
+        ],
     ];
 
     for args in cases {
@@ -1901,6 +1992,63 @@ fn surface_parity_smoke_covers_mcp_cli_and_http_contracts() {
             "memory.lifecycle.report",
             &["memory-cli", "lifecycle", "report"],
             &["/api/v1/lifecycle/report"],
+        ),
+        (
+            "memory.benchmark.report",
+            &[
+                "memory-cli",
+                "benchmark",
+                "report",
+                "--input-dir",
+                "tests/reports/benchmark/latest",
+            ],
+            &["/api/v1/benchmark/report"],
+        ),
+        (
+            "memory.trace.inspect",
+            &[
+                "memory-cli",
+                "trace",
+                "inspect",
+                "--trace-id",
+                "rtr_1",
+                "--input-dir",
+                "tests/reports/trace/latest",
+            ],
+            &["/api/v1/recall/traces/inspect"],
+        ),
+        (
+            "memory.health.report",
+            &[
+                "memory-cli",
+                "health",
+                "report",
+                "--output-dir",
+                "tests/reports/health/latest",
+            ],
+            &["/api/v1/health/report"],
+        ),
+        (
+            "memory.passport.manifest",
+            &[
+                "memory-cli",
+                "passport",
+                "verify",
+                "--input-dir",
+                "tests/reports/passport/latest",
+            ],
+            &["/api/v1/passports/manifest"],
+        ),
+        (
+            "memory.compat.report",
+            &[
+                "memory-cli",
+                "compat",
+                "report",
+                "--output-dir",
+                "tests/reports/compat/latest",
+            ],
+            &["/api/v1/compat/report"],
         ),
         (
             "memory.context.upsert",
