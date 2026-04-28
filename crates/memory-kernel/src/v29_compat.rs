@@ -1,5 +1,8 @@
 use anyhow::{Context, Result, bail};
-use memory_domain::{MemoryKind, ScopeId};
+use memory_domain::{EvidenceSpan, MemoryKind, ScopeId};
+use memory_sync::{
+    LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan, ProjectDocumentSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -111,6 +114,66 @@ pub struct ConnectorDryRunReport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorDryRunReportPaths {
+    pub json: PathBuf,
+    pub markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorSyncPlanRequest {
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub scope_id: ScopeId,
+    pub previous_snapshots: Vec<ProjectDocumentSnapshot>,
+    pub max_items: usize,
+}
+
+impl ConnectorSyncPlanRequest {
+    pub fn new(
+        connector: impl Into<String>,
+        root_path: impl Into<PathBuf>,
+        scope_id: ScopeId,
+    ) -> Self {
+        Self {
+            connector: connector.into(),
+            root_path: root_path.into(),
+            scope_id,
+            previous_snapshots: Vec::new(),
+            max_items: 500,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorSyncPlanDocument {
+    pub title: String,
+    pub canonical_uri: String,
+    pub local_path: PathBuf,
+    pub content_hash: String,
+    pub sync_state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorSyncPlanReport {
+    pub schema_version: String,
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub mode: String,
+    pub planned_count: usize,
+    pub missing_count: usize,
+    pub conflict_count: usize,
+    pub documents: Vec<ConnectorSyncPlanDocument>,
+    pub evidence_preview: Vec<EvidenceSpan>,
+    pub incremental_checkpoint: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConnectorSyncPlanOutput {
+    pub plan: LocalProjectDocumentSyncPlan,
+    pub report: ConnectorSyncPlanReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorSyncPlanReportPaths {
     pub json: PathBuf,
     pub markdown: PathBuf,
 }
@@ -334,6 +397,119 @@ pub fn write_connector_dry_run_report(
     })
 }
 
+pub fn build_connector_sync_plan(
+    request: ConnectorSyncPlanRequest,
+) -> Result<ConnectorSyncPlanOutput> {
+    let root_path = request.root_path;
+    if !root_path.exists() {
+        bail!(
+            "connector root path does not exist: {}",
+            root_path.display()
+        );
+    }
+    if !root_path.is_dir() {
+        bail!(
+            "connector root path is not a directory: {}",
+            root_path.display()
+        );
+    }
+    if request.connector != "markdown-docs" {
+        bail!(
+            "unsupported connector sync plan: {}; only markdown-docs is implemented",
+            request.connector
+        );
+    }
+
+    let mut plan = LocalProjectDocumentSyncEngine::with_extensions(root_path, ["md", "markdown"])
+        .scan(&request.previous_snapshots)
+        .context("failed to build connector sync plan")?;
+    if plan.documents.len() > request.max_items {
+        plan.documents.truncate(request.max_items);
+    }
+
+    let documents = plan
+        .documents
+        .iter()
+        .map(|document| ConnectorSyncPlanDocument {
+            title: document.title.clone(),
+            canonical_uri: document.canonical_uri.clone(),
+            local_path: document.local_path.clone(),
+            content_hash: document.content_hash.clone(),
+            sync_state: document.sync_state.as_str().to_string(),
+        })
+        .collect::<Vec<_>>();
+    let evidence_preview = plan
+        .documents
+        .iter()
+        .map(|document| connector_document_evidence_span(&request.scope_id, document))
+        .collect::<Vec<_>>();
+
+    let report = ConnectorSyncPlanReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "markdown-docs".to_string(),
+        root_path: plan.root.clone(),
+        mode: "sync_plan".to_string(),
+        planned_count: plan.documents.len(),
+        missing_count: plan.missing.len(),
+        conflict_count: plan.conflicts.len(),
+        documents,
+        evidence_preview,
+        incremental_checkpoint: json!({
+            "strategy": "canonical_uri_content_hash",
+            "apply_target": "Kernel::apply_project_document_sync_plan",
+        }),
+    };
+
+    Ok(ConnectorSyncPlanOutput { plan, report })
+}
+
+pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
+    json!({
+        "schema_version": report.schema_version,
+        "connector": report.connector,
+        "root_path": report.root_path,
+        "mode": report.mode,
+        "planned_count": report.planned_count,
+        "missing_count": report.missing_count,
+        "conflict_count": report.conflict_count,
+        "documents": report.documents,
+        "evidence_preview": report.evidence_preview,
+        "incremental_checkpoint": report.incremental_checkpoint,
+        "coverage_gate": {
+            "new_feature_test_coverage_required": "100%",
+            "covered_regions": [
+                "markdown_docs_sync_plan",
+                "sync_plan_evidence_preview",
+                "connector_sync_plan_projection",
+                "cli_parser_and_command"
+            ]
+        }
+    })
+}
+
+pub fn write_connector_sync_plan_report(
+    output_dir: &Path,
+    report: &ConnectorSyncPlanReport,
+) -> Result<ConnectorSyncPlanReportPaths> {
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+    let json_path = output_dir.join(format!("{}-sync-plan.json", report.connector));
+    let markdown_path = output_dir.join(format!("{}-sync-plan.md", report.connector));
+
+    fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&connector_sync_plan_json(report))?,
+    )
+    .with_context(|| format!("failed to write {}", json_path.display()))?;
+    fs::write(&markdown_path, render_connector_sync_plan_markdown(report))
+        .with_context(|| format!("failed to write {}", markdown_path.display()))?;
+
+    Ok(ConnectorSyncPlanReportPaths {
+        json: json_path,
+        markdown: markdown_path,
+    })
+}
+
 fn local_git_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
     let mut failures = Vec::new();
     if !root_path.join(".git").exists() {
@@ -450,6 +626,69 @@ fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
             "relative_path": relative_path.display().to_string(),
         }),
     })
+}
+
+fn connector_document_evidence_span(
+    scope_id: &ScopeId,
+    document: &memory_sync::LocalProjectDocumentDraft,
+) -> EvidenceSpan {
+    let quote = evidence_quote(&document.content_text);
+    EvidenceSpan::new_text(
+        scope_id.clone(),
+        None,
+        None,
+        document.canonical_uri.clone(),
+        quote.clone(),
+        document.content_hash.clone(),
+        0,
+        quote.len(),
+    )
+}
+
+fn evidence_quote(content_text: &str) -> String {
+    content_text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .chars()
+        .take(160)
+        .collect()
+}
+
+fn render_connector_sync_plan_markdown(report: &ConnectorSyncPlanReport) -> String {
+    let mut output = format!(
+        "# V2.97-A Connector Sync Plan\n\nschema_version: {}\nconnector: {}\nroot_path: {}\nmode: {}\nplanned_count: {}\nmissing_count: {}\nconflict_count: {}\n\n",
+        report.schema_version,
+        report.connector,
+        report.root_path.display(),
+        report.mode,
+        report.planned_count,
+        report.missing_count,
+        report.conflict_count
+    );
+
+    output.push_str("## Planned Documents\n\n");
+    for document in &report.documents {
+        output.push_str(&format!(
+            "- {} ({})\n  - {}\n",
+            document.title, document.sync_state, document.canonical_uri
+        ));
+    }
+
+    output.push_str("\n## Evidence Preview\n\n");
+    for evidence in &report.evidence_preview {
+        output.push_str(&format!(
+            "- {} [{}..{}]\n  - {}\n",
+            evidence.source_ref,
+            evidence.location.start.unwrap_or_default(),
+            evidence.location.end.unwrap_or_default(),
+            evidence.quote
+        ));
+    }
+
+    output.push_str("\n## Coverage Gate\n\n- V2.97-A connector sync-plan production regions require 100% targeted test coverage.\n");
+    output
 }
 
 fn render_connector_dry_run_markdown(report: &ConnectorDryRunReport) -> String {
@@ -878,5 +1117,88 @@ mod tests {
         let error = run_connector_dry_run(ConnectorDryRunRequest::new("unknown", tempdir.path()))
             .unwrap_err();
         assert!(error.to_string().contains("unsupported connector dry-run"));
+    }
+
+    #[test]
+    fn v297_markdown_docs_sync_plan_builds_apply_ready_plan_and_evidence_preview() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("design.md"),
+            "# Connector Design\n\nSync this into project docs.\n",
+        )
+        .unwrap();
+        fs::write(tempdir.path().join("ignored.txt"), "ignored").unwrap();
+
+        let output = build_connector_sync_plan(ConnectorSyncPlanRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        ))
+        .unwrap();
+
+        assert_eq!(output.report.schema_version, "2.97-A");
+        assert_eq!(output.report.connector, "markdown-docs");
+        assert_eq!(output.report.mode, "sync_plan");
+        assert_eq!(output.plan.documents.len(), 1);
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].title, "Connector Design");
+        assert_eq!(output.report.documents[0].sync_state, "changed");
+        assert_eq!(output.report.evidence_preview.len(), 1);
+        assert_eq!(
+            output.report.evidence_preview[0].quote,
+            "# Connector Design"
+        );
+        assert!(
+            output.report.evidence_preview[0]
+                .source_ref
+                .ends_with("design.md")
+        );
+    }
+
+    #[test]
+    fn v297_markdown_docs_sync_plan_marks_previous_missing() {
+        let tempdir = tempdir().unwrap();
+        let missing_uri = "file:///tmp/missing.md".to_string();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.previous_snapshots = vec![ProjectDocumentSnapshot {
+            canonical_uri: missing_uri.clone(),
+            content_hash: "sha256:old".to_string(),
+        }];
+
+        let output = build_connector_sync_plan(request).unwrap();
+
+        assert_eq!(output.report.planned_count, 0);
+        assert_eq!(output.report.missing_count, 1);
+        assert_eq!(output.plan.missing[0].canonical_uri, missing_uri);
+    }
+
+    #[test]
+    fn v297_connector_sync_plan_writer_outputs_json_and_markdown() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
+        let output = build_connector_sync_plan(ConnectorSyncPlanRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        ))
+        .unwrap();
+        let output_dir = tempdir.path().join("reports");
+        let paths = write_connector_sync_plan_report(&output_dir, &output.report).unwrap();
+
+        let json_text = fs::read_to_string(&paths.json).unwrap();
+        let markdown_text = fs::read_to_string(&paths.markdown).unwrap();
+        let payload: Value = serde_json::from_str(&json_text).unwrap();
+
+        assert_eq!(payload["schema_version"], "2.97-A");
+        assert_eq!(
+            payload["coverage_gate"]["new_feature_test_coverage_required"],
+            "100%"
+        );
+        assert!(markdown_text.contains("Connector Sync Plan"));
+        assert!(markdown_text.contains("Evidence Preview"));
     }
 }

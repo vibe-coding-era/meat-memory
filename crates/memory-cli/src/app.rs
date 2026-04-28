@@ -16,6 +16,7 @@ use memory_kernel::{
     ChangeMemoryLifecycleStatusRequest, ChangeMemoryLifecycleStatusResult,
     CompetitorCompatibilityReport, CompetitorCompatibilityReportPaths, ComposedDistillationProfile,
     ConnectorDryRunReport, ConnectorDryRunReportPaths, ConnectorDryRunRequest,
+    ConnectorSyncPlanReport, ConnectorSyncPlanReportPaths, ConnectorSyncPlanRequest,
     CreateAccessKeyRequest, DistillationCandidate, DistillationPromptSegment,
     DistillationSessionOverride, GetMemoryProposalRequest, GetMemoryTimelineRequest,
     ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult,
@@ -30,10 +31,11 @@ use memory_kernel::{
     RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
     TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
     UpsertAgentContextRequest, UpsertDistillationProfileRequest,
-    build_competitor_compatibility_report, bundle_json, compatibility_report_json,
-    connector_dry_run_json, health_json, run_connector_dry_run, verification_json,
-    verify_memory_passport_bundle, write_competitor_compatibility_report,
-    write_connector_dry_run_report, write_memory_health_report, write_memory_passport_bundle,
+    build_competitor_compatibility_report, build_connector_sync_plan, bundle_json,
+    compatibility_report_json, connector_dry_run_json, connector_sync_plan_json, health_json,
+    run_connector_dry_run, verification_json, verify_memory_passport_bundle,
+    write_competitor_compatibility_report, write_connector_dry_run_report,
+    write_connector_sync_plan_report, write_memory_health_report, write_memory_passport_bundle,
     write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
@@ -1519,6 +1521,9 @@ fn compat_command(args: CompatArgs) -> Result<()> {
     match args.command {
         CompatCommand::Report(report) => compat_report_command(report),
         CompatCommand::ConnectorDryRun(dry_run) => compat_connector_dry_run_command(dry_run),
+        CompatCommand::ConnectorSyncPlan(sync_plan) => {
+            compat_connector_sync_plan_command(sync_plan)
+        }
     }
 }
 
@@ -1551,6 +1556,27 @@ fn compat_connector_dry_run_command(args: CompatConnectorDryRunArgs) -> Result<(
         print_json(connector_dry_run_output_json(&report, &paths))?;
     } else {
         for line in connector_dry_run_lines(&report, &paths) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -> Result<()> {
+    let mut request = ConnectorSyncPlanRequest::new(
+        args.connector,
+        args.root_path,
+        ScopeId::from_string(args.scope_id),
+    );
+    request.max_items = args.max_items;
+    let output = build_connector_sync_plan(request)?;
+    let paths = write_connector_sync_plan_report(&args.output_dir, &output.report)?;
+
+    if args.json {
+        print_json(connector_sync_plan_output_json(&output.report, &paths))?;
+    } else {
+        for line in connector_sync_plan_lines(&output.report, &paths) {
             println!("{line}");
         }
     }
@@ -1817,6 +1843,40 @@ fn connector_dry_run_lines(
         format!("Failures: {}", report.failures.len()),
         "New feature coverage gate: 100%".to_string(),
         format!("Connector dry-run report: {}", paths.markdown.display()),
+    ]
+}
+
+fn connector_sync_plan_output_json(
+    report: &ConnectorSyncPlanReport,
+    paths: &ConnectorSyncPlanReportPaths,
+) -> serde_json::Value {
+    let mut value = connector_sync_plan_json(report);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "report_paths".to_string(),
+            json!({
+                "json": paths.json.display().to_string(),
+                "markdown": paths.markdown.display().to_string(),
+            }),
+        );
+    }
+    value
+}
+
+fn connector_sync_plan_lines(
+    report: &ConnectorSyncPlanReport,
+    paths: &ConnectorSyncPlanReportPaths,
+) -> Vec<String> {
+    vec![
+        format!("Connector schema: {}", report.schema_version),
+        format!("Connector: {}", report.connector),
+        format!("Mode: {}", report.mode),
+        format!("Planned documents: {}", report.planned_count),
+        format!("Missing documents: {}", report.missing_count),
+        format!("Conflicts: {}", report.conflict_count),
+        format!("Evidence preview: {}", report.evidence_preview.len()),
+        "New feature coverage gate: 100%".to_string(),
+        format!("Connector sync-plan report: {}", paths.markdown.display()),
     ]
 }
 
