@@ -124,6 +124,7 @@ pub struct ConnectorSyncPlanRequest {
     pub root_path: PathBuf,
     pub scope_id: ScopeId,
     pub previous_snapshots: Vec<ProjectDocumentSnapshot>,
+    pub excluded_dir_names: Vec<String>,
     pub max_items: usize,
 }
 
@@ -138,6 +139,11 @@ impl ConnectorSyncPlanRequest {
             root_path: root_path.into(),
             scope_id,
             previous_snapshots: Vec::new(),
+            excluded_dir_names: vec![
+                "reports".to_string(),
+                ".playwright-cli".to_string(),
+                "target".to_string(),
+            ],
             max_items: 500,
         }
     }
@@ -421,6 +427,7 @@ pub fn build_connector_sync_plan(
     }
 
     let mut plan = LocalProjectDocumentSyncEngine::with_extensions(root_path, ["md", "markdown"])
+        .with_excluded_dir_names(request.excluded_dir_names)
         .scan(&request.previous_snapshots)
         .context("failed to build connector sync plan")?;
     if plan.documents.len() > request.max_items {
@@ -457,6 +464,7 @@ pub fn build_connector_sync_plan(
         incremental_checkpoint: json!({
             "strategy": "canonical_uri_content_hash",
             "apply_target": "Kernel::apply_project_document_sync_plan",
+            "excluded_dir_names": ["reports", ".playwright-cli", "target"],
         }),
     };
 
@@ -1174,6 +1182,53 @@ mod tests {
         assert_eq!(output.report.planned_count, 0);
         assert_eq!(output.report.missing_count, 1);
         assert_eq!(output.plan.missing[0].canonical_uri, missing_uri);
+    }
+
+    #[test]
+    fn v297_markdown_docs_sync_plan_excludes_generated_report_dirs() {
+        let tempdir = tempdir().unwrap();
+        fs::create_dir_all(tempdir.path().join("reports")).unwrap();
+        fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
+        fs::write(
+            tempdir
+                .path()
+                .join("reports")
+                .join("markdown-docs-sync-plan.md"),
+            "# Generated Report\n",
+        )
+        .unwrap();
+
+        let output = build_connector_sync_plan(ConnectorSyncPlanRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        ))
+        .unwrap();
+
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].title, "Project");
+    }
+
+    #[test]
+    fn v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("README.md");
+        let content = "# Project\n";
+        fs::write(&path, content).unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.previous_snapshots = vec![ProjectDocumentSnapshot {
+            canonical_uri: format!("file://{}", path.canonicalize().unwrap().to_string_lossy()),
+            content_hash: memory_domain::Artifact::compute_content_hash(content),
+        }];
+
+        let output = build_connector_sync_plan(request).unwrap();
+
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].sync_state, "clean");
     }
 
     #[test]

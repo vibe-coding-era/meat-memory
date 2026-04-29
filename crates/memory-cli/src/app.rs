@@ -1565,16 +1565,14 @@ fn compat_connector_dry_run_command(args: CompatConnectorDryRunArgs) -> Result<(
 
 async fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -> Result<()> {
     let mut request = ConnectorSyncPlanRequest::new(
-        args.connector,
+        args.connector.clone(),
         args.root_path.clone(),
         ScopeId::from_string(args.scope_id.clone()),
     );
     request.max_items = args.max_items;
-    let output = build_connector_sync_plan(request)?;
-    let paths = write_connector_sync_plan_report(&args.output_dir, &output.report)?;
     let mut imported = Vec::new();
 
-    if args.apply {
+    let output = if args.apply {
         let source_id = args
             .source_id
             .as_deref()
@@ -1582,16 +1580,40 @@ async fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -
         let (_, kernel, _) = bootstrap_runtime().await?;
         let context = resolve_required_cli_request_context(&kernel, args.key.as_deref()).await?;
         let source = get_source_for_context(&kernel, &context, source_id).await?;
+        let documents = kernel
+            .list_project_documents(ListProjectDocumentsRequest {
+                source_id: source.id.clone(),
+                limit: args.max_items,
+                query: None,
+                context: Some(context.clone()),
+            })
+            .await?;
+        request.previous_snapshots = documents
+            .iter()
+            .map(|document| ProjectDocumentSnapshot {
+                canonical_uri: document.canonical_uri.clone(),
+                content_hash: document.content_hash.clone(),
+            })
+            .collect();
+        let output = build_connector_sync_plan(request)?;
+        let mut apply_plan = output.plan.clone();
+        apply_plan
+            .documents
+            .retain(|document| document.sync_state != DocumentSyncState::Clean);
         let result = kernel
             .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
                 source_id: source.id,
                 scope_id: ScopeId::from_string(args.scope_id),
-                plan: output.plan,
+                plan: apply_plan,
                 context: Some(context),
             })
             .await?;
         imported = result.imported;
-    }
+        output
+    } else {
+        build_connector_sync_plan(request)?
+    };
+    let paths = write_connector_sync_plan_report(&args.output_dir, &output.report)?;
 
     if args.json {
         print_json(connector_sync_plan_output_json(

@@ -4013,6 +4013,35 @@ async fn cli_command_functions_cover_pg_management_paths() {
             .iter()
             .any(|document| document.title == "Sync")
     );
+    compat_connector_sync_plan_command(super::CompatConnectorSyncPlanArgs {
+        key: Some(raw_key.clone()),
+        connector: "markdown-docs".to_string(),
+        root_path: docs_root.clone(),
+        source_id: Some(source.id.as_str().to_string()),
+        scope_id: scope_id.as_str().to_string(),
+        output_dir: tempdir.path().join("compat-reports-repeat"),
+        max_items: 10,
+        apply: true,
+        json: false,
+    })
+    .await
+    .unwrap();
+    let repeated_documents = kernel
+        .list_project_documents(memory_kernel::ListProjectDocumentsRequest {
+            source_id: source.id.clone(),
+            limit: 10,
+            query: Some("Sync".to_string()),
+            context: Some(context.clone()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        repeated_documents
+            .iter()
+            .filter(|document| document.title == "Sync")
+            .count(),
+        1
+    );
 
     let mut remember_request = memory_kernel::RememberTextRequest::new(
         scope_id.clone(),

@@ -388,6 +388,7 @@ pub struct LocalProjectDocumentSyncPlan {
 pub struct LocalProjectDocumentSyncEngine {
     root: PathBuf,
     extensions: BTreeSet<String>,
+    excluded_dir_names: BTreeSet<String>,
 }
 
 impl LocalProjectDocumentSyncEngine {
@@ -408,7 +409,21 @@ impl LocalProjectDocumentSyncEngine {
         Self {
             root: root.into(),
             extensions,
+            excluded_dir_names: BTreeSet::new(),
         }
+    }
+
+    pub fn with_excluded_dir_names<I, S>(mut self, excluded_dir_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.excluded_dir_names = excluded_dir_names
+            .into_iter()
+            .map(|name| name.into())
+            .filter(|name| !name.trim().is_empty())
+            .collect();
+        self
     }
 
     pub fn scan(
@@ -428,7 +443,7 @@ impl LocalProjectDocumentSyncEngine {
         let mut seen = BTreeSet::new();
         let mut documents = Vec::new();
 
-        for path in collect_document_paths(&root, &self.extensions)? {
+        for path in collect_document_paths(&root, &self.extensions, &self.excluded_dir_names)? {
             let content_text = fs::read_to_string(&path)?;
             let content_hash = Artifact::compute_content_hash(&content_text);
             let canonical_uri = canonical_file_uri(&path);
@@ -592,9 +607,13 @@ fn build_conflict_reports(
         .collect()
 }
 
-fn collect_document_paths(root: &Path, extensions: &BTreeSet<String>) -> Result<Vec<PathBuf>> {
+fn collect_document_paths(
+    root: &Path,
+    extensions: &BTreeSet<String>,
+    excluded_dir_names: &BTreeSet<String>,
+) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
-    collect_document_paths_into(root, extensions, &mut paths)?;
+    collect_document_paths_into(root, extensions, excluded_dir_names, &mut paths)?;
     paths.sort();
     Ok(paths)
 }
@@ -602,6 +621,7 @@ fn collect_document_paths(root: &Path, extensions: &BTreeSet<String>) -> Result<
 fn collect_document_paths_into(
     current: &Path,
     extensions: &BTreeSet<String>,
+    excluded_dir_names: &BTreeSet<String>,
     output: &mut Vec<PathBuf>,
 ) -> Result<()> {
     for entry in fs::read_dir(current)? {
@@ -612,12 +632,12 @@ fn collect_document_paths_into(
             if entry
                 .file_name()
                 .to_str()
-                .map(|name| name.starts_with('.'))
+                .map(|name| name.starts_with('.') || excluded_dir_names.contains(name))
                 .unwrap_or(false)
             {
                 continue;
             }
-            collect_document_paths_into(&path, extensions, output)?;
+            collect_document_paths_into(&path, extensions, excluded_dir_names, output)?;
         } else if file_type.is_file()
             && path
                 .extension()
@@ -1153,6 +1173,27 @@ mod tests {
                 .iter()
                 .any(|document| document.canonical_uri.ends_with("skip.json"))
         );
+    }
+
+    #[test]
+    fn local_project_document_sync_respects_excluded_directory_names() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let docs = tempdir.path().join("docs");
+        std::fs::create_dir_all(docs.join("reports")).unwrap();
+        std::fs::write(docs.join("README.md"), "# Project README\nhello").unwrap();
+        std::fs::write(
+            docs.join("reports").join("markdown-docs-sync-plan.md"),
+            "# Generated Report\nignore me",
+        )
+        .unwrap();
+
+        let plan = LocalProjectDocumentSyncEngine::new(&docs)
+            .with_excluded_dir_names(["reports"])
+            .scan(&[])
+            .unwrap();
+
+        assert_eq!(plan.documents.len(), 1);
+        assert_eq!(plan.documents[0].title, "Project README");
     }
 
     #[test]
