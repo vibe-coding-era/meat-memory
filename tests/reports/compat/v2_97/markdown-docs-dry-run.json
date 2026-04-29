@@ -13,18 +13,27 @@
   },
   "failures": [],
   "incremental_checkpoint": {
-    "frontmatter": "preserve_when_present",
+    "frontmatter": "parse_simple_yaml_when_present",
     "strategy": "path_mtime_size"
   },
   "items": [
     {
-      "content_bytes": 71,
+      "content_bytes": 193,
       "metadata": {
+        "frontmatter": {
+          "summary": "Markdown docs connector acceptance fixture.",
+          "tags": [
+            "connector",
+            "acceptance"
+          ],
+          "title": "V2.97 Connector Fixture"
+        },
+        "frontmatter_present": true,
         "relative_path": "README.md",
         "source_kind": "markdown"
       },
       "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
-      "title": "README"
+      "title": "V2.97 Connector Fixture"
     }
   ],
   "mode": "dry_run",

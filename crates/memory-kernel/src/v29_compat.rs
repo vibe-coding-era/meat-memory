@@ -617,6 +617,9 @@ pub fn build_connector_sync_plan(
     if plan.documents.len() > request.max_items {
         plan.documents.truncate(request.max_items);
     }
+    for document in &mut plan.documents {
+        document.title = markdown_document_title(&document.local_path, &document.content_text);
+    }
 
     let documents = plan
         .documents
@@ -760,7 +763,7 @@ fn markdown_docs_dry_run(root_path: PathBuf, max_items: usize) -> Result<Connect
         failures: Vec::new(),
         incremental_checkpoint: json!({
             "strategy": "path_mtime_size",
-            "frontmatter": "preserve_when_present",
+            "frontmatter": "parse_simple_yaml_when_present",
         }),
     })
 }
@@ -1249,12 +1252,22 @@ fn non_empty_text(text: &str) -> Option<String> {
 fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
     let metadata =
         fs::metadata(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let content_text =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let frontmatter = markdown_frontmatter(&content_text);
+    let frontmatter_present = frontmatter.is_some();
     let relative_path = path.strip_prefix(root_path).unwrap_or(path);
-    let title = path
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or("markdown document")
-        .replace(['_', '-'], " ");
+    let title = frontmatter
+        .as_ref()
+        .and_then(|value| value.get("title"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("markdown document")
+                .replace(['_', '-'], " ")
+        });
 
     Ok(ConnectorDryRunItem {
         title,
@@ -1263,15 +1276,118 @@ fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
         metadata: json!({
             "source_kind": "markdown",
             "relative_path": relative_path.display().to_string(),
+            "frontmatter": frontmatter,
+            "frontmatter_present": frontmatter_present,
         }),
     })
+}
+
+fn markdown_frontmatter(content_text: &str) -> Option<Value> {
+    let mut lines = content_text.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+
+    let mut values = serde_json::Map::new();
+    for line in lines {
+        let line = line.trim();
+        if line == "---" {
+            return Some(Value::Object(values));
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        values.insert(key.to_string(), markdown_frontmatter_value(value.trim()));
+    }
+
+    None
+}
+
+fn markdown_frontmatter_value(value: &str) -> Value {
+    if let Some(items) = value
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        return Value::Array(
+            items
+                .split(',')
+                .map(markdown_frontmatter_string)
+                .filter(|value| !value.is_empty())
+                .map(Value::String)
+                .collect(),
+        );
+    }
+
+    Value::String(markdown_frontmatter_string(value))
+}
+
+fn markdown_frontmatter_string(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn markdown_document_title(path: &Path, content_text: &str) -> String {
+    markdown_frontmatter(content_text)
+        .and_then(|value| {
+            value
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            markdown_content_without_frontmatter(content_text)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(|line| line.trim_start_matches('#').trim().to_string())
+                .filter(|line| !line.is_empty())
+        })
+        .or_else(|| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| path.to_string_lossy().to_string())
+}
+
+fn markdown_content_without_frontmatter(content_text: &str) -> String {
+    let mut lines = content_text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return content_text.to_string();
+    }
+
+    let mut body = Vec::new();
+    let mut closed = false;
+    for line in lines {
+        if closed {
+            body.push(line);
+            continue;
+        }
+        if line.trim() == "---" {
+            closed = true;
+        }
+    }
+
+    if closed {
+        body.join("\n")
+    } else {
+        content_text.to_string()
+    }
 }
 
 fn connector_document_evidence_span(
     scope_id: &ScopeId,
     document: &memory_sync::LocalProjectDocumentDraft,
 ) -> EvidenceSpan {
-    let quote = evidence_quote(&document.content_text);
+    let visible_content = markdown_content_without_frontmatter(&document.content_text);
+    let quote = evidence_quote(&visible_content);
     EvidenceSpan::new_text(
         scope_id.clone(),
         None,
@@ -1937,7 +2053,11 @@ mod tests {
         let tempdir = tempdir().unwrap();
         let docs_dir = tempdir.path().join("docs");
         fs::create_dir_all(&docs_dir).unwrap();
-        fs::write(docs_dir.join("alpha-note.md"), "# Alpha\n").unwrap();
+        fs::write(
+            docs_dir.join("alpha-note.md"),
+            "---\ntitle: Alpha Frontmatter\ntags: [connector, docs]\nsummary: Parsed by dry-run.\n---\n# Alpha\n",
+        )
+        .unwrap();
         fs::write(docs_dir.join("ignored.txt"), "ignored").unwrap();
 
         let mut request = ConnectorDryRunRequest::new("markdown-docs", tempdir.path());
@@ -1948,10 +2068,19 @@ mod tests {
         assert_eq!(report.connector, "markdown-docs");
         assert_eq!(report.status, "ready");
         assert_eq!(report.candidate_count, 1);
-        assert_eq!(report.items[0].title, "alpha note");
+        assert_eq!(report.items[0].title, "Alpha Frontmatter");
         assert_eq!(
             report.items[0].metadata["relative_path"],
             "docs/alpha-note.md"
+        );
+        assert_eq!(report.items[0].metadata["frontmatter_present"], true);
+        assert_eq!(
+            report.items[0].metadata["frontmatter"]["tags"][0],
+            "connector"
+        );
+        assert_eq!(
+            report.incremental_checkpoint["frontmatter"],
+            "parse_simple_yaml_when_present"
         );
     }
 
@@ -2166,7 +2295,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(
             tempdir.path().join("design.md"),
-            "# Connector Design\n\nSync this into project docs.\n",
+            "---\ntitle: Connector Design Frontmatter\ntags: [sync, connector]\n---\n# Connector Design\n\nSync this into project docs.\n",
         )
         .unwrap();
         fs::write(tempdir.path().join("ignored.txt"), "ignored").unwrap();
@@ -2183,7 +2312,10 @@ mod tests {
         assert_eq!(output.report.mode, "sync_plan");
         assert_eq!(output.plan.documents.len(), 1);
         assert_eq!(output.report.planned_count, 1);
-        assert_eq!(output.report.documents[0].title, "Connector Design");
+        assert_eq!(
+            output.report.documents[0].title,
+            "Connector Design Frontmatter"
+        );
         assert_eq!(output.report.documents[0].sync_state, "changed");
         assert_eq!(output.report.evidence_preview.len(), 1);
         assert_eq!(

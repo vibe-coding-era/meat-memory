@@ -24,6 +24,11 @@ echo "[v2.97] report: ${ACCEPTANCE_REPORT}"
 echo "[v2.97] fixture root: ${FIXTURE_DIR}"
 
 cat >"${FIXTURE_DIR}/docs/README.md" <<'EOF'
+---
+title: V2.97 Connector Fixture
+tags: [connector, acceptance]
+summary: Markdown docs connector acceptance fixture.
+---
 # V2.97 Connector Fixture
 
 Markdown docs connector acceptance fixture.
@@ -141,6 +146,9 @@ for payload in (markdown_dry_run, markdown_sync_plan, local_git_sync_plan, chat_
 
 assert markdown_dry_run["connector"] == "markdown-docs", markdown_dry_run
 assert markdown_dry_run["candidate_count"] == 1, markdown_dry_run
+assert markdown_dry_run["items"][0]["title"] == "V2.97 Connector Fixture", markdown_dry_run
+assert markdown_dry_run["items"][0]["metadata"]["frontmatter_present"] is True, markdown_dry_run
+assert markdown_dry_run["items"][0]["metadata"]["frontmatter"]["tags"][0] == "connector", markdown_dry_run
 assert markdown_sync_plan["connector"] == "markdown-docs", markdown_sync_plan
 assert markdown_sync_plan["planned_count"] == 1, markdown_sync_plan
 assert "conflicts" in markdown_sync_plan, markdown_sync_plan

@@ -9,7 +9,7 @@ candidate_count: 1
 
 ## Candidates
 
-- README [71 bytes]
+- V2.97 Connector Fixture [193 bytes]
   - file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md
 
 ## Failures
