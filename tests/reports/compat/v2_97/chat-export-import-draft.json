@@ -1,0 +1,49 @@
+{
+  "connector": "chat-export",
+  "coverage_gate": {
+    "covered_regions": [
+      "chat_export_parser",
+      "chat_export_import_draft_projection",
+      "connector_import_draft_report",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "draft_count": 1,
+  "drafts": [
+    {
+      "body": "user: Capture this V2.97 connector acceptance chat.\nassistant: Create an import draft with source refs.",
+      "connector": "chat-export",
+      "external_id": "v297_acceptance_chat",
+      "memory_kind": "Summary",
+      "metadata": {
+        "external_id": "v297_acceptance_chat",
+        "first_created_at": null,
+        "format": "generic-messages-json",
+        "last_created_at": null,
+        "message_count": 2,
+        "participants": [
+          "assistant",
+          "user"
+        ],
+        "relative_path": "chat.json",
+        "source_kind": "conversation_export"
+      },
+      "scope_id": "scp_v297_acceptance",
+      "source_refs": [
+        "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat/chat.json#v297_acceptance_chat"
+      ],
+      "title": "V2.97 chat import fixture"
+    }
+  ],
+  "failures": [],
+  "import_policy": {
+    "review_required_before_apply": true,
+    "safe_default": "explicit_import_only",
+    "target": "memory_draft",
+    "writes_memory": false
+  },
+  "mode": "import_draft",
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat",
+  "schema_version": "2.97-A"
+}

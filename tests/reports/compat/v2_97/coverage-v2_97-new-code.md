@@ -1,0 +1,25 @@
+# V2.97 New Code Coverage Gate
+
+Status: passed
+
+Required: 100% targeted coverage for V2.97新增功能.
+
+Covered regions:
+
+- connector dry-run contract
+- local-git dry-run report
+- markdown-docs dry-run
+- markdown-docs sync-plan / conflict review projection
+- markdown-docs explicit apply path
+- source auto discovery for connector apply
+- chat-export JSON parser
+- chat-export import-draft projection
+- chat-export explicit apply path
+- CLI parser and command projections
+
+Evidence:
+
+- `cargo test -p memory-kernel --lib v297_`
+- `cargo test -p memory-cli --bin memory-cli connector_`
+- `cargo test -p memory-cli --bin memory-cli cli_command_functions_cover_pg_management_paths`
+- `docs/scripts/v2_97-acceptance.sh`

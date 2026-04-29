@@ -1,0 +1,53 @@
+[v2.97] acceptance started
+[v2.97] report: /Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/v2_97-acceptance.txt
+[v2.97] fixture root: /Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures
+[v2.97] format check
+[v2.97] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+[v2.97] kernel V2.97 connector contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
+
+running 13 tests
+test v29_compat::tests::v297_chat_export_dry_run_parses_chatgpt_mapping_json ... ok
+test v29_compat::tests::v297_chat_export_dry_run_parses_generic_messages_json ... ok
+test v29_compat::tests::v297_chat_export_import_draft_projects_reviewable_memory_drafts ... ok
+test v29_compat::tests::v297_connector_dry_run_rejects_unknown_connector ... ok
+test v29_compat::tests::v297_connector_dry_run_scans_markdown_docs ... ok
+test v29_compat::tests::v297_connector_dry_run_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_import_draft_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_sync_plan_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_local_git_dry_run_reports_repository_candidates_and_failures ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_builds_apply_ready_plan_and_evidence_preview ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_dirs ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.01s
+
+[v2.97] CLI V2.97 connector contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
+
+running 11 tests
+test app::main_tests::compat_cli_parser_accepts_connector_dry_run ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_import_draft ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_sync_plan ... ok
+test app::main_tests::compat_connector_dry_run_command_writes_chat_export_report ... ok
+test app::main_tests::compat_connector_dry_run_command_writes_report ... ok
+test app::main_tests::compat_connector_import_draft_command_writes_chat_export_report ... ok
+test app::main_tests::compat_connector_sync_plan_apply_without_source_id_fails_without_match ... ok
+test app::main_tests::compat_connector_sync_plan_command_writes_report ... ok
+test app::main_tests::connector_dry_run_output_helpers_include_paths_and_coverage_gate ... ok
+test app::main_tests::connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate ... ok
+test app::main_tests::connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.05s
+
+[v2.97] CLI binary build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+[v2.97] markdown-docs dry-run report
+[v2.97] markdown-docs sync-plan report
+[v2.97] chat-export dry-run report
+[v2.97] chat-export import-draft report
+[v2.97] acceptance passed

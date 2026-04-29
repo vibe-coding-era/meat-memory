@@ -1,0 +1,69 @@
+{
+  "conflict_count": 0,
+  "conflicts": [],
+  "connector": "markdown-docs",
+  "coverage_gate": {
+    "covered_regions": [
+      "markdown_docs_sync_plan",
+      "sync_plan_conflict_review_projection",
+      "sync_plan_evidence_preview",
+      "connector_sync_plan_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "documents": [
+    {
+      "canonical_uri": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
+      "content_hash": "d11c654eb964ad506fdea83273a44b900b83362d5978ba71cca6acb8e55bb079",
+      "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
+      "sync_state": "changed",
+      "title": "V2.97 Connector Fixture"
+    }
+  ],
+  "evidence_preview": [
+    {
+      "artifact_id": null,
+      "content_hash": "d11c654eb964ad506fdea83273a44b900b83362d5978ba71cca6acb8e55bb079",
+      "created_at": [
+        2026,
+        119,
+        10,
+        57,
+        9,
+        410016000,
+        0,
+        0,
+        0
+      ],
+      "id": "evd_01KQCE5D918QDT1FN5AA24WQA8",
+      "kind": "Text",
+      "location": {
+        "end": 25,
+        "end_ms": null,
+        "page": null,
+        "region": null,
+        "start": 0,
+        "start_ms": null
+      },
+      "memory_id": null,
+      "quote": "# V2.97 Connector Fixture",
+      "scope_id": "scp_v297_acceptance",
+      "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
+    }
+  ],
+  "incremental_checkpoint": {
+    "apply_target": "Kernel::apply_project_document_sync_plan",
+    "excluded_dir_names": [
+      "reports",
+      ".playwright-cli",
+      "target"
+    ],
+    "strategy": "canonical_uri_content_hash"
+  },
+  "missing_count": 0,
+  "mode": "sync_plan",
+  "planned_count": 1,
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs",
+  "schema_version": "2.97-A"
+}

@@ -1,0 +1,45 @@
+{
+  "candidate_count": 1,
+  "connector": "chat-export",
+  "coverage_gate": {
+    "covered_regions": [
+      "local_git_dry_run",
+      "markdown_docs_dry_run",
+      "chat_export_dry_run",
+      "connector_report_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "failures": [],
+  "incremental_checkpoint": {
+    "formats": [
+      "generic-messages-json",
+      "chatgpt-conversations-json"
+    ],
+    "safe_default": "explicit_import_only",
+    "strategy": "path_mtime_size_message_count"
+  },
+  "items": [
+    {
+      "content_bytes": 85,
+      "metadata": {
+        "external_id": "v297_acceptance_chat",
+        "format": "generic-messages-json",
+        "message_count": 2,
+        "participants": [
+          "assistant",
+          "user"
+        ],
+        "relative_path": "chat.json",
+        "source_kind": "conversation_export"
+      },
+      "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat/chat.json#v297_acceptance_chat",
+      "title": "V2.97 chat import fixture"
+    }
+  ],
+  "mode": "dry_run",
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat",
+  "schema_version": "2.97-A",
+  "status": "ready"
+}

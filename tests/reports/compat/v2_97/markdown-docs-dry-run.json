@@ -1,0 +1,34 @@
+{
+  "candidate_count": 1,
+  "connector": "markdown-docs",
+  "coverage_gate": {
+    "covered_regions": [
+      "local_git_dry_run",
+      "markdown_docs_dry_run",
+      "chat_export_dry_run",
+      "connector_report_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "failures": [],
+  "incremental_checkpoint": {
+    "frontmatter": "preserve_when_present",
+    "strategy": "path_mtime_size"
+  },
+  "items": [
+    {
+      "content_bytes": 71,
+      "metadata": {
+        "relative_path": "README.md",
+        "source_kind": "markdown"
+      },
+      "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
+      "title": "README"
+    }
+  ],
+  "mode": "dry_run",
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs",
+  "schema_version": "2.97-A",
+  "status": "ready"
+}
