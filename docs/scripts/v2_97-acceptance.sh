@@ -151,6 +151,8 @@ assert markdown_dry_run["items"][0]["metadata"]["frontmatter_present"] is True, 
 assert markdown_dry_run["items"][0]["metadata"]["frontmatter"]["tags"][0] == "connector", markdown_dry_run
 assert markdown_sync_plan["connector"] == "markdown-docs", markdown_sync_plan
 assert markdown_sync_plan["planned_count"] == 1, markdown_sync_plan
+assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter_present"] is True, markdown_sync_plan
+assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter"]["summary"] == "Markdown docs connector acceptance fixture.", markdown_sync_plan
 assert "conflicts" in markdown_sync_plan, markdown_sync_plan
 assert local_git_sync_plan["connector"] == "local-git", local_git_sync_plan
 assert local_git_sync_plan["planned_count"] == 1, local_git_sync_plan

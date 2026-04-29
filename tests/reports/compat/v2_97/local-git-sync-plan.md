@@ -12,6 +12,7 @@ conflict_count: 0
 
 - V2.97 Connector Fixture (changed)
   - file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md
+  - frontmatter: present
 
 ## Conflict Review
 

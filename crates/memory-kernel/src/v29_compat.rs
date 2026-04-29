@@ -221,13 +221,14 @@ impl ConnectorSyncPlanRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorSyncPlanDocument {
     pub title: String,
     pub canonical_uri: String,
     pub local_path: PathBuf,
     pub content_hash: String,
     pub sync_state: String,
+    pub metadata: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -630,6 +631,7 @@ pub fn build_connector_sync_plan(
             local_path: document.local_path.clone(),
             content_hash: document.content_hash.clone(),
             sync_state: document.sync_state.as_str().to_string(),
+            metadata: markdown_document_metadata(&document.content_text),
         })
         .collect::<Vec<_>>();
     let evidence_preview = plan
@@ -1357,6 +1359,18 @@ fn markdown_document_title(path: &Path, content_text: &str) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+fn markdown_document_metadata(content_text: &str) -> Value {
+    let frontmatter = markdown_frontmatter(content_text);
+    let frontmatter_present = frontmatter.is_some();
+    let visible_content = markdown_content_without_frontmatter(content_text);
+    json!({
+        "source_kind": "markdown",
+        "frontmatter_present": frontmatter_present,
+        "frontmatter": frontmatter,
+        "visible_content_bytes": visible_content.len(),
+    })
+}
+
 fn markdown_content_without_frontmatter(content_text: &str) -> String {
     let mut lines = content_text.lines();
     if lines.next().map(str::trim) != Some("---") {
@@ -1607,6 +1621,9 @@ fn render_connector_sync_plan_markdown(report: &ConnectorSyncPlanReport) -> Stri
             "- {} ({})\n  - {}\n",
             document.title, document.sync_state, document.canonical_uri
         ));
+        if document.metadata["frontmatter_present"] == true {
+            output.push_str("  - frontmatter: present\n");
+        }
     }
 
     output.push_str("\n## Conflict Review\n\n");
@@ -2315,6 +2332,14 @@ mod tests {
         assert_eq!(
             output.report.documents[0].title,
             "Connector Design Frontmatter"
+        );
+        assert_eq!(
+            output.report.documents[0].metadata["frontmatter"]["tags"][0],
+            "sync"
+        );
+        assert_eq!(
+            output.report.documents[0].metadata["frontmatter_present"],
+            true
         );
         assert_eq!(output.report.documents[0].sync_state, "changed");
         assert_eq!(output.report.evidence_preview.len(), 1);
