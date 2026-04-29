@@ -6,6 +6,7 @@ use memory_sync::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -353,6 +354,7 @@ pub fn run_connector_dry_run(request: ConnectorDryRunRequest) -> Result<Connecto
     match request.connector.as_str() {
         "local-git" => local_git_dry_run(root_path, request.max_items),
         "markdown-docs" => markdown_docs_dry_run(root_path, request.max_items),
+        "chat-export" => chat_export_dry_run(root_path, request.max_items),
         other => bail!("unsupported connector dry-run: {other}"),
     }
 }
@@ -373,6 +375,7 @@ pub fn connector_dry_run_json(report: &ConnectorDryRunReport) -> Value {
             "covered_regions": [
                 "local_git_dry_run",
                 "markdown_docs_dry_run",
+                "chat_export_dry_run",
                 "connector_report_projection",
                 "cli_parser_and_command"
             ]
@@ -580,6 +583,49 @@ fn markdown_docs_dry_run(root_path: PathBuf, max_items: usize) -> Result<Connect
     })
 }
 
+fn chat_export_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
+    let mut failures = Vec::new();
+    let mut files = Vec::new();
+    collect_json_files(&root_path, &mut files)?;
+    files.sort();
+
+    let mut items = Vec::new();
+    for path in files {
+        if items.len() >= max_items {
+            break;
+        }
+        match chat_export_items(&root_path, &path) {
+            Ok(mut parsed) => {
+                let remaining = max_items.saturating_sub(items.len());
+                parsed.truncate(remaining);
+                items.extend(parsed);
+            }
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    let candidate_count = items.len();
+    Ok(ConnectorDryRunReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "chat-export".to_string(),
+        root_path,
+        mode: "dry_run".to_string(),
+        status: if failures.is_empty() {
+            "ready".to_string()
+        } else {
+            "needs_attention".to_string()
+        },
+        candidate_count,
+        items,
+        failures,
+        incremental_checkpoint: json!({
+            "strategy": "path_mtime_size_message_count",
+            "formats": ["generic-messages-json", "chatgpt-conversations-json"],
+            "safe_default": "explicit_import_only",
+        }),
+    })
+}
+
 fn markdown_items(root_path: &Path, max_items: usize) -> Result<Vec<ConnectorDryRunItem>> {
     let mut files = Vec::new();
     collect_markdown_files(root_path, &mut files)?;
@@ -590,6 +636,29 @@ fn markdown_items(root_path: &Path, max_items: usize) -> Result<Vec<ConnectorDry
         .take(max_items)
         .map(|path| markdown_item(root_path, &path))
         .collect()
+}
+
+fn collect_json_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+        let entry =
+            entry.with_context(|| format!("failed to read entry under {}", dir.display()))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.starts_with('.') || file_name == "target" || file_name == "reports" {
+            continue;
+        }
+        if path.is_dir() {
+            collect_json_files(&path, files)?;
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
@@ -613,6 +682,186 @@ fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn chat_export_items(root_path: &Path, path: &Path) -> Result<Vec<ConnectorDryRunItem>> {
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+
+    let mut items = Vec::new();
+    match value {
+        Value::Array(conversations) => {
+            for (index, conversation) in conversations.iter().enumerate() {
+                if let Some(item) = chat_export_item(root_path, path, conversation, index) {
+                    items.push(item);
+                }
+            }
+        }
+        Value::Object(ref object) => {
+            if let Some(Value::Array(conversations)) = object.get("conversations") {
+                for (index, conversation) in conversations.iter().enumerate() {
+                    if let Some(item) = chat_export_item(root_path, path, conversation, index) {
+                        items.push(item);
+                    }
+                }
+            } else if let Some(item) = chat_export_item(root_path, path, &value, 0) {
+                items.push(item);
+            }
+        }
+        _ => {}
+    }
+
+    if items.is_empty() {
+        bail!("no supported chat conversations found");
+    }
+    Ok(items)
+}
+
+fn chat_export_item(
+    root_path: &Path,
+    path: &Path,
+    conversation: &Value,
+    index: usize,
+) -> Option<ConnectorDryRunItem> {
+    let messages = extract_chat_messages(conversation);
+    if messages.is_empty() {
+        return None;
+    }
+
+    let title = conversation
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("chat export conversation")
+        .to_string();
+    let external_id = conversation
+        .get("id")
+        .or_else(|| conversation.get("conversation_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("conversation-{index}"));
+    let relative_path = path.strip_prefix(root_path).unwrap_or(path);
+    let participants = messages
+        .iter()
+        .map(|message| message.role.as_str())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let content_bytes = messages
+        .iter()
+        .map(|message| message.content.len() as u64)
+        .sum();
+
+    Some(ConnectorDryRunItem {
+        title,
+        source_ref: format!("file://{}#{}", path.display(), external_id),
+        content_bytes,
+        metadata: json!({
+            "source_kind": "conversation_export",
+            "relative_path": relative_path.display().to_string(),
+            "external_id": external_id,
+            "message_count": messages.len(),
+            "participants": participants,
+            "format": if conversation.get("mapping").is_some() {
+                "chatgpt-conversations-json"
+            } else {
+                "generic-messages-json"
+            },
+        }),
+    })
+}
+
+#[derive(Debug)]
+struct ChatExportMessage {
+    role: String,
+    content: String,
+    created_at: Option<f64>,
+}
+
+fn extract_chat_messages(conversation: &Value) -> Vec<ChatExportMessage> {
+    if let Some(messages) = conversation.get("messages").and_then(Value::as_array) {
+        return messages
+            .iter()
+            .filter_map(generic_chat_message)
+            .collect::<Vec<_>>();
+    }
+
+    let Some(mapping) = conversation.get("mapping").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut messages = mapping
+        .values()
+        .filter_map(|node| node.get("message"))
+        .filter_map(chatgpt_message)
+        .collect::<Vec<_>>();
+    messages.sort_by(|left, right| {
+        left.created_at
+            .partial_cmp(&right.created_at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    messages
+}
+
+fn generic_chat_message(value: &Value) -> Option<ChatExportMessage> {
+    let role = value
+        .get("role")
+        .or_else(|| value.get("author"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let content = value
+        .get("content")
+        .or_else(|| value.get("text"))
+        .and_then(chat_content_text)?;
+    Some(ChatExportMessage {
+        role,
+        content,
+        created_at: value
+            .get("created_at")
+            .or_else(|| value.get("create_time"))
+            .and_then(Value::as_f64),
+    })
+}
+
+fn chatgpt_message(value: &Value) -> Option<ChatExportMessage> {
+    let role = value
+        .pointer("/author/role")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let content = value
+        .pointer("/content/parts")
+        .and_then(chat_content_text)?;
+    Some(ChatExportMessage {
+        role,
+        content,
+        created_at: value.get("create_time").and_then(Value::as_f64),
+    })
+}
+
+fn chat_content_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => non_empty_text(text),
+        Value::Array(parts) => non_empty_text(
+            &parts
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => None,
+    }
+}
+
+fn non_empty_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
 }
 
 fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
@@ -1094,6 +1343,86 @@ mod tests {
                 .any(|failure| failure.contains("missing .git"))
         );
         assert_eq!(report.incremental_checkpoint["remote_network"], false);
+    }
+
+    #[test]
+    fn v297_chat_export_dry_run_parses_generic_messages_json() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{
+              "conversations": [
+                {
+                  "id": "conv_1",
+                  "title": "Launch planning",
+                  "messages": [
+                    {"role": "user", "content": "Ship the connector."},
+                    {"role": "assistant", "content": "Drafting a plan."}
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let report =
+            run_connector_dry_run(ConnectorDryRunRequest::new("chat-export", tempdir.path()))
+                .unwrap();
+
+        assert_eq!(report.connector, "chat-export");
+        assert_eq!(report.status, "ready");
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.items[0].title, "Launch planning");
+        assert_eq!(report.items[0].metadata["message_count"], 2);
+        assert_eq!(report.items[0].metadata["format"], "generic-messages-json");
+        assert!(report.items[0].source_ref.ends_with("chat.json#conv_1"));
+    }
+
+    #[test]
+    fn v297_chat_export_dry_run_parses_chatgpt_mapping_json() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("conversations.json"),
+            r#"[
+              {
+                "id": "chatgpt_1",
+                "title": "Research thread",
+                "mapping": {
+                  "a": {
+                    "message": {
+                      "author": {"role": "user"},
+                      "content": {"parts": ["Find connector gaps."]},
+                      "create_time": 1.0
+                    }
+                  },
+                  "b": {
+                    "message": {
+                      "author": {"role": "assistant"},
+                      "content": {"parts": ["Supermemory leads on SaaS connectors."]},
+                      "create_time": 2.0
+                    }
+                  }
+                }
+              }
+            ]"#,
+        )
+        .unwrap();
+
+        let report =
+            run_connector_dry_run(ConnectorDryRunRequest::new("chat-export", tempdir.path()))
+                .unwrap();
+
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.items[0].title, "Research thread");
+        assert_eq!(report.items[0].metadata["message_count"], 2);
+        assert_eq!(
+            report.items[0].metadata["format"],
+            "chatgpt-conversations-json"
+        );
+        assert_eq!(
+            report.incremental_checkpoint["safe_default"],
+            "explicit_import_only"
+        );
     }
 
     #[test]

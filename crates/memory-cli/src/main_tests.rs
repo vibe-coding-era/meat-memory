@@ -1099,6 +1099,43 @@ fn compat_connector_dry_run_command_writes_report() {
 }
 
 #[test]
+fn compat_connector_dry_run_command_writes_chat_export_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        r#"{
+          "title": "Support thread",
+          "messages": [
+            {"role": "user", "content": "Remember this project."},
+            {"role": "assistant", "content": "Saved with evidence."}
+          ]
+        }"#,
+    )
+    .unwrap();
+    let output_dir = tempdir.path().join("reports");
+
+    compat_connector_dry_run_command(super::CompatConnectorDryRunArgs {
+        connector: "chat-export".to_string(),
+        root_path: tempdir.path().to_path_buf(),
+        output_dir: output_dir.clone(),
+        max_items: 10,
+        json: false,
+    })
+    .unwrap();
+
+    let json_text = fs::read_to_string(output_dir.join("chat-export-dry-run.json")).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&json_text).unwrap();
+
+    assert!(output_dir.join("chat-export-dry-run.md").exists());
+    assert_eq!(payload["connector"], "chat-export");
+    assert_eq!(payload["items"][0]["metadata"]["message_count"], 2);
+    assert_eq!(
+        payload["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+}
+
+#[test]
 fn connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
