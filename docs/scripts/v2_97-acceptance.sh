@@ -46,6 +46,14 @@ cat >"${FIXTURE_DIR}/docs/.git/config" <<'EOF'
 	url = git@example.test:team/v297-fixture.git
 	fetch = +refs/heads/*:refs/remotes/origin/*
 EOF
+cat >"${FIXTURE_DIR}/docs/.git/packed-refs" <<'EOF'
+# pack-refs with: peeled fully-peeled sorted
+3333333333333333333333333333333333333333 refs/tags/v2.97
+4444444444444444444444444444444444444444 refs/remotes/origin/main
+EOF
+cat >"${FIXTURE_DIR}/docs/.git/index" <<'EOF'
+index fixture
+EOF
 mkdir -p "${FIXTURE_DIR}/docs/.git/logs"
 cat >"${FIXTURE_DIR}/docs/.git/logs/HEAD" <<'EOF'
 0000000000000000000000000000000000000000 1111111111111111111111111111111111111111 Ada <ada@example.test> 1710000000 +0000	commit (initial): add V2.97 docs
@@ -160,6 +168,9 @@ assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["git
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["active_branch"] == "main", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["branch_count"] == 1, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["remote_count"] == 1, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_ref_count"] == 2, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_refs"][0]["kind"] == "tag", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["git_index_present"] is True, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["commit_count"] == 2, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["recent_commits"][0]["sha"] == "2222222222222222222222222222222222222222", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["important_files"][0]["relative_path"] == "README.md", local_git_sync_plan

@@ -94,6 +94,21 @@
           "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
         }
       ],
+      "packed_ref_count": 2,
+      "packed_refs": [
+        {
+          "kind": "tag",
+          "name": "refs/tags/v2.97",
+          "sha": "3333333333333333333333333333333333333333",
+          "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
+        },
+        {
+          "kind": "remote_ref",
+          "name": "refs/remotes/origin/main",
+          "sha": "4444444444444444444444444444444444444444",
+          "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
+        }
+      ],
       "recent_commits": [
         {
           "committed_at_unix": 1710000100,
@@ -114,7 +129,14 @@
           "remote_network": false,
           "url": "git@example.test:team/v297-fixture.git"
         }
-      ]
+      ],
+      "worktree_status": {
+        "dirty_state": "not_evaluated_offline",
+        "git_index_bytes": 14,
+        "git_index_present": true,
+        "remote_network": false,
+        "strategy": "offline_metadata_only"
+      }
     },
     "strategy": "canonical_uri_content_hash"
   },

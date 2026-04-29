@@ -1457,6 +1457,8 @@ fn local_git_repository_metadata(root_path: &Path) -> Value {
     let recent_commits = local_git_recent_commits(root_path, 5);
     let branches = local_git_branches(root_path);
     let remotes = local_git_remotes(root_path);
+    let packed_refs = local_git_packed_refs(root_path);
+    let worktree_status = local_git_worktree_status(root_path);
     let important_files = local_git_important_files(root_path);
 
     json!({
@@ -1470,6 +1472,9 @@ fn local_git_repository_metadata(root_path: &Path) -> Value {
         "branches": branches,
         "remote_count": remotes.len(),
         "remotes": remotes,
+        "packed_ref_count": packed_refs.len(),
+        "packed_refs": packed_refs,
+        "worktree_status": worktree_status,
         "important_files": important_files,
     })
 }
@@ -1576,6 +1581,51 @@ fn local_git_remotes(root_path: &Path) -> Vec<Value> {
     }
 
     remotes
+}
+
+fn local_git_packed_refs(root_path: &Path) -> Vec<Value> {
+    let path = root_path.join(".git").join("packed-refs");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('^') {
+                return None;
+            }
+            let mut parts = trimmed.split_whitespace();
+            let sha = parts.next()?.to_string();
+            let name = parts.next()?.to_string();
+            let kind = if name.starts_with("refs/heads/") {
+                "branch"
+            } else if name.starts_with("refs/remotes/") {
+                "remote_ref"
+            } else if name.starts_with("refs/tags/") {
+                "tag"
+            } else {
+                "other"
+            };
+            Some(json!({
+                "name": name,
+                "sha": sha,
+                "kind": kind,
+                "source_ref": format!("git-packed-ref://{}#{}", root_path.display(), name),
+            }))
+        })
+        .collect()
+}
+
+fn local_git_worktree_status(root_path: &Path) -> Value {
+    let index_path = root_path.join(".git").join("index");
+    let index_metadata = fs::metadata(&index_path).ok();
+    json!({
+        "strategy": "offline_metadata_only",
+        "remote_network": false,
+        "git_index_present": index_metadata.is_some(),
+        "git_index_bytes": index_metadata.map(|metadata| metadata.len()),
+        "dirty_state": "not_evaluated_offline",
+    })
 }
 
 fn local_git_important_files(root_path: &Path) -> Vec<Value> {
@@ -2379,6 +2429,12 @@ mod tests {
             "[remote \"origin\"]\n\turl = git@example.test:team/repo.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
         )
         .unwrap();
+        fs::write(
+            tempdir.path().join(".git").join("packed-refs"),
+            "# pack-refs with: peeled fully-peeled sorted\n3333333333333333333333333333333333333333 refs/tags/v2.97\n4444444444444444444444444444444444444444 refs/remotes/origin/main\n",
+        )
+        .unwrap();
+        fs::write(tempdir.path().join(".git").join("index"), "index fixture").unwrap();
         fs::create_dir_all(tempdir.path().join(".git").join("logs")).unwrap();
         fs::write(
             tempdir.path().join(".git").join("logs").join("HEAD"),
@@ -2427,6 +2483,22 @@ mod tests {
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["remotes"][0]["name"],
             "origin"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["packed_ref_count"],
+            2
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["packed_refs"][0]["kind"],
+            "tag"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["worktree_status"]["git_index_present"],
+            true
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["worktree_status"]["dirty_state"],
+            "not_evaluated_offline"
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["commit_count"],
