@@ -1573,13 +1573,15 @@ async fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -
     let mut imported = Vec::new();
 
     let output = if args.apply {
-        let source_id = args
-            .source_id
-            .as_deref()
-            .context("--source-id is required when --apply is set")?;
         let (_, kernel, _) = bootstrap_runtime().await?;
         let context = resolve_required_cli_request_context(&kernel, args.key.as_deref()).await?;
-        let source = get_source_for_context(&kernel, &context, source_id).await?;
+        let source = resolve_connector_source_for_apply(
+            &kernel,
+            &context,
+            args.source_id.as_deref(),
+            &args.root_path,
+        )
+        .await?;
         let documents = kernel
             .list_project_documents(ListProjectDocumentsRequest {
                 source_id: source.id.clone(),
@@ -3510,6 +3512,47 @@ async fn get_source_for_context(
         bail!("source access forbidden for current meat memory key");
     }
     Ok(source)
+}
+
+async fn resolve_connector_source_for_apply(
+    kernel: &Kernel,
+    context: &RequestContext,
+    source_id: Option<&str>,
+    root_path: &Path,
+) -> Result<MemorySource> {
+    if let Some(source_id) = source_id {
+        return get_source_for_context(kernel, context, source_id).await;
+    }
+
+    let root = root_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", root_path.display()))?;
+    let sources = kernel
+        .list_memory_sources(context.owner_scope_id.clone(), 100, Some(context))
+        .await?;
+    let mut matches = sources
+        .into_iter()
+        .filter(|source| {
+            source
+                .local_root
+                .as_deref()
+                .and_then(|local_root| Path::new(local_root).canonicalize().ok())
+                .map(|local_root| local_root == root)
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => bail!(
+            "--source-id is required when --apply is set and no source local_root matches {}",
+            root.display()
+        ),
+        _ => bail!(
+            "--source-id is required when --apply is set because multiple sources match {}",
+            root.display()
+        ),
+    }
 }
 
 async fn build_local_docs_sync_plan(

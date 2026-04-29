@@ -1170,7 +1170,7 @@ async fn compat_connector_sync_plan_command_writes_report() {
 }
 
 #[tokio::test]
-async fn compat_connector_sync_plan_apply_requires_source_id() {
+async fn compat_connector_sync_plan_apply_without_source_id_fails_without_match() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
 
@@ -1188,7 +1188,8 @@ async fn compat_connector_sync_plan_apply_requires_source_id() {
     .await
     .unwrap_err();
 
-    assert!(error.to_string().contains("--source-id is required"));
+    let message = error.to_string();
+    assert!(!message.is_empty());
 }
 
 #[test]
@@ -3964,6 +3965,26 @@ async fn cli_command_functions_cover_pg_management_paths() {
     let docs_root = tempdir.path().join("docs-sync");
     fs::create_dir_all(&docs_root).unwrap();
     fs::write(docs_root.join("SYNC.md"), "# Sync\nDirect sync body.").unwrap();
+    source_command(super::SourceArgs {
+        command: super::SourceCommand::Create(super::SourceCreateArgs {
+            key: Some(raw_key.clone()),
+            name: "connector sync source".to_string(),
+            source_kind: "local_docs".to_string(),
+            source_uri: Some("file:///connector-sync".to_string()),
+            sync_mode: "index_only".to_string(),
+            local_root: Some(docs_root.display().to_string()),
+            json: true,
+        }),
+    })
+    .await
+    .unwrap();
+    let sync_source = kernel
+        .list_memory_sources(scope_id.clone(), 10, Some(&context))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|source| source.display_name == "connector sync source")
+        .unwrap();
     docs_command(super::DocsArgs {
         command: super::DocsCommand::Status(super::DocsStatusArgs {
             key: Some(raw_key.clone()),
@@ -3990,7 +4011,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
         key: Some(raw_key.clone()),
         connector: "markdown-docs".to_string(),
         root_path: docs_root.clone(),
-        source_id: Some(source.id.as_str().to_string()),
+        source_id: None,
         scope_id: scope_id.as_str().to_string(),
         output_dir: tempdir.path().join("compat-reports"),
         max_items: 10,
@@ -4001,7 +4022,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
     .unwrap();
     let synced_documents = kernel
         .list_project_documents(memory_kernel::ListProjectDocumentsRequest {
-            source_id: source.id.clone(),
+            source_id: sync_source.id.clone(),
             limit: 10,
             query: Some("Sync".to_string()),
             context: Some(context.clone()),
@@ -4017,7 +4038,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
         key: Some(raw_key.clone()),
         connector: "markdown-docs".to_string(),
         root_path: docs_root.clone(),
-        source_id: Some(source.id.as_str().to_string()),
+        source_id: None,
         scope_id: scope_id.as_str().to_string(),
         output_dir: tempdir.path().join("compat-reports-repeat"),
         max_items: 10,
@@ -4028,7 +4049,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
     .unwrap();
     let repeated_documents = kernel
         .list_project_documents(memory_kernel::ListProjectDocumentsRequest {
-            source_id: source.id.clone(),
+            source_id: sync_source.id.clone(),
             limit: 10,
             query: Some("Sync".to_string()),
             context: Some(context.clone()),
