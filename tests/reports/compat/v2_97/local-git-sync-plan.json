@@ -60,6 +60,15 @@
       "target"
     ],
     "repository_metadata": {
+      "active_branch": "main",
+      "branch_count": 1,
+      "branches": [
+        {
+          "name": "main",
+          "sha": "2222222222222222222222222222222222222222",
+          "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
+        }
+      ],
       "commit_count": 2,
       "git_head_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/HEAD",
       "git_head_ref": "ref: refs/heads/main",
@@ -82,7 +91,15 @@
           "sha": "1111111111111111111111111111111111111111"
         }
       ],
-      "remote_network": false
+      "remote_count": 1,
+      "remote_network": false,
+      "remotes": [
+        {
+          "name": "origin",
+          "remote_network": false,
+          "url": "git@example.test:team/v297-fixture.git"
+        }
+      ]
     },
     "strategy": "canonical_uri_content_hash"
   },

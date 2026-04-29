@@ -1320,15 +1320,26 @@ fn local_git_repository_metadata(root_path: &Path) -> Value {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let active_branch = head_ref
+        .as_deref()
+        .and_then(|value| value.strip_prefix("ref: refs/heads/"))
+        .map(str::to_string);
     let recent_commits = local_git_recent_commits(root_path, 5);
+    let branches = local_git_branches(root_path);
+    let remotes = local_git_remotes(root_path);
     let important_files = local_git_important_files(root_path);
 
     json!({
         "git_head_path": head_path.display().to_string(),
         "git_head_ref": head_ref,
+        "active_branch": active_branch,
         "remote_network": false,
         "commit_count": recent_commits.len(),
         "recent_commits": recent_commits,
+        "branch_count": branches.len(),
+        "branches": branches,
+        "remote_count": remotes.len(),
+        "remotes": remotes,
         "important_files": important_files,
     })
 }
@@ -1364,6 +1375,77 @@ fn local_git_reflog_entry(line: &str) -> Option<Value> {
         "committed_at_unix": committed_at,
         "message": message.trim(),
     }))
+}
+
+fn local_git_branches(root_path: &Path) -> Vec<Value> {
+    let heads_dir = root_path.join(".git").join("refs").join("heads");
+    let Ok(entries) = fs::read_dir(heads_dir) else {
+        return Vec::new();
+    };
+    let mut branches = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let sha = fs::read_to_string(&path)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            Some(json!({
+                "name": name,
+                "sha": sha,
+                "source_ref": format!("git-ref://{}", path.display()),
+            }))
+        })
+        .collect::<Vec<_>>();
+    branches.sort_by(|left, right| {
+        left["name"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(right["name"].as_str().unwrap_or(""))
+    });
+    branches
+}
+
+fn local_git_remotes(root_path: &Path) -> Vec<Value> {
+    let config_path = root_path.join(".git").join("config");
+    let Ok(config_text) = fs::read_to_string(config_path) else {
+        return Vec::new();
+    };
+    let mut remotes = Vec::new();
+    let mut current_remote: Option<String> = None;
+
+    for line in config_text.lines() {
+        let trimmed = line.trim();
+        if let Some(section) = trimmed
+            .strip_prefix('[')
+            .and_then(|value| value.strip_suffix(']'))
+        {
+            current_remote = section
+                .strip_prefix("remote \"")
+                .and_then(|value| value.strip_suffix('"'))
+                .map(str::to_string);
+            continue;
+        }
+        let Some(remote_name) = current_remote.as_ref() else {
+            continue;
+        };
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim() == "url" {
+            remotes.push(json!({
+                "name": remote_name,
+                "url": value.trim(),
+                "remote_network": false,
+            }));
+        }
+    }
+
+    remotes
 }
 
 fn local_git_important_files(root_path: &Path) -> Vec<Value> {
@@ -2124,6 +2206,22 @@ mod tests {
             "ref: refs/heads/main\n",
         )
         .unwrap();
+        fs::create_dir_all(tempdir.path().join(".git").join("refs").join("heads")).unwrap();
+        fs::write(
+            tempdir
+                .path()
+                .join(".git")
+                .join("refs")
+                .join("heads")
+                .join("main"),
+            "2222222222222222222222222222222222222222\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join(".git").join("config"),
+            "[remote \"origin\"]\n\turl = git@example.test:team/repo.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+        )
+        .unwrap();
         fs::create_dir_all(tempdir.path().join(".git").join("logs")).unwrap();
         fs::write(
             tempdir.path().join(".git").join("logs").join("HEAD"),
@@ -2150,8 +2248,28 @@ mod tests {
             "ref: refs/heads/main"
         );
         assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["active_branch"],
+            "main"
+        );
+        assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["remote_network"],
             false
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["branch_count"],
+            1
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["branches"][0]["name"],
+            "main"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["remote_count"],
+            1
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["remotes"][0]["name"],
+            "origin"
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["commit_count"],
