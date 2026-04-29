@@ -120,6 +120,59 @@ pub struct ConnectorDryRunReportPaths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorImportDraftRequest {
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub scope_id: ScopeId,
+    pub max_items: usize,
+}
+
+impl ConnectorImportDraftRequest {
+    pub fn new(
+        connector: impl Into<String>,
+        root_path: impl Into<PathBuf>,
+        scope_id: ScopeId,
+    ) -> Self {
+        Self {
+            connector: connector.into(),
+            root_path: root_path.into(),
+            scope_id,
+            max_items: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorImportDraft {
+    pub connector: String,
+    pub external_id: String,
+    pub scope_id: ScopeId,
+    pub title: String,
+    pub body: String,
+    pub memory_kind: MemoryKind,
+    pub source_refs: Vec<String>,
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorImportDraftReport {
+    pub schema_version: String,
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub mode: String,
+    pub draft_count: usize,
+    pub drafts: Vec<ConnectorImportDraft>,
+    pub failures: Vec<String>,
+    pub import_policy: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorImportDraftReportPaths {
+    pub json: PathBuf,
+    pub markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorSyncPlanRequest {
     pub connector: String,
     pub root_path: PathBuf,
@@ -401,6 +454,98 @@ pub fn write_connector_dry_run_report(
         .with_context(|| format!("failed to write {}", markdown_path.display()))?;
 
     Ok(ConnectorDryRunReportPaths {
+        json: json_path,
+        markdown: markdown_path,
+    })
+}
+
+pub fn build_connector_import_draft_report(
+    request: ConnectorImportDraftRequest,
+) -> Result<ConnectorImportDraftReport> {
+    let root_path = request.root_path;
+    if !root_path.exists() {
+        bail!(
+            "connector root path does not exist: {}",
+            root_path.display()
+        );
+    }
+    if !root_path.is_dir() {
+        bail!(
+            "connector root path is not a directory: {}",
+            root_path.display()
+        );
+    }
+    if request.connector != "chat-export" {
+        bail!(
+            "unsupported connector import draft: {}; only chat-export is implemented",
+            request.connector
+        );
+    }
+
+    let (mut drafts, failures) =
+        chat_export_import_drafts(&root_path, &request.scope_id, request.max_items)?;
+    drafts.truncate(request.max_items);
+
+    Ok(ConnectorImportDraftReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "chat-export".to_string(),
+        root_path,
+        mode: "import_draft".to_string(),
+        draft_count: drafts.len(),
+        drafts,
+        failures,
+        import_policy: json!({
+            "safe_default": "explicit_import_only",
+            "writes_memory": false,
+            "review_required_before_apply": true,
+            "target": "memory_draft",
+        }),
+    })
+}
+
+pub fn connector_import_draft_json(report: &ConnectorImportDraftReport) -> Value {
+    json!({
+        "schema_version": report.schema_version,
+        "connector": report.connector,
+        "root_path": report.root_path,
+        "mode": report.mode,
+        "draft_count": report.draft_count,
+        "drafts": report.drafts,
+        "failures": report.failures,
+        "import_policy": report.import_policy,
+        "coverage_gate": {
+            "new_feature_test_coverage_required": "100%",
+            "covered_regions": [
+                "chat_export_parser",
+                "chat_export_import_draft_projection",
+                "connector_import_draft_report",
+                "cli_parser_and_command"
+            ]
+        }
+    })
+}
+
+pub fn write_connector_import_draft_report(
+    output_dir: &Path,
+    report: &ConnectorImportDraftReport,
+) -> Result<ConnectorImportDraftReportPaths> {
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+    let json_path = output_dir.join(format!("{}-import-draft.json", report.connector));
+    let markdown_path = output_dir.join(format!("{}-import-draft.md", report.connector));
+
+    fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&connector_import_draft_json(report))?,
+    )
+    .with_context(|| format!("failed to write {}", json_path.display()))?;
+    fs::write(
+        &markdown_path,
+        render_connector_import_draft_markdown(report),
+    )
+    .with_context(|| format!("failed to write {}", markdown_path.display()))?;
+
+    Ok(ConnectorImportDraftReportPaths {
         json: json_path,
         markdown: markdown_path,
     })
@@ -719,6 +864,155 @@ fn chat_export_items(root_path: &Path, path: &Path) -> Result<Vec<ConnectorDryRu
     Ok(items)
 }
 
+fn chat_export_import_drafts(
+    root_path: &Path,
+    scope_id: &ScopeId,
+    max_items: usize,
+) -> Result<(Vec<ConnectorImportDraft>, Vec<String>)> {
+    let mut failures = Vec::new();
+    let mut files = Vec::new();
+    collect_json_files(root_path, &mut files)?;
+    files.sort();
+
+    let mut drafts = Vec::new();
+    for path in files {
+        if drafts.len() >= max_items {
+            break;
+        }
+        match chat_export_conversations(root_path, &path) {
+            Ok(mut conversations) => {
+                let remaining = max_items.saturating_sub(drafts.len());
+                conversations.truncate(remaining);
+                drafts.extend(
+                    conversations
+                        .into_iter()
+                        .map(|conversation| conversation_import_draft(scope_id, conversation)),
+                );
+            }
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    Ok((drafts, failures))
+}
+
+#[derive(Debug)]
+struct ParsedChatConversation {
+    title: String,
+    external_id: String,
+    source_ref: String,
+    relative_path: String,
+    format: String,
+    messages: Vec<ChatExportMessage>,
+}
+
+fn chat_export_conversations(root_path: &Path, path: &Path) -> Result<Vec<ParsedChatConversation>> {
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+
+    let mut conversations = Vec::new();
+    match value {
+        Value::Array(items) => {
+            for (index, conversation) in items.iter().enumerate() {
+                if let Some(parsed) = parsed_chat_conversation(root_path, path, conversation, index)
+                {
+                    conversations.push(parsed);
+                }
+            }
+        }
+        Value::Object(ref object) => {
+            if let Some(Value::Array(items)) = object.get("conversations") {
+                for (index, conversation) in items.iter().enumerate() {
+                    if let Some(parsed) =
+                        parsed_chat_conversation(root_path, path, conversation, index)
+                    {
+                        conversations.push(parsed);
+                    }
+                }
+            } else if let Some(parsed) = parsed_chat_conversation(root_path, path, &value, 0) {
+                conversations.push(parsed);
+            }
+        }
+        _ => {}
+    }
+
+    if conversations.is_empty() {
+        bail!("no supported chat conversations found");
+    }
+    Ok(conversations)
+}
+
+fn parsed_chat_conversation(
+    root_path: &Path,
+    path: &Path,
+    conversation: &Value,
+    index: usize,
+) -> Option<ParsedChatConversation> {
+    let messages = extract_chat_messages(conversation);
+    if messages.is_empty() {
+        return None;
+    }
+
+    let title = conversation_title(conversation);
+    let external_id = conversation_external_id(conversation, index);
+    let relative_path = path
+        .strip_prefix(root_path)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    let format = chat_export_format(conversation).to_string();
+
+    Some(ParsedChatConversation {
+        title,
+        external_id: external_id.clone(),
+        source_ref: format!("file://{}#{}", path.display(), external_id),
+        relative_path,
+        format,
+        messages,
+    })
+}
+
+fn conversation_import_draft(
+    scope_id: &ScopeId,
+    conversation: ParsedChatConversation,
+) -> ConnectorImportDraft {
+    let participants = chat_participants(&conversation.messages);
+    let message_count = conversation.messages.len();
+    let body = conversation_transcript(&conversation.messages);
+    let first_created_at = conversation
+        .messages
+        .iter()
+        .filter_map(|message| message.created_at)
+        .min_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    let last_created_at = conversation
+        .messages
+        .iter()
+        .filter_map(|message| message.created_at)
+        .max_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+
+    ConnectorImportDraft {
+        connector: "chat-export".to_string(),
+        external_id: conversation.external_id.clone(),
+        scope_id: scope_id.clone(),
+        title: conversation.title,
+        body,
+        memory_kind: MemoryKind::Summary,
+        source_refs: vec![conversation.source_ref],
+        metadata: json!({
+            "source_kind": "conversation_export",
+            "relative_path": conversation.relative_path,
+            "external_id": conversation.external_id,
+            "message_count": message_count,
+            "participants": participants,
+            "format": conversation.format,
+            "first_created_at": first_created_at,
+            "last_created_at": last_created_at,
+        }),
+    }
+}
+
 fn chat_export_item(
     root_path: &Path,
     path: &Path,
@@ -730,25 +1024,10 @@ fn chat_export_item(
         return None;
     }
 
-    let title = conversation
-        .get("title")
-        .and_then(Value::as_str)
-        .filter(|title| !title.trim().is_empty())
-        .unwrap_or("chat export conversation")
-        .to_string();
-    let external_id = conversation
-        .get("id")
-        .or_else(|| conversation.get("conversation_id"))
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| format!("conversation-{index}"));
+    let title = conversation_title(conversation);
+    let external_id = conversation_external_id(conversation, index);
     let relative_path = path.strip_prefix(root_path).unwrap_or(path);
-    let participants = messages
-        .iter()
-        .map(|message| message.role.as_str())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let participants = chat_participants(&messages);
     let content_bytes = messages
         .iter()
         .map(|message| message.content.len() as u64)
@@ -764,13 +1043,52 @@ fn chat_export_item(
             "external_id": external_id,
             "message_count": messages.len(),
             "participants": participants,
-            "format": if conversation.get("mapping").is_some() {
-                "chatgpt-conversations-json"
-            } else {
-                "generic-messages-json"
-            },
+            "format": chat_export_format(conversation),
         }),
     })
+}
+
+fn conversation_title(conversation: &Value) -> String {
+    conversation
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("chat export conversation")
+        .to_string()
+}
+
+fn conversation_external_id(conversation: &Value, index: usize) -> String {
+    conversation
+        .get("id")
+        .or_else(|| conversation.get("conversation_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("conversation-{index}"))
+}
+
+fn chat_export_format(conversation: &Value) -> &'static str {
+    if conversation.get("mapping").is_some() {
+        "chatgpt-conversations-json"
+    } else {
+        "generic-messages-json"
+    }
+}
+
+fn chat_participants(messages: &[ChatExportMessage]) -> Vec<&str> {
+    messages
+        .iter()
+        .map(|message| message.role.as_str())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn conversation_transcript(messages: &[ChatExportMessage]) -> String {
+    messages
+        .iter()
+        .map(|message| format!("{}: {}", message.role, message.content))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug)]
@@ -977,6 +1295,44 @@ fn render_connector_dry_run_markdown(report: &ConnectorDryRunReport) -> String {
     }
 
     output.push_str("\n## Coverage Gate\n\n- V2.97-A connector dry-run production regions require 100% targeted test coverage.\n");
+    output
+}
+
+fn render_connector_import_draft_markdown(report: &ConnectorImportDraftReport) -> String {
+    let mut output = format!(
+        "# V2.97-A Connector Import Draft\n\nschema_version: {}\nconnector: {}\nroot_path: {}\nmode: {}\ndraft_count: {}\n\n",
+        report.schema_version,
+        report.connector,
+        report.root_path.display(),
+        report.mode,
+        report.draft_count
+    );
+
+    output.push_str("## Import Policy\n\n");
+    output.push_str("- explicit import only; this report does not write memory records\n");
+    output.push_str("- review is required before apply\n");
+
+    output.push_str("\n## Drafts\n\n");
+    for draft in &report.drafts {
+        output.push_str(&format!(
+            "- {} [{}]\n  - external_id: {}\n  - source_ref: {}\n",
+            draft.title,
+            format!("{:?}", draft.memory_kind).to_ascii_lowercase(),
+            draft.external_id,
+            draft.source_refs.first().cloned().unwrap_or_default()
+        ));
+    }
+
+    output.push_str("\n## Failures\n\n");
+    if report.failures.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for failure in &report.failures {
+            output.push_str(&format!("- {failure}\n"));
+        }
+    }
+
+    output.push_str("\n## Coverage Gate\n\n- V2.97-A connector import-draft production regions require 100% targeted test coverage.\n");
     output
 }
 
@@ -1423,6 +1779,70 @@ mod tests {
             report.incremental_checkpoint["safe_default"],
             "explicit_import_only"
         );
+    }
+
+    #[test]
+    fn v297_chat_export_import_draft_projects_reviewable_memory_drafts() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{
+              "id": "conv_import",
+              "title": "Release decision",
+              "messages": [
+                {"role": "user", "content": "Should we ship V2.97-A?"},
+                {"role": "assistant", "content": "Ship after connector tests pass."}
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let report = build_connector_import_draft_report(ConnectorImportDraftRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_chat_import"),
+        ))
+        .unwrap();
+
+        assert_eq!(report.connector, "chat-export");
+        assert_eq!(report.mode, "import_draft");
+        assert_eq!(report.draft_count, 1);
+        assert_eq!(report.drafts[0].title, "Release decision");
+        assert_eq!(report.drafts[0].memory_kind, MemoryKind::Summary);
+        assert_eq!(report.drafts[0].scope_id.as_str(), "scp_chat_import");
+        assert!(report.drafts[0].body.contains("user: Should we ship"));
+        assert_eq!(report.drafts[0].metadata["message_count"], 2);
+        assert_eq!(report.import_policy["writes_memory"], false);
+    }
+
+    #[test]
+    fn v297_connector_import_draft_writer_outputs_json_and_markdown() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{"title":"Draft me","messages":[{"role":"user","content":"hello"}]}"#,
+        )
+        .unwrap();
+        let report = build_connector_import_draft_report(ConnectorImportDraftRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_chat_import"),
+        ))
+        .unwrap();
+        let output_dir = tempdir.path().join("reports");
+        let paths = write_connector_import_draft_report(&output_dir, &report).unwrap();
+
+        let json_text = fs::read_to_string(&paths.json).unwrap();
+        let markdown_text = fs::read_to_string(&paths.markdown).unwrap();
+        let payload: Value = serde_json::from_str(&json_text).unwrap();
+
+        assert_eq!(payload["schema_version"], "2.97-A");
+        assert_eq!(
+            payload["coverage_gate"]["new_feature_test_coverage_required"],
+            "100%"
+        );
+        assert!(markdown_text.contains("Connector Import Draft"));
+        assert!(markdown_text.contains("explicit import only"));
     }
 
     #[test]
