@@ -77,8 +77,11 @@
       "branch_count": 1,
       "branches": [
         {
+          "kind": "branch",
           "name": "main",
+          "ref_name": "refs/heads/main",
           "sha": "2222222222222222222222222222222222222222",
+          "source": "loose",
           "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
         }
       ],
@@ -92,18 +95,30 @@
           "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
         }
       ],
-      "packed_ref_count": 2,
+      "packed_ref_count": 3,
       "packed_refs": [
         {
           "kind": "tag",
           "name": "refs/tags/v2.97",
           "sha": "3333333333333333333333333333333333333333",
+          "short_name": "v2.97",
+          "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
+        },
+        {
+          "kind": "branch",
+          "name": "refs/heads/main",
+          "sha": "1111111111111111111111111111111111111111",
+          "short_name": "main",
+          "source": "packed",
+          "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/heads/main"
         },
         {
           "kind": "remote_ref",
           "name": "refs/remotes/origin/main",
           "sha": "4444444444444444444444444444444444444444",
+          "short_name": "origin/main",
+          "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
         }
       ],
@@ -117,6 +132,33 @@
           "committed_at_unix": 1710000000,
           "message": "commit (initial): add V2.97 docs",
           "sha": "1111111111111111111111111111111111111111"
+        }
+      ],
+      "ref_count": 3,
+      "refs": [
+        {
+          "kind": "branch",
+          "name": "refs/heads/main",
+          "sha": "2222222222222222222222222222222222222222",
+          "short_name": "main",
+          "source": "loose",
+          "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
+        },
+        {
+          "kind": "remote_ref",
+          "name": "refs/remotes/origin/main",
+          "sha": "4444444444444444444444444444444444444444",
+          "short_name": "origin/main",
+          "source": "packed",
+          "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
+        },
+        {
+          "kind": "tag",
+          "name": "refs/tags/v2.97",
+          "sha": "3333333333333333333333333333333333333333",
+          "short_name": "v2.97",
+          "source": "packed",
+          "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
         }
       ],
       "remote_count": 1,

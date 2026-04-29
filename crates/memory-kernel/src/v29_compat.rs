@@ -7,7 +7,7 @@ use memory_sync::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -1458,6 +1458,7 @@ fn local_git_repository_metadata(root_path: &Path) -> Value {
     let branches = local_git_branches(root_path);
     let remotes = local_git_remotes(root_path);
     let packed_refs = local_git_packed_refs(root_path);
+    let refs = local_git_refs(&branches, &packed_refs);
     let worktree_status = local_git_worktree_status(root_path);
     let important_files = local_git_important_files(root_path);
 
@@ -1474,6 +1475,8 @@ fn local_git_repository_metadata(root_path: &Path) -> Value {
         "remotes": remotes,
         "packed_ref_count": packed_refs.len(),
         "packed_refs": packed_refs,
+        "ref_count": refs.len(),
+        "refs": refs,
         "worktree_status": worktree_status,
         "important_files": important_files,
     })
@@ -1529,9 +1532,13 @@ fn local_git_branches(root_path: &Path) -> Vec<Value> {
                 .ok()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
+            let ref_name = format!("refs/heads/{name}");
             Some(json!({
                 "name": name,
+                "ref_name": ref_name,
                 "sha": sha,
+                "kind": "branch",
+                "source": "loose",
                 "source_ref": format!("git-ref://{}", path.display()),
             }))
         })
@@ -1597,23 +1604,90 @@ fn local_git_packed_refs(root_path: &Path) -> Vec<Value> {
             let mut parts = trimmed.split_whitespace();
             let sha = parts.next()?.to_string();
             let name = parts.next()?.to_string();
-            let kind = if name.starts_with("refs/heads/") {
-                "branch"
-            } else if name.starts_with("refs/remotes/") {
-                "remote_ref"
-            } else if name.starts_with("refs/tags/") {
-                "tag"
-            } else {
-                "other"
-            };
+            let short_name = local_git_ref_short_name(&name);
+            let kind = local_git_ref_kind(&name);
+            let source_ref = format!("git-packed-ref://{}#{}", root_path.display(), name);
             Some(json!({
                 "name": name,
+                "short_name": short_name,
                 "sha": sha,
                 "kind": kind,
-                "source_ref": format!("git-packed-ref://{}#{}", root_path.display(), name),
+                "source": "packed",
+                "source_ref": source_ref,
             }))
         })
         .collect()
+}
+
+fn local_git_refs(branches: &[Value], packed_refs: &[Value]) -> Vec<Value> {
+    let mut refs = BTreeMap::new();
+
+    for packed_ref in packed_refs {
+        let Some(name) = packed_ref["name"].as_str() else {
+            continue;
+        };
+        refs.insert(
+            name.to_string(),
+            local_git_ref_entry(
+                name,
+                packed_ref["sha"].clone(),
+                "packed",
+                packed_ref["source_ref"].as_str(),
+            ),
+        );
+    }
+
+    for branch in branches {
+        let Some(short_name) = branch["name"].as_str() else {
+            continue;
+        };
+        let ref_name = branch["ref_name"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("refs/heads/{short_name}"));
+        refs.insert(
+            ref_name.clone(),
+            local_git_ref_entry(
+                &ref_name,
+                branch["sha"].clone(),
+                "loose",
+                branch["source_ref"].as_str(),
+            ),
+        );
+    }
+
+    refs.into_values().collect()
+}
+
+fn local_git_ref_entry(name: &str, sha: Value, source: &str, source_ref: Option<&str>) -> Value {
+    json!({
+        "name": name,
+        "short_name": local_git_ref_short_name(name),
+        "sha": sha,
+        "kind": local_git_ref_kind(name),
+        "source": source,
+        "source_ref": source_ref,
+    })
+}
+
+fn local_git_ref_kind(name: &str) -> &'static str {
+    if name.starts_with("refs/heads/") {
+        "branch"
+    } else if name.starts_with("refs/remotes/") {
+        "remote_ref"
+    } else if name.starts_with("refs/tags/") {
+        "tag"
+    } else {
+        "other"
+    }
+}
+
+fn local_git_ref_short_name(name: &str) -> String {
+    ["refs/heads/", "refs/remotes/", "refs/tags/"]
+        .iter()
+        .find_map(|prefix| name.strip_prefix(prefix))
+        .unwrap_or(name)
+        .to_string()
 }
 
 fn local_git_worktree_status(root_path: &Path) -> Value {
@@ -2431,7 +2505,7 @@ mod tests {
         .unwrap();
         fs::write(
             tempdir.path().join(".git").join("packed-refs"),
-            "# pack-refs with: peeled fully-peeled sorted\n3333333333333333333333333333333333333333 refs/tags/v2.97\n4444444444444444444444444444444444444444 refs/remotes/origin/main\n",
+            "# pack-refs with: peeled fully-peeled sorted\n3333333333333333333333333333333333333333 refs/tags/v2.97\n1111111111111111111111111111111111111111 refs/heads/main\n4444444444444444444444444444444444444444 refs/remotes/origin/main\n",
         )
         .unwrap();
         fs::write(tempdir.path().join(".git").join("index"), "index fixture").unwrap();
@@ -2486,11 +2560,35 @@ mod tests {
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["packed_ref_count"],
-            2
+            3
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["packed_refs"][0]["kind"],
             "tag"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["ref_count"],
+            3
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["refs"][0]["name"],
+            "refs/heads/main"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["refs"][0]["sha"],
+            "2222222222222222222222222222222222222222"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["refs"][0]["source"],
+            "loose"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["refs"][1]["name"],
+            "refs/remotes/origin/main"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["refs"][2]["name"],
+            "refs/tags/v2.97"
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["worktree_status"]["git_index_present"],

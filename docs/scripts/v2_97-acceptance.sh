@@ -49,6 +49,7 @@ EOF
 cat >"${FIXTURE_DIR}/docs/.git/packed-refs" <<'EOF'
 # pack-refs with: peeled fully-peeled sorted
 3333333333333333333333333333333333333333 refs/tags/v2.97
+1111111111111111111111111111111111111111 refs/heads/main
 4444444444444444444444444444444444444444 refs/remotes/origin/main
 EOF
 cat >"${FIXTURE_DIR}/docs/.git/index" <<'EOF'
@@ -168,8 +169,14 @@ assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["git
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["active_branch"] == "main", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["branch_count"] == 1, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["remote_count"] == 1, local_git_sync_plan
-assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_ref_count"] == 2, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_ref_count"] == 3, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_refs"][0]["kind"] == "tag", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["ref_count"] == 3, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["name"] == "refs/heads/main", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["sha"] == "2222222222222222222222222222222222222222", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["source"] == "loose", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][1]["name"] == "refs/remotes/origin/main", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][2]["name"] == "refs/tags/v2.97", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["git_index_present"] is True, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["commit_count"] == 2, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["recent_commits"][0]["sha"] == "2222222222222222222222222222222222222222", local_git_sync_plan
