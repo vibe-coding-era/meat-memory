@@ -569,13 +569,15 @@ pub fn build_connector_sync_plan(
             root_path.display()
         );
     }
-    if request.connector != "markdown-docs" {
+    if !matches!(request.connector.as_str(), "markdown-docs" | "local-git") {
         bail!(
-            "unsupported connector sync plan: {}; only markdown-docs is implemented",
+            "unsupported connector sync plan: {}; only markdown-docs and local-git are implemented",
             request.connector
         );
     }
 
+    let connector = request.connector.clone();
+    let checkpoint = connector_sync_checkpoint(&connector, &root_path);
     let mut plan = LocalProjectDocumentSyncEngine::with_extensions(root_path, ["md", "markdown"])
         .with_excluded_dir_names(request.excluded_dir_names)
         .scan(&request.previous_snapshots)
@@ -603,7 +605,7 @@ pub fn build_connector_sync_plan(
 
     let report = ConnectorSyncPlanReport {
         schema_version: "2.97-A".to_string(),
-        connector: "markdown-docs".to_string(),
+        connector,
         root_path: plan.root.clone(),
         mode: "sync_plan".to_string(),
         planned_count: plan.documents.len(),
@@ -612,11 +614,7 @@ pub fn build_connector_sync_plan(
         documents,
         conflicts: plan.conflicts.clone(),
         evidence_preview,
-        incremental_checkpoint: json!({
-            "strategy": "canonical_uri_content_hash",
-            "apply_target": "Kernel::apply_project_document_sync_plan",
-            "excluded_dir_names": ["reports", ".playwright-cli", "target"],
-        }),
+        incremental_checkpoint: checkpoint,
     };
 
     Ok(ConnectorSyncPlanOutput { plan, report })
@@ -1234,6 +1232,34 @@ fn evidence_quote(content_text: &str) -> String {
         .chars()
         .take(160)
         .collect()
+}
+
+fn connector_sync_checkpoint(connector: &str, root_path: &Path) -> Value {
+    let mut checkpoint = json!({
+        "strategy": "canonical_uri_content_hash",
+        "apply_target": "Kernel::apply_project_document_sync_plan",
+        "excluded_dir_names": ["reports", ".playwright-cli", "target"],
+    });
+
+    if connector == "local-git" {
+        let head_path = root_path.join(".git").join("HEAD");
+        let head_ref = fs::read_to_string(&head_path)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if let Some(object) = checkpoint.as_object_mut() {
+            object.insert(
+                "repository_metadata".to_string(),
+                json!({
+                    "git_head_path": head_path.display().to_string(),
+                    "git_head_ref": head_ref,
+                    "remote_network": false,
+                }),
+            );
+        }
+    }
+
+    checkpoint
 }
 
 fn render_connector_sync_plan_markdown(report: &ConnectorSyncPlanReport) -> String {
@@ -1929,6 +1955,40 @@ mod tests {
             output.report.evidence_preview[0]
                 .source_ref
                 .ends_with("design.md")
+        );
+    }
+
+    #[test]
+    fn v297_local_git_sync_plan_includes_repository_checkpoint() {
+        let tempdir = tempdir().unwrap();
+        fs::create_dir_all(tempdir.path().join(".git")).unwrap();
+        fs::write(
+            tempdir.path().join(".git").join("HEAD"),
+            "ref: refs/heads/main\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("README.md"),
+            "# Repo\n\nLocal git docs.",
+        )
+        .unwrap();
+
+        let output = build_connector_sync_plan(ConnectorSyncPlanRequest::new(
+            "local-git",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        ))
+        .unwrap();
+
+        assert_eq!(output.report.connector, "local-git");
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["git_head_ref"],
+            "ref: refs/heads/main"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["remote_network"],
+            false
         );
     }
 

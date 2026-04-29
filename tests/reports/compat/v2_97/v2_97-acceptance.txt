@@ -3,12 +3,17 @@
 [v2.97] fixture root: /Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures
 [v2.97] format check
 [v2.97] interface check
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+    Blocking waiting for file lock on build directory
+    Checking memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+    Checking memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+    Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.51s
 [v2.97] kernel V2.97 connector contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
      Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
 
-running 13 tests
+running 14 tests
 test v29_compat::tests::v297_chat_export_dry_run_parses_chatgpt_mapping_json ... ok
 test v29_compat::tests::v297_chat_export_dry_run_parses_generic_messages_json ... ok
 test v29_compat::tests::v297_chat_export_import_draft_projects_reviewable_memory_drafts ... ok
@@ -18,15 +23,20 @@ test v29_compat::tests::v297_connector_dry_run_writer_outputs_json_and_markdown 
 test v29_compat::tests::v297_connector_import_draft_writer_outputs_json_and_markdown ... ok
 test v29_compat::tests::v297_connector_sync_plan_writer_outputs_json_and_markdown ... ok
 test v29_compat::tests::v297_local_git_dry_run_reports_repository_candidates_and_failures ... ok
+test v29_compat::tests::v297_local_git_sync_plan_includes_repository_checkpoint ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_builds_apply_ready_plan_and_evidence_preview ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_dirs ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
 
-test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.01s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.01s
 
 [v2.97] CLI V2.97 connector contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.17s
      Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
 
 running 11 tests
@@ -42,12 +52,17 @@ test app::main_tests::connector_dry_run_output_helpers_include_paths_and_coverag
 test app::main_tests::connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate ... ok
 test app::main_tests::connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.05s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.02s
 
 [v2.97] CLI binary build
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
+   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.77s
 [v2.97] markdown-docs dry-run report
 [v2.97] markdown-docs sync-plan report
+[v2.97] local-git sync-plan report
 [v2.97] chat-export dry-run report
 [v2.97] chat-export import-draft report
 [v2.97] acceptance passed

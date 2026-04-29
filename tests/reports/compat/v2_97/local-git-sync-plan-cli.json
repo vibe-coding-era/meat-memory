@@ -2,7 +2,7 @@
   "apply": false,
   "conflict_count": 0,
   "conflicts": [],
-  "connector": "markdown-docs",
+  "connector": "local-git",
   "coverage_gate": {
     "covered_regions": [
       "markdown_docs_sync_plan",
@@ -32,12 +32,12 @@
         11,
         3,
         44,
-        52831000,
+        60453000,
         0,
         0,
         0
       ],
-      "id": "evd_01KQCEHENMEVV3XJ9XCZ809684",
+      "id": "evd_01KQCEHENWCW39MAH93PJPNGSE",
       "kind": "Text",
       "location": {
         "end": 25,
@@ -61,14 +61,19 @@
       ".playwright-cli",
       "target"
     ],
+    "repository_metadata": {
+      "git_head_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/HEAD",
+      "git_head_ref": "ref: refs/heads/main",
+      "remote_network": false
+    },
     "strategy": "canonical_uri_content_hash"
   },
   "missing_count": 0,
   "mode": "sync_plan",
   "planned_count": 1,
   "report_paths": {
-    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/markdown-docs-sync-plan.json",
-    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/markdown-docs-sync-plan.md"
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/local-git-sync-plan.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/local-git-sync-plan.md"
   },
   "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs",
   "schema_version": "2.97-A"

@@ -8,6 +8,7 @@ Covered regions:
 
 - connector dry-run contract
 - local-git dry-run report
+- local-git sync-plan checkpoint
 - markdown-docs dry-run
 - markdown-docs sync-plan / conflict review projection
 - markdown-docs explicit apply path

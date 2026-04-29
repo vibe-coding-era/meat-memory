@@ -28,6 +28,10 @@ cat >"${FIXTURE_DIR}/docs/README.md" <<'EOF'
 
 Markdown docs connector acceptance fixture.
 EOF
+mkdir -p "${FIXTURE_DIR}/docs/.git"
+cat >"${FIXTURE_DIR}/docs/.git/HEAD" <<'EOF'
+ref: refs/heads/main
+EOF
 
 cat >"${FIXTURE_DIR}/chat/chat.json" <<'EOF'
 {
@@ -69,6 +73,14 @@ echo "[v2.97] markdown-docs sync-plan report"
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/markdown-docs-sync-plan-cli.json"
 
+echo "[v2.97] local-git sync-plan report"
+"${MEMORY_CLI}" compat connector-sync-plan \
+    --connector local-git \
+    --root-path "${FIXTURE_DIR}/docs" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/local-git-sync-plan-cli.json"
+
 echo "[v2.97] chat-export dry-run report"
 "${MEMORY_CLI}" compat connector-dry-run \
     --connector chat-export \
@@ -86,6 +98,7 @@ echo "[v2.97] chat-export import-draft report"
 
 test -f "${REPORT_DIR}/markdown-docs-dry-run.json"
 test -f "${REPORT_DIR}/markdown-docs-sync-plan.json"
+test -f "${REPORT_DIR}/local-git-sync-plan.json"
 test -f "${REPORT_DIR}/chat-export-dry-run.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
 grep -q "Conflict Review" "${REPORT_DIR}/markdown-docs-sync-plan.md"
@@ -94,6 +107,7 @@ grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
 python3 - <<'PY' \
   "${REPORT_DIR}/markdown-docs-dry-run-cli.json" \
   "${REPORT_DIR}/markdown-docs-sync-plan-cli.json" \
+  "${REPORT_DIR}/local-git-sync-plan-cli.json" \
   "${REPORT_DIR}/chat-export-dry-run-cli.json" \
   "${REPORT_DIR}/chat-export-import-draft-cli.json"
 import json
@@ -101,10 +115,11 @@ import sys
 
 markdown_dry_run = json.load(open(sys.argv[1]))
 markdown_sync_plan = json.load(open(sys.argv[2]))
-chat_dry_run = json.load(open(sys.argv[3]))
-chat_import_draft = json.load(open(sys.argv[4]))
+local_git_sync_plan = json.load(open(sys.argv[3]))
+chat_dry_run = json.load(open(sys.argv[4]))
+chat_import_draft = json.load(open(sys.argv[5]))
 
-for payload in (markdown_dry_run, markdown_sync_plan, chat_dry_run, chat_import_draft):
+for payload in (markdown_dry_run, markdown_sync_plan, local_git_sync_plan, chat_dry_run, chat_import_draft):
     assert payload["schema_version"] == "2.97-A", payload
     assert payload["coverage_gate"]["new_feature_test_coverage_required"] == "100%", payload
 
@@ -113,6 +128,9 @@ assert markdown_dry_run["candidate_count"] == 1, markdown_dry_run
 assert markdown_sync_plan["connector"] == "markdown-docs", markdown_sync_plan
 assert markdown_sync_plan["planned_count"] == 1, markdown_sync_plan
 assert "conflicts" in markdown_sync_plan, markdown_sync_plan
+assert local_git_sync_plan["connector"] == "local-git", local_git_sync_plan
+assert local_git_sync_plan["planned_count"] == 1, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["git_head_ref"] == "ref: refs/heads/main", local_git_sync_plan
 assert chat_dry_run["connector"] == "chat-export", chat_dry_run
 assert chat_dry_run["items"][0]["metadata"]["message_count"] == 2, chat_dry_run
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
@@ -132,6 +150,7 @@ Covered regions:
 
 - connector dry-run contract
 - local-git dry-run report
+- local-git sync-plan checkpoint
 - markdown-docs dry-run
 - markdown-docs sync-plan / conflict review projection
 - markdown-docs explicit apply path
