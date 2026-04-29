@@ -228,6 +228,7 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/health/report"));
     assert!(has_route("/api/v1/passports/manifest"));
     assert!(has_route("/api/v1/compat/report"));
+    assert!(has_route("/api/v1/compat/connectors/dry-run"));
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
@@ -285,6 +286,7 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/explorer/memories"));
     assert!(text.contains("/api/v1/assistant/chat"));
     assert!(text.contains("/api/v1/metrics/keys"));
+    assert!(text.contains("/api/v1/compat/connectors/dry-run"));
 }
 
 #[tokio::test]
@@ -321,6 +323,37 @@ async fn v29_surface_http_reports_compat_and_health() {
     let health_payload = response_json(health).await;
     assert_eq!(health_payload["scope_id"], "scp_http_compat");
     assert!(health_payload["risks"].is_array());
+}
+
+#[tokio::test]
+async fn v297_http_connector_dry_run_returns_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("README.md"),
+        "# HTTP Connector\n\nDry-run fixture.",
+    )
+    .unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let uri = format!(
+        "/api/v1/compat/connectors/dry-run?connector=markdown-docs&root_path={}&max_items=5",
+        tempdir.path().display()
+    );
+
+    let response = app
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let payload = response_json(response).await;
+    assert_eq!(payload["schema_version"], "2.97-A");
+    assert_eq!(payload["connector"], "markdown-docs");
+    assert_eq!(payload["mode"], "dry_run");
+    assert_eq!(payload["candidate_count"], 1);
+    assert_eq!(
+        payload["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
 }
 
 #[tokio::test]

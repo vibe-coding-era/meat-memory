@@ -14,12 +14,12 @@ use memory_domain::{
 };
 use memory_kernel::{
     ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
-    CreateAccessKeyRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, Kernel,
-    ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
-    PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, RememberTextResult,
-    SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
-    build_competitor_compatibility_report, compatibility_report_json, health_json,
-    verification_json, verify_memory_passport_bundle,
+    ConnectorDryRunRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
+    InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
+    PromoteAgentContextRequest, PromoteMemoryRequest, RememberImageRequest, RememberTextRequest,
+    RememberTextResult, SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+    build_competitor_compatibility_report, compatibility_report_json, connector_dry_run_json,
+    health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -72,6 +72,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/health/report",
     "/api/v1/passports/manifest",
     "/api/v1/compat/report",
+    "/api/v1/compat/connectors/dry-run",
     "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
@@ -428,6 +429,13 @@ pub struct CompatReportQuery {
     pub scope_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ConnectorDryRunQuery {
+    pub connector: Option<String>,
+    pub root_path: Option<String>,
+    pub max_items: Option<usize>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LifecycleStatusHttpRequest {
     pub status: Option<String>,
@@ -652,6 +660,10 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/health/report", get(health_report))
         .route("/api/v1/passports/manifest", get(passport_manifest))
         .route("/api/v1/compat/report", get(compat_report))
+        .route(
+            "/api/v1/compat/connectors/dry-run",
+            get(compat_connector_dry_run),
+        )
         .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
         .route("/api/v1/context/search", post(search_context))
@@ -1805,6 +1817,26 @@ async fn compat_report(
     let report = build_competitor_compatibility_report(scope_id).map_err(api_error_from_anyhow)?;
 
     Ok(Json(compatibility_report_json(&report)))
+}
+
+async fn compat_connector_dry_run(
+    Query(query): Query<ConnectorDryRunQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let connector = query
+        .connector
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("connector is required"))?;
+    let root_path = query
+        .root_path
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("root_path is required"))?;
+    let mut request = ConnectorDryRunRequest::new(connector, PathBuf::from(root_path));
+    if let Some(max_items) = query.max_items {
+        request.max_items = max_items;
+    }
+    let report = run_connector_dry_run(request).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(connector_dry_run_json(&report)))
 }
 
 fn report_input_dir(input_dir: Option<String>, default_dir: &str) -> PathBuf {
@@ -3202,6 +3234,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
           <div class="card-header">
             <h2 class="card-title">Projection Debug</h2>
             <span class="memory-meta-tag">source/document</span>
+            <span class="memory-meta-tag">connector dry-run /api/v1/compat/connectors/dry-run</span>
           </div>
           <div class="chat-note muted">
             填写 raw key、source_id、document_id，直接查看 V2.4 project document markdown projection。

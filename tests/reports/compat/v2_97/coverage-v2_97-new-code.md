@@ -17,10 +17,14 @@ Covered regions:
 - chat-export import-draft projection
 - chat-export explicit apply path
 - CLI parser and command projections
+- HTTP connector dry-run endpoint
+- MCP connector dry-run tool
 
 Evidence:
 
 - `cargo test -p memory-kernel --lib v297_`
 - `cargo test -p memory-cli --bin memory-cli connector_`
+- `cargo test -p memory-http --lib v297_http_connector_`
+- `cargo test -p memory-mcp --lib v297_mcp_connector_`
 - `cargo test -p memory-cli --bin memory-cli cli_command_functions_cover_pg_management_paths`
 - `docs/scripts/v2_97-acceptance.sh`

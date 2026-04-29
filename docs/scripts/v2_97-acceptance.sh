@@ -85,6 +85,12 @@ run_step "kernel V2.97 connector contract" \
 run_step "CLI V2.97 connector contract" \
   cargo test -p memory-cli --bin memory-cli connector_ -- --test-threads=1
 
+run_step "HTTP V2.97 connector management contract" \
+  cargo test -p memory-http --lib v297_http_connector_ -- --test-threads=1
+
+run_step "MCP V2.97 connector management contract" \
+  cargo test -p memory-mcp --lib v297_mcp_connector_ -- --test-threads=1
+
 run_step "CLI binary build" cargo build -p memory-cli
 MEMORY_CLI="${ROOT_DIR}/target/debug/memory-cli"
 
@@ -224,11 +230,15 @@ Covered regions:
 - chat-export import-draft projection
 - chat-export explicit apply path
 - CLI parser and command projections
+- HTTP connector dry-run endpoint
+- MCP connector dry-run tool
 
 Evidence:
 
 - `cargo test -p memory-kernel --lib v297_`
 - `cargo test -p memory-cli --bin memory-cli connector_`
+- `cargo test -p memory-http --lib v297_http_connector_`
+- `cargo test -p memory-mcp --lib v297_mcp_connector_`
 - `cargo test -p memory-cli --bin memory-cli cli_command_functions_cover_pg_management_paths`
 - `docs/scripts/v2_97-acceptance.sh`
 EOF

@@ -173,7 +173,8 @@ fn exposes_fetch_context_tool() {
     assert!(tool_supported("memory.health.report"));
     assert!(tool_supported("memory.passport.manifest"));
     assert!(tool_supported("memory.compat.report"));
-    assert_eq!(TOOL_SPECS.len(), 33);
+    assert!(tool_supported("memory.connectors.dry_run"));
+    assert_eq!(TOOL_SPECS.len(), 34);
 }
 
 #[test]
@@ -244,6 +245,39 @@ async fn dispatch_v29_compat_and_health_reports() {
     assert_eq!(health.tool, "memory.health.report");
     assert_eq!(health.data["scope_id"], "scp_mcp_compat");
     assert!(health.data["risks"].is_array());
+}
+
+#[tokio::test]
+async fn v297_mcp_connector_dry_run_returns_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("README.md"),
+        "# MCP Connector\n\nDry-run fixture.",
+    )
+    .unwrap();
+    let server = test_server(tempdir.path());
+
+    let response = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.dry_run".to_string(),
+            arguments: serde_json::json!({
+                "connector": "markdown-docs",
+                "root_path": tempdir.path().display().to_string(),
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(response.tool, "memory.connectors.dry_run");
+    assert_eq!(response.data["schema_version"], "2.97-A");
+    assert_eq!(response.data["connector"], "markdown-docs");
+    assert_eq!(response.data["mode"], "dry_run");
+    assert_eq!(response.data["candidate_count"], 1);
+    assert_eq!(
+        response.data["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
 }
 
 #[tokio::test]

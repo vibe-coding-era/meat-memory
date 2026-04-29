@@ -15,17 +15,18 @@ use memory_domain::{
 };
 use memory_kernel::{
     ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
-    ChangeMemoryLifecycleStatusRequest, ComposedDistillationProfile, DistillationCandidate,
-    DistillationPromptSegment, DistillationSessionOverride, GetMemoryProposalRequest,
-    GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest,
-    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
-    PreviewDistillationResult, PromoteAgentContextRequest, PromoteMemoryRequest,
-    RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind, RollbackMemoryRequest,
-    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
+    ChangeMemoryLifecycleStatusRequest, ComposedDistillationProfile, ConnectorDryRunRequest,
+    DistillationCandidate, DistillationPromptSegment, DistillationSessionOverride,
+    GetMemoryProposalRequest, GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel,
+    ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
+    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryTimeline,
+    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind,
+    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
+    TimelineEvent, TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
     UpsertDistillationProfileRequest, build_competitor_compatibility_report,
-    compatibility_report_json, health_json, verification_json, verify_memory_passport_bundle,
+    compatibility_report_json, connector_dry_run_json, health_json, run_connector_dry_run,
+    verification_json, verify_memory_passport_bundle,
 };
 use memory_observability::operation_span;
 use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
@@ -154,6 +155,10 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
         description: "Return the V2.95 Supermemory / mem0 / MemoryLake compatibility mapping. Optional: scope_id.",
     },
     ToolSpec {
+        name: "memory.connectors.dry_run",
+        description: "Run a V2.97 connector dry-run without writing memory. Required arguments: connector, root_path. Optional: max_items.",
+    },
+    ToolSpec {
         name: "memory.context.upsert",
         description: "Create or refresh short-term Agent context. Required arguments: key, session_id, title, body. Optional: scope_id, task_id, labels.",
     },
@@ -210,6 +215,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory.health.report",
     "memory.passport.manifest",
     "memory.compat.report",
+    "memory.connectors.dry_run",
     "memory.context.upsert",
     "memory.context.list",
     "memory.context.promote",
@@ -358,6 +364,9 @@ impl McpServer {
                 }
                 "memory.compat.report" => {
                     self.handle_compat_report(&trace_id, request.arguments)?
+                }
+                "memory.connectors.dry_run" => {
+                    self.handle_connector_dry_run(&trace_id, request.arguments)?
                 }
                 "memory.context.upsert" => {
                     self.handle_context_upsert(&trace_id, request.arguments)
@@ -1252,6 +1261,26 @@ impl McpServer {
         })
     }
 
+    fn handle_connector_dry_run(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ConnectorDryRunToolArgs>(arguments)?;
+        let mut request = ConnectorDryRunRequest::new(payload.connector, payload.root_path);
+        if let Some(max_items) = payload.max_items {
+            request.max_items = max_items;
+        }
+        let report = run_connector_dry_run(request).map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.connectors.dry_run".to_string(),
+            trace_id: trace_id.to_string(),
+            data: connector_dry_run_json(&report),
+            warnings: Vec::new(),
+        })
+    }
+
     async fn handle_context_upsert(
         &self,
         trace_id: &str,
@@ -1762,6 +1791,13 @@ struct TraceInspectToolArgs {
 #[derive(Debug, Clone, Deserialize)]
 struct CompatReportToolArgs {
     scope_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConnectorDryRunToolArgs {
+    connector: String,
+    root_path: String,
+    max_items: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
