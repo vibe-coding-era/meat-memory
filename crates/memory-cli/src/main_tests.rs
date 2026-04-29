@@ -1089,8 +1089,8 @@ fn connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate(
     ))
     .unwrap();
     let paths = write_connector_import_draft_report(tempdir.path(), &report).unwrap();
-    let rendered = connector_import_draft_output_json(&report, &paths);
-    let lines = connector_import_draft_lines(&report, &paths);
+    let rendered = connector_import_draft_output_json(false, &report, &paths, &[]);
+    let lines = connector_import_draft_lines(false, &report, &paths, &[]);
 
     assert_eq!(rendered["schema_version"], "2.97-A");
     assert_eq!(rendered["mode"], "import_draft");
@@ -1175,8 +1175,8 @@ fn compat_connector_dry_run_command_writes_chat_export_report() {
     );
 }
 
-#[test]
-fn compat_connector_import_draft_command_writes_chat_export_report() {
+#[tokio::test]
+async fn compat_connector_import_draft_command_writes_chat_export_report() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("chat.json"),
@@ -1192,22 +1192,28 @@ fn compat_connector_import_draft_command_writes_chat_export_report() {
     let output_dir = tempdir.path().join("reports");
 
     compat_connector_import_draft_command(super::CompatConnectorImportDraftArgs {
+        key: None,
         connector: "chat-export".to_string(),
         root_path: tempdir.path().to_path_buf(),
         scope_id: "scp_cli_chat_import".to_string(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        apply: false,
         json: false,
     })
+    .await
     .unwrap();
     compat_connector_import_draft_command(super::CompatConnectorImportDraftArgs {
+        key: None,
         connector: "chat-export".to_string(),
         root_path: tempdir.path().to_path_buf(),
         scope_id: "scp_cli_chat_import".to_string(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        apply: false,
         json: true,
     })
+    .await
     .unwrap();
 
     let json_text = fs::read_to_string(output_dir.join("chat-export-import-draft.json")).unwrap();
@@ -1609,6 +1615,8 @@ fn compat_cli_parser_accepts_connector_import_draft() {
         "memory-cli",
         "compat",
         "connector-import-draft",
+        "--key",
+        "mk_parser",
         "--connector",
         "chat-export",
         "--root-path",
@@ -1619,6 +1627,7 @@ fn compat_cli_parser_accepts_connector_import_draft() {
         "tests/reports/compat/latest",
         "--max-items",
         "7",
+        "--apply",
         "--json",
     ])
     .unwrap();
@@ -1626,6 +1635,7 @@ fn compat_cli_parser_accepts_connector_import_draft() {
         super::Command::Compat(super::CompatArgs {
             command: super::CompatCommand::ConnectorImportDraft(args),
         }) => {
+            assert_eq!(args.key.as_deref(), Some("mk_parser"));
             assert_eq!(args.connector, "chat-export");
             assert_eq!(args.root_path, PathBuf::from("exports"));
             assert_eq!(args.scope_id, "scp_parser");
@@ -1634,6 +1644,7 @@ fn compat_cli_parser_accepts_connector_import_draft() {
                 PathBuf::from("tests/reports/compat/latest")
             );
             assert_eq!(args.max_items, 7);
+            assert!(args.apply);
             assert!(args.json);
         }
         _ => panic!("expected compat connector import-draft command"),
@@ -4221,6 +4232,48 @@ async fn cli_command_functions_cover_pg_management_paths() {
             .count(),
         1
     );
+    let chat_root = tempdir.path().join("chat-export");
+    fs::create_dir_all(&chat_root).unwrap();
+    fs::write(
+        chat_root.join("chat.json"),
+        r#"{
+          "id": "chat_apply",
+          "title": "Connector chat apply",
+          "messages": [
+            {"role": "user", "content": "Capture this connector import."},
+            {"role": "assistant", "content": "Imported after explicit apply."}
+          ]
+        }"#,
+    )
+    .unwrap();
+    compat_connector_import_draft_command(super::CompatConnectorImportDraftArgs {
+        key: Some(raw_key.clone()),
+        connector: "chat-export".to_string(),
+        root_path: chat_root,
+        scope_id: scope_id.as_str().to_string(),
+        output_dir: tempdir.path().join("compat-chat-reports"),
+        max_items: 10,
+        apply: true,
+        json: true,
+    })
+    .await
+    .unwrap();
+    let chat_bundle = kernel
+        .search_context(memory_kernel::SearchContextRequest {
+            scope_id: scope_id.clone(),
+            query: "Connector chat apply".to_string(),
+            limit: 10,
+            context: Some(context.clone()),
+        })
+        .await
+        .unwrap();
+    assert!(chat_bundle.memories.iter().any(|memory| {
+        memory.title == "Connector chat apply"
+            && memory
+                .source_refs
+                .iter()
+                .any(|source_ref| source_ref.contains("chat.json#chat_apply"))
+    }));
 
     let mut remember_request = memory_kernel::RememberTextRequest::new(
         scope_id.clone(),

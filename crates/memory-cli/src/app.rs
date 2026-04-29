@@ -5,9 +5,9 @@ use memory_core::{ServiceInfo, log_startup, startup_banner};
 use memory_domain::{
     AccessKeyId, AgentContextId, ArtifactKind, ContextBundle, DistillationProfile,
     DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus,
-    DocumentConflictState, DocumentSyncState, KeyScopeKind, KeySourceKind, MemoryId, MemoryKind,
-    MemoryProposal, MemoryRecordStatus, MemoryRelation, MemorySource, ProposalId, RequestContext,
-    ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode, Visibility,
+    DocumentConflictState, DocumentSyncState, KeyScopeKind, KeySourceKind, Memory, MemoryId,
+    MemoryKind, MemoryProposal, MemoryRecordStatus, MemoryRelation, MemorySource, ProposalId,
+    RequestContext, ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode, Visibility,
 };
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{
@@ -1524,7 +1524,7 @@ async fn compat_command(args: CompatArgs) -> Result<()> {
         CompatCommand::Report(report) => compat_report_command(report),
         CompatCommand::ConnectorDryRun(dry_run) => compat_connector_dry_run_command(dry_run),
         CompatCommand::ConnectorImportDraft(import_draft) => {
-            compat_connector_import_draft_command(import_draft)
+            compat_connector_import_draft_command(import_draft).await
         }
         CompatCommand::ConnectorSyncPlan(sync_plan) => {
             compat_connector_sync_plan_command(sync_plan).await
@@ -1568,20 +1568,37 @@ fn compat_connector_dry_run_command(args: CompatConnectorDryRunArgs) -> Result<(
     Ok(())
 }
 
-fn compat_connector_import_draft_command(args: CompatConnectorImportDraftArgs) -> Result<()> {
-    let mut request = ConnectorImportDraftRequest::new(
-        args.connector,
-        args.root_path,
-        ScopeId::from_string(args.scope_id),
-    );
+async fn compat_connector_import_draft_command(args: CompatConnectorImportDraftArgs) -> Result<()> {
+    let scope_id = ScopeId::from_string(args.scope_id);
+    let mut request =
+        ConnectorImportDraftRequest::new(args.connector, args.root_path, scope_id.clone());
     request.max_items = args.max_items;
     let report = build_connector_import_draft_report(request)?;
     let paths = write_connector_import_draft_report(&args.output_dir, &report)?;
+    let mut imported = Vec::new();
+
+    if args.apply {
+        let (_, kernel, _) = bootstrap_runtime().await?;
+        let context = resolve_required_cli_request_context(&kernel, args.key.as_deref()).await?;
+        ensure_cli_context_scope(&context, &scope_id)?;
+        for draft in &report.drafts {
+            let mut request = RememberTextRequest::new(draft.scope_id.clone(), draft.body.clone());
+            request.title = Some(draft.title.clone());
+            request.memory_kind = Some(draft.memory_kind);
+            request.source_refs = draft.source_refs.clone();
+            request.visibility = Visibility::Private;
+            request.sensitivity = Sensitivity::Internal;
+            request.context = Some(context.clone());
+            imported.push(kernel.remember_text(request).await?.memory);
+        }
+    }
 
     if args.json {
-        print_json(connector_import_draft_output_json(&report, &paths))?;
+        print_json(connector_import_draft_output_json(
+            args.apply, &report, &paths, &imported,
+        ))?;
     } else {
-        for line in connector_import_draft_lines(&report, &paths) {
+        for line in connector_import_draft_lines(args.apply, &report, &paths, &imported) {
             println!("{line}");
         }
     }
@@ -1838,6 +1855,22 @@ fn memory_provenance_lines(provenance: &MemoryProvenance) -> Vec<String> {
     lines
 }
 
+fn memory_json(memory: &Memory) -> serde_json::Value {
+    json!({
+        "memory_id": memory.id.as_str(),
+        "scope_id": memory.scope_id.as_str(),
+        "kind": format!("{:?}", memory.kind),
+        "state": format!("{:?}", memory.state),
+        "title": memory.title,
+        "body": memory.body,
+        "source_refs": memory.source_refs,
+        "visibility": format!("{:?}", memory.visibility),
+        "sensitivity": format!("{:?}", memory.sensitivity),
+        "created_at": memory.created_at,
+        "updated_at": memory.updated_at,
+    })
+}
+
 fn passport_paths_json(paths: &MemoryPassportPaths) -> serde_json::Value {
     json!({
         "passport": paths.passport.display().to_string(),
@@ -1922,11 +1955,18 @@ fn connector_dry_run_lines(
 }
 
 fn connector_import_draft_output_json(
+    apply: bool,
     report: &ConnectorImportDraftReport,
     paths: &ConnectorImportDraftReportPaths,
+    imported: &[Memory],
 ) -> serde_json::Value {
     let mut value = connector_import_draft_json(report);
     if let Some(object) = value.as_object_mut() {
+        object.insert("apply".to_string(), json!(apply));
+        object.insert(
+            "imported".to_string(),
+            json!(imported.iter().map(memory_json).collect::<Vec<_>>()),
+        );
         object.insert(
             "report_paths".to_string(),
             json!({
@@ -1939,16 +1979,20 @@ fn connector_import_draft_output_json(
 }
 
 fn connector_import_draft_lines(
+    apply: bool,
     report: &ConnectorImportDraftReport,
     paths: &ConnectorImportDraftReportPaths,
+    imported: &[Memory],
 ) -> Vec<String> {
     vec![
         format!("Connector schema: {}", report.schema_version),
         format!("Connector: {}", report.connector),
         format!("Mode: {}", report.mode),
+        format!("Apply: {apply}"),
         format!("Drafts: {}", report.draft_count),
+        format!("Imported memories: {}", imported.len()),
         format!("Failures: {}", report.failures.len()),
-        "Writes memory: false".to_string(),
+        format!("Writes memory: {apply}"),
         "New feature coverage gate: 100%".to_string(),
         format!(
             "Connector import-draft report: {}",

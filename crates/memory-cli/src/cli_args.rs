@@ -862,6 +862,8 @@ pub(super) struct CompatConnectorDryRunArgs {
 #[derive(Debug, Clone, Args)]
 pub(super) struct CompatConnectorImportDraftArgs {
     #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
     pub(super) connector: String,
     #[arg(long, default_value = ".")]
     pub(super) root_path: PathBuf,
@@ -871,6 +873,8 @@ pub(super) struct CompatConnectorImportDraftArgs {
     pub(super) output_dir: PathBuf,
     #[arg(long, default_value_t = 100)]
     pub(super) max_items: usize,
+    #[arg(long)]
+    pub(super) apply: bool,
     #[arg(long)]
     pub(super) json: bool,
 }
