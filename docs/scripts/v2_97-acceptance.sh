@@ -7,7 +7,9 @@ FIXTURE_DIR="${V2_97_ACCEPTANCE_FIXTURE_DIR:-${ROOT_DIR}/target/v2_97-acceptance
 ACCEPTANCE_REPORT="${REPORT_DIR}/v2_97-acceptance.txt"
 COVERAGE_REPORT="${REPORT_DIR}/coverage-v2_97-new-code.md"
 
-mkdir -p "${REPORT_DIR}" "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat"
+mkdir -p "${REPORT_DIR}" "${FIXTURE_DIR}"
+rm -rf "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat"
+mkdir -p "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat"
 cd "${ROOT_DIR}"
 
 exec > >(tee "${ACCEPTANCE_REPORT}") 2>&1
@@ -33,32 +35,32 @@ summary: Markdown docs connector acceptance fixture.
 
 Markdown docs connector acceptance fixture.
 EOF
-mkdir -p "${FIXTURE_DIR}/docs/.git"
-cat >"${FIXTURE_DIR}/docs/.git/HEAD" <<'EOF'
-ref: refs/heads/main
+
+git -C "${FIXTURE_DIR}/docs" init -b main >/dev/null
+git -C "${FIXTURE_DIR}/docs" config user.name "Ada"
+git -C "${FIXTURE_DIR}/docs" config user.email "ada@example.test"
+git -C "${FIXTURE_DIR}/docs" remote add origin git@example.test:team/v297-fixture.git
+git -C "${FIXTURE_DIR}/docs" add README.md
+GIT_AUTHOR_DATE="2024-03-09T00:00:00+0000" \
+GIT_COMMITTER_DATE="2024-03-09T00:00:00+0000" \
+  git -C "${FIXTURE_DIR}/docs" commit -m "add V2.97 docs" >/dev/null
+BASE_SHA="$(git -C "${FIXTURE_DIR}/docs" rev-parse HEAD)"
+cat >"${FIXTURE_DIR}/docs/tracked.txt" <<'EOF'
+tracked fixture
 EOF
-mkdir -p "${FIXTURE_DIR}/docs/.git/refs/heads"
-cat >"${FIXTURE_DIR}/docs/.git/refs/heads/main" <<'EOF'
-2222222222222222222222222222222222222222
-EOF
-cat >"${FIXTURE_DIR}/docs/.git/config" <<'EOF'
-[remote "origin"]
-	url = git@example.test:team/v297-fixture.git
-	fetch = +refs/heads/*:refs/remotes/origin/*
-EOF
-cat >"${FIXTURE_DIR}/docs/.git/packed-refs" <<'EOF'
+git -C "${FIXTURE_DIR}/docs" add tracked.txt
+GIT_AUTHOR_DATE="2024-03-09T00:01:00+0000" \
+GIT_COMMITTER_DATE="2024-03-09T00:01:00+0000" \
+  git -C "${FIXTURE_DIR}/docs" commit -m "update V2.97 connector fixture" >/dev/null
+HEAD_SHA="$(git -C "${FIXTURE_DIR}/docs" rev-parse HEAD)"
+cat >"${FIXTURE_DIR}/docs/.git/packed-refs" <<EOF
 # pack-refs with: peeled fully-peeled sorted
-3333333333333333333333333333333333333333 refs/tags/v2.97
-1111111111111111111111111111111111111111 refs/heads/main
-4444444444444444444444444444444444444444 refs/remotes/origin/main
+${BASE_SHA} refs/tags/v2.97
+${BASE_SHA} refs/heads/main
+${HEAD_SHA} refs/remotes/origin/main
 EOF
-cat >"${FIXTURE_DIR}/docs/.git/index" <<'EOF'
-index fixture
-EOF
-mkdir -p "${FIXTURE_DIR}/docs/.git/logs"
-cat >"${FIXTURE_DIR}/docs/.git/logs/HEAD" <<'EOF'
-0000000000000000000000000000000000000000 1111111111111111111111111111111111111111 Ada <ada@example.test> 1710000000 +0000	commit (initial): add V2.97 docs
-1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 Ada <ada@example.test> 1710000100 +0000	commit: update V2.97 connector fixture
+cat >"${FIXTURE_DIR}/docs/scratch.tmp" <<'EOF'
+untracked fixture
 EOF
 
 cat >"${FIXTURE_DIR}/chat/chat.json" <<'EOF'
@@ -167,19 +169,28 @@ assert local_git_sync_plan["connector"] == "local-git", local_git_sync_plan
 assert local_git_sync_plan["planned_count"] == 1, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["git_head_ref"] == "ref: refs/heads/main", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["active_branch"] == "main", local_git_sync_plan
+repo_metadata = local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]
+branch_sha = repo_metadata["branches"][0]["sha"]
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["branch_count"] == 1, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["remote_count"] == 1, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_ref_count"] == 3, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["packed_refs"][0]["kind"] == "tag", local_git_sync_plan
+packed_main = [ref for ref in repo_metadata["packed_refs"] if ref["name"] == "refs/heads/main"][0]
+assert packed_main["sha"] != branch_sha, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["ref_count"] == 3, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["name"] == "refs/heads/main", local_git_sync_plan
-assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["sha"] == "2222222222222222222222222222222222222222", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["sha"] == branch_sha, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][0]["source"] == "loose", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][1]["name"] == "refs/remotes/origin/main", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["refs"][2]["name"] == "refs/tags/v2.97", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["git_index_present"] is True, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["status_available"] is True, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["status_source"] == "git_status_porcelain_v1", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["dirty_state"] == "dirty", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["status_summary"]["untracked_count"] == 1, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["status_entries"][0]["path"] == "scratch.tmp", local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["commit_count"] == 2, local_git_sync_plan
-assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["recent_commits"][0]["sha"] == "2222222222222222222222222222222222222222", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["recent_commits"][0]["sha"] == branch_sha, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["important_files"][0]["relative_path"] == "README.md", local_git_sync_plan
 assert chat_dry_run["connector"] == "chat-export", chat_dry_run
 assert chat_dry_run["items"][0]["metadata"]["message_count"] == 2, chat_dry_run

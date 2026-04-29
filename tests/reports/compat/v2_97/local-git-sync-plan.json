@@ -80,7 +80,7 @@
           "kind": "branch",
           "name": "main",
           "ref_name": "refs/heads/main",
-          "sha": "2222222222222222222222222222222222222222",
+          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
           "source": "loose",
           "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
         }
@@ -100,7 +100,7 @@
         {
           "kind": "tag",
           "name": "refs/tags/v2.97",
-          "sha": "3333333333333333333333333333333333333333",
+          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9",
           "short_name": "v2.97",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
@@ -108,7 +108,7 @@
         {
           "kind": "branch",
           "name": "refs/heads/main",
-          "sha": "1111111111111111111111111111111111111111",
+          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9",
           "short_name": "main",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/heads/main"
@@ -116,7 +116,7 @@
         {
           "kind": "remote_ref",
           "name": "refs/remotes/origin/main",
-          "sha": "4444444444444444444444444444444444444444",
+          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
           "short_name": "origin/main",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
@@ -124,14 +124,14 @@
       ],
       "recent_commits": [
         {
-          "committed_at_unix": 1710000100,
+          "committed_at_unix": 1709942460,
           "message": "commit: update V2.97 connector fixture",
-          "sha": "2222222222222222222222222222222222222222"
+          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07"
         },
         {
-          "committed_at_unix": 1710000000,
+          "committed_at_unix": 1709942400,
           "message": "commit (initial): add V2.97 docs",
-          "sha": "1111111111111111111111111111111111111111"
+          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9"
         }
       ],
       "ref_count": 3,
@@ -139,7 +139,7 @@
         {
           "kind": "branch",
           "name": "refs/heads/main",
-          "sha": "2222222222222222222222222222222222222222",
+          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
           "short_name": "main",
           "source": "loose",
           "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
@@ -147,7 +147,7 @@
         {
           "kind": "remote_ref",
           "name": "refs/remotes/origin/main",
-          "sha": "4444444444444444444444444444444444444444",
+          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
           "short_name": "origin/main",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
@@ -155,7 +155,7 @@
         {
           "kind": "tag",
           "name": "refs/tags/v2.97",
-          "sha": "3333333333333333333333333333333333333333",
+          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9",
           "short_name": "v2.97",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
@@ -171,11 +171,31 @@
         }
       ],
       "worktree_status": {
-        "dirty_state": "not_evaluated_offline",
-        "git_index_bytes": 14,
+        "dirty_state": "dirty",
+        "git_index_bytes": 217,
         "git_index_present": true,
         "remote_network": false,
-        "strategy": "offline_metadata_only"
+        "status_available": true,
+        "status_entries": [
+          {
+            "code": "??",
+            "kind": "untracked",
+            "path": "scratch.tmp"
+          }
+        ],
+        "status_entry_count": 1,
+        "status_source": "git_status_porcelain_v1",
+        "status_summary": {
+          "added_count": 0,
+          "conflicted_count": 0,
+          "copied_count": 0,
+          "deleted_count": 0,
+          "modified_count": 0,
+          "other_count": 0,
+          "renamed_count": 0,
+          "untracked_count": 1
+        },
+        "strategy": "git_status_porcelain_v1"
       }
     },
     "strategy": "canonical_uri_content_hash"

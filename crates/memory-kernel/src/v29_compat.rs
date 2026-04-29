@@ -10,6 +10,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 use time::OffsetDateTime;
 
@@ -1693,12 +1694,136 @@ fn local_git_ref_short_name(name: &str) -> String {
 fn local_git_worktree_status(root_path: &Path) -> Value {
     let index_path = root_path.join(".git").join("index");
     let index_metadata = fs::metadata(&index_path).ok();
+    let git_index_present = index_metadata.is_some();
+    let git_index_bytes = index_metadata.map(|metadata| metadata.len());
+
+    match local_git_porcelain_status(root_path) {
+        Ok(status_entries) => {
+            let status_summary = local_git_status_summary(&status_entries);
+            json!({
+                "strategy": "git_status_porcelain_v1",
+                "remote_network": false,
+                "status_source": "git_status_porcelain_v1",
+                "status_available": true,
+                "git_index_present": git_index_present,
+                "git_index_bytes": git_index_bytes,
+                "dirty_state": if status_entries.is_empty() { "clean" } else { "dirty" },
+                "status_entry_count": status_entries.len(),
+                "status_entries": status_entries,
+                "status_summary": status_summary,
+            })
+        }
+        Err(error) => json!({
+            "strategy": "offline_metadata_only",
+            "remote_network": false,
+            "status_source": "unavailable",
+            "status_available": false,
+            "status_error": error,
+            "git_index_present": git_index_present,
+            "git_index_bytes": git_index_bytes,
+            "dirty_state": "unknown_offline",
+            "status_entry_count": 0,
+            "status_entries": [],
+            "status_summary": local_git_status_summary(&[]),
+        }),
+    }
+}
+
+fn local_git_porcelain_status(root_path: &Path) -> std::result::Result<Vec<Value>, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root_path)
+        .args(["status", "--porcelain=v1", "--untracked-files=all"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .output()
+        .map_err(|error| format!("git status unavailable: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            return Err(format!("git status exited with {}", output.status));
+        }
+        return Err(stderr);
+    }
+
+    Ok(local_git_porcelain_entries(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
+}
+
+fn local_git_porcelain_entries(stdout: &str) -> Vec<Value> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            if line.chars().count() < 3 {
+                return None;
+            }
+            let code = line.chars().take(2).collect::<String>();
+            let path = line.chars().skip(3).collect::<String>();
+            let kind = local_git_porcelain_kind(&code);
+            Some(json!({
+                "code": code,
+                "path": path,
+                "kind": kind,
+            }))
+        })
+        .collect()
+}
+
+fn local_git_porcelain_kind(code: &str) -> &'static str {
+    if code == "??" {
+        "untracked"
+    } else if code == "!!" {
+        "ignored"
+    } else if code.contains('U') {
+        "conflicted"
+    } else if code.contains('D') {
+        "deleted"
+    } else if code.contains('A') {
+        "added"
+    } else if code.contains('R') {
+        "renamed"
+    } else if code.contains('C') {
+        "copied"
+    } else if code.contains('M') {
+        "modified"
+    } else {
+        "other"
+    }
+}
+
+fn local_git_status_summary(status_entries: &[Value]) -> Value {
+    let mut untracked_count = 0;
+    let mut modified_count = 0;
+    let mut deleted_count = 0;
+    let mut added_count = 0;
+    let mut renamed_count = 0;
+    let mut copied_count = 0;
+    let mut conflicted_count = 0;
+    let mut other_count = 0;
+
+    for entry in status_entries {
+        match entry["kind"].as_str().unwrap_or("other") {
+            "untracked" => untracked_count += 1,
+            "modified" => modified_count += 1,
+            "deleted" => deleted_count += 1,
+            "added" => added_count += 1,
+            "renamed" => renamed_count += 1,
+            "copied" => copied_count += 1,
+            "conflicted" => conflicted_count += 1,
+            _ => other_count += 1,
+        }
+    }
+
     json!({
-        "strategy": "offline_metadata_only",
-        "remote_network": false,
-        "git_index_present": index_metadata.is_some(),
-        "git_index_bytes": index_metadata.map(|metadata| metadata.len()),
-        "dirty_state": "not_evaluated_offline",
+        "untracked_count": untracked_count,
+        "modified_count": modified_count,
+        "deleted_count": deleted_count,
+        "added_count": added_count,
+        "renamed_count": renamed_count,
+        "copied_count": copied_count,
+        "conflicted_count": conflicted_count,
+        "other_count": other_count,
     })
 }
 
@@ -2596,7 +2721,7 @@ mod tests {
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["worktree_status"]["dirty_state"],
-            "not_evaluated_offline"
+            "unknown_offline"
         );
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["commit_count"],
@@ -2614,6 +2739,24 @@ mod tests {
             output.report.incremental_checkpoint["repository_metadata"]["important_files"][0]["relative_path"],
             "README.md"
         );
+    }
+
+    #[test]
+    fn v297_local_git_porcelain_status_summarizes_dirty_entries() {
+        let entries = local_git_porcelain_entries(
+            " M README.md\n?? scratch.tmp\nD  old.txt\nR  old-name.md -> new-name.md\n",
+        );
+        let summary = local_git_status_summary(&entries);
+
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0]["kind"], "modified");
+        assert_eq!(entries[1]["kind"], "untracked");
+        assert_eq!(entries[2]["kind"], "deleted");
+        assert_eq!(entries[3]["kind"], "renamed");
+        assert_eq!(summary["modified_count"], 1);
+        assert_eq!(summary["untracked_count"], 1);
+        assert_eq!(summary["deleted_count"], 1);
+        assert_eq!(summary["renamed_count"], 1);
     }
 
     #[test]

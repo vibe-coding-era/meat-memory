@@ -13,7 +13,7 @@
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
      Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
 
-running 14 tests
+running 15 tests
 test v29_compat::tests::v297_chat_export_dry_run_parses_chatgpt_mapping_json ... ok
 test v29_compat::tests::v297_chat_export_dry_run_parses_generic_messages_json ... ok
 test v29_compat::tests::v297_chat_export_import_draft_projects_reviewable_memory_drafts ... ok
@@ -23,13 +23,14 @@ test v29_compat::tests::v297_connector_dry_run_writer_outputs_json_and_markdown 
 test v29_compat::tests::v297_connector_import_draft_writer_outputs_json_and_markdown ... ok
 test v29_compat::tests::v297_connector_sync_plan_writer_outputs_json_and_markdown ... ok
 test v29_compat::tests::v297_local_git_dry_run_reports_repository_candidates_and_failures ... ok
+test v29_compat::tests::v297_local_git_porcelain_status_summarizes_dirty_entries ... ok
 test v29_compat::tests::v297_local_git_sync_plan_includes_repository_checkpoint ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_builds_apply_ready_plan_and_evidence_preview ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_dirs ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
 
-test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.01s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.01s
 
 [v2.97] CLI V2.97 connector contract
    Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
