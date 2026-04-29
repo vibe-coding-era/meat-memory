@@ -60,8 +60,28 @@
       "target"
     ],
     "repository_metadata": {
+      "commit_count": 2,
       "git_head_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/HEAD",
       "git_head_ref": "ref: refs/heads/main",
+      "important_files": [
+        {
+          "content_bytes": 71,
+          "relative_path": "README.md",
+          "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
+        }
+      ],
+      "recent_commits": [
+        {
+          "committed_at_unix": 1710000100,
+          "message": "commit: update V2.97 connector fixture",
+          "sha": "2222222222222222222222222222222222222222"
+        },
+        {
+          "committed_at_unix": 1710000000,
+          "message": "commit (initial): add V2.97 docs",
+          "sha": "1111111111111111111111111111111111111111"
+        }
+      ],
       "remote_network": false
     },
     "strategy": "canonical_uri_content_hash"

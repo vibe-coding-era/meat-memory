@@ -32,6 +32,11 @@ mkdir -p "${FIXTURE_DIR}/docs/.git"
 cat >"${FIXTURE_DIR}/docs/.git/HEAD" <<'EOF'
 ref: refs/heads/main
 EOF
+mkdir -p "${FIXTURE_DIR}/docs/.git/logs"
+cat >"${FIXTURE_DIR}/docs/.git/logs/HEAD" <<'EOF'
+0000000000000000000000000000000000000000 1111111111111111111111111111111111111111 Ada <ada@example.test> 1710000000 +0000	commit (initial): add V2.97 docs
+1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 Ada <ada@example.test> 1710000100 +0000	commit: update V2.97 connector fixture
+EOF
 
 cat >"${FIXTURE_DIR}/chat/chat.json" <<'EOF'
 {
@@ -133,6 +138,9 @@ assert "conflicts" in markdown_sync_plan, markdown_sync_plan
 assert local_git_sync_plan["connector"] == "local-git", local_git_sync_plan
 assert local_git_sync_plan["planned_count"] == 1, local_git_sync_plan
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["git_head_ref"] == "ref: refs/heads/main", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["commit_count"] == 2, local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["recent_commits"][0]["sha"] == "2222222222222222222222222222222222222222", local_git_sync_plan
+assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["important_files"][0]["relative_path"] == "README.md", local_git_sync_plan
 assert chat_dry_run["connector"] == "chat-export", chat_dry_run
 assert chat_dry_run["items"][0]["metadata"]["message_count"] == 2, chat_dry_run
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft

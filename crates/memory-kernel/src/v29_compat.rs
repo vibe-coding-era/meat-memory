@@ -724,6 +724,7 @@ fn local_git_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDr
     }
 
     let candidate_count = items.len();
+    let repository_metadata = local_git_repository_metadata(&root_path);
     Ok(ConnectorDryRunReport {
         schema_version: "2.97-A".to_string(),
         connector: "local-git".to_string(),
@@ -740,6 +741,7 @@ fn local_git_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDr
         incremental_checkpoint: json!({
             "strategy": "path_mtime_size",
             "remote_network": false,
+            "repository_metadata": repository_metadata,
         }),
     })
 }
@@ -1301,24 +1303,92 @@ fn connector_sync_checkpoint(connector: &str, root_path: &Path) -> Value {
     });
 
     if connector == "local-git" {
-        let head_path = root_path.join(".git").join("HEAD");
-        let head_ref = fs::read_to_string(&head_path)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
         if let Some(object) = checkpoint.as_object_mut() {
             object.insert(
                 "repository_metadata".to_string(),
-                json!({
-                    "git_head_path": head_path.display().to_string(),
-                    "git_head_ref": head_ref,
-                    "remote_network": false,
-                }),
+                local_git_repository_metadata(root_path),
             );
         }
     }
 
     checkpoint
+}
+
+fn local_git_repository_metadata(root_path: &Path) -> Value {
+    let head_path = root_path.join(".git").join("HEAD");
+    let head_ref = fs::read_to_string(&head_path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let recent_commits = local_git_recent_commits(root_path, 5);
+    let important_files = local_git_important_files(root_path);
+
+    json!({
+        "git_head_path": head_path.display().to_string(),
+        "git_head_ref": head_ref,
+        "remote_network": false,
+        "commit_count": recent_commits.len(),
+        "recent_commits": recent_commits,
+        "important_files": important_files,
+    })
+}
+
+fn local_git_recent_commits(root_path: &Path, limit: usize) -> Vec<Value> {
+    let log_path = root_path.join(".git").join("logs").join("HEAD");
+    let Ok(log_text) = fs::read_to_string(log_path) else {
+        return Vec::new();
+    };
+
+    log_text
+        .lines()
+        .rev()
+        .filter_map(local_git_reflog_entry)
+        .take(limit)
+        .collect()
+}
+
+fn local_git_reflog_entry(line: &str) -> Option<Value> {
+    let (header, message) = line.split_once('\t').unwrap_or((line, ""));
+    let mut parts = header.split_whitespace();
+    let _old_sha = parts.next()?;
+    let new_sha = parts.next()?.to_string();
+    let tokens = header.split_whitespace().collect::<Vec<_>>();
+    let committed_at = tokens
+        .len()
+        .checked_sub(2)
+        .and_then(|index| tokens.get(index))
+        .and_then(|value| value.parse::<i64>().ok());
+
+    Some(json!({
+        "sha": new_sha,
+        "committed_at_unix": committed_at,
+        "message": message.trim(),
+    }))
+}
+
+fn local_git_important_files(root_path: &Path) -> Vec<Value> {
+    [
+        "README.md",
+        "AGENTS.md",
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "docs/README.md",
+    ]
+    .iter()
+    .filter_map(|relative_path| {
+        let path = root_path.join(relative_path);
+        if !path.is_file() {
+            return None;
+        }
+        let metadata = fs::metadata(&path).ok()?;
+        Some(json!({
+            "relative_path": relative_path,
+            "content_bytes": metadata.len(),
+            "source_ref": format!("file://{}", path.display()),
+        }))
+    })
+    .collect()
 }
 
 fn render_connector_sync_plan_markdown(report: &ConnectorSyncPlanReport) -> String {
@@ -1822,6 +1892,10 @@ mod tests {
                 .any(|failure| failure.contains("missing .git"))
         );
         assert_eq!(report.incremental_checkpoint["remote_network"], false);
+        assert_eq!(
+            report.incremental_checkpoint["repository_metadata"]["important_files"][0]["relative_path"],
+            "README.md"
+        );
     }
 
     #[test]
@@ -2050,6 +2124,12 @@ mod tests {
             "ref: refs/heads/main\n",
         )
         .unwrap();
+        fs::create_dir_all(tempdir.path().join(".git").join("logs")).unwrap();
+        fs::write(
+            tempdir.path().join(".git").join("logs").join("HEAD"),
+            "0000000000000000000000000000000000000000 1111111111111111111111111111111111111111 Ada <ada@example.test> 1710000000 +0000\tcommit (initial): add repo docs\n1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 Ada <ada@example.test> 1710000100 +0000\tcommit: update connector plan\n",
+        )
+        .unwrap();
         fs::write(
             tempdir.path().join("README.md"),
             "# Repo\n\nLocal git docs.",
@@ -2072,6 +2152,22 @@ mod tests {
         assert_eq!(
             output.report.incremental_checkpoint["repository_metadata"]["remote_network"],
             false
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["commit_count"],
+            2
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["recent_commits"][0]["sha"],
+            "2222222222222222222222222222222222222222"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["recent_commits"][0]["message"],
+            "commit: update connector plan"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["repository_metadata"]["important_files"][0]["relative_path"],
+            "README.md"
         );
     }
 
