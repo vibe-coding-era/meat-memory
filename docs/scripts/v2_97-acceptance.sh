@@ -94,6 +94,7 @@ echo "[v2.97] chat-export import-draft report"
     --root-path "${FIXTURE_DIR}/chat" \
     --scope-id scp_v297_acceptance \
     --output-dir "${REPORT_DIR}" \
+    --proposal \
     --json >"${REPORT_DIR}/chat-export-import-draft-cli.json"
 
 test -f "${REPORT_DIR}/markdown-docs-dry-run.json"
@@ -103,6 +104,7 @@ test -f "${REPORT_DIR}/chat-export-dry-run.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
 grep -q "Conflict Review" "${REPORT_DIR}/markdown-docs-sync-plan.md"
 grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
+grep -q "Proposal Drafts" "${REPORT_DIR}/chat-export-import-draft.md"
 
 python3 - <<'PY' \
   "${REPORT_DIR}/markdown-docs-dry-run-cli.json" \
@@ -135,7 +137,11 @@ assert chat_dry_run["connector"] == "chat-export", chat_dry_run
 assert chat_dry_run["items"][0]["metadata"]["message_count"] == 2, chat_dry_run
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
+assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
+assert chat_import_draft["proposal_drafts"][0]["proposal_type"] == "distill_upsert", chat_import_draft
+assert chat_import_draft["proposal_drafts"][0]["review_level"] == "required", chat_import_draft
 assert chat_import_draft["import_policy"]["writes_memory"] is False, chat_import_draft
+assert chat_import_draft["import_policy"]["proposal_mode"] is True, chat_import_draft
 assert chat_import_draft["drafts"][0]["source_refs"][0].endswith("chat.json#v297_acceptance_chat"), chat_import_draft
 PY
 

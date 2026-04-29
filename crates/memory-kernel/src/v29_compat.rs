@@ -126,6 +126,7 @@ pub struct ConnectorImportDraftRequest {
     pub root_path: PathBuf,
     pub scope_id: ScopeId,
     pub max_items: usize,
+    pub proposal_mode: bool,
 }
 
 impl ConnectorImportDraftRequest {
@@ -139,6 +140,7 @@ impl ConnectorImportDraftRequest {
             root_path: root_path.into(),
             scope_id,
             max_items: 100,
+            proposal_mode: false,
         }
     }
 }
@@ -156,6 +158,19 @@ pub struct ConnectorImportDraft {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorImportProposalDraft {
+    pub connector: String,
+    pub draft_external_id: String,
+    pub scope_id: ScopeId,
+    pub proposal_type: String,
+    pub review_level: String,
+    pub reason: String,
+    pub evidence: Vec<String>,
+    pub source_refs: Vec<String>,
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorImportDraftReport {
     pub schema_version: String,
     pub connector: String,
@@ -163,6 +178,8 @@ pub struct ConnectorImportDraftReport {
     pub mode: String,
     pub draft_count: usize,
     pub drafts: Vec<ConnectorImportDraft>,
+    pub proposal_draft_count: usize,
+    pub proposal_drafts: Vec<ConnectorImportProposalDraft>,
     pub failures: Vec<String>,
     pub import_policy: Value,
 }
@@ -484,9 +501,18 @@ pub fn build_connector_import_draft_report(
         );
     }
 
+    let proposal_mode = request.proposal_mode;
     let (mut drafts, failures) =
         chat_export_import_drafts(&root_path, &request.scope_id, request.max_items)?;
     drafts.truncate(request.max_items);
+    let proposal_drafts = if proposal_mode {
+        drafts
+            .iter()
+            .map(connector_import_proposal_draft)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     Ok(ConnectorImportDraftReport {
         schema_version: "2.97-A".to_string(),
@@ -495,12 +521,15 @@ pub fn build_connector_import_draft_report(
         mode: "import_draft".to_string(),
         draft_count: drafts.len(),
         drafts,
+        proposal_draft_count: proposal_drafts.len(),
+        proposal_drafts,
         failures,
         import_policy: json!({
             "safe_default": "explicit_import_only",
             "writes_memory": false,
+            "proposal_mode": proposal_mode,
             "review_required_before_apply": true,
-            "target": "memory_draft",
+            "target": if proposal_mode { "governance_proposal_draft" } else { "memory_draft" },
         }),
     })
 }
@@ -513,6 +542,8 @@ pub fn connector_import_draft_json(report: &ConnectorImportDraftReport) -> Value
         "mode": report.mode,
         "draft_count": report.draft_count,
         "drafts": report.drafts,
+        "proposal_draft_count": report.proposal_draft_count,
+        "proposal_drafts": report.proposal_drafts,
         "failures": report.failures,
         "import_policy": report.import_policy,
         "coverage_gate": {
@@ -520,6 +551,7 @@ pub fn connector_import_draft_json(report: &ConnectorImportDraftReport) -> Value
             "covered_regions": [
                 "chat_export_parser",
                 "chat_export_import_draft_projection",
+                "chat_export_import_proposal_projection",
                 "connector_import_draft_report",
                 "cli_parser_and_command"
             ]
@@ -1016,6 +1048,33 @@ fn conversation_import_draft(
     }
 }
 
+fn connector_import_proposal_draft(draft: &ConnectorImportDraft) -> ConnectorImportProposalDraft {
+    ConnectorImportProposalDraft {
+        connector: draft.connector.clone(),
+        draft_external_id: draft.external_id.clone(),
+        scope_id: draft.scope_id.clone(),
+        proposal_type: "distill_upsert".to_string(),
+        review_level: "required".to_string(),
+        reason: format!(
+            "Review chat-export conversation '{}' before importing it as memory.",
+            draft.title
+        ),
+        evidence: vec![format!(
+            "connector={} external_id={} source_refs={}",
+            draft.connector,
+            draft.external_id,
+            draft.source_refs.join(",")
+        )],
+        source_refs: draft.source_refs.clone(),
+        metadata: json!({
+            "target_memory_kind": format!("{:?}", draft.memory_kind).to_ascii_lowercase(),
+            "target_title": draft.title,
+            "draft_body_bytes": draft.body.len(),
+            "source_metadata": draft.metadata,
+        }),
+    }
+}
+
 fn chat_export_item(
     root_path: &Path,
     path: &Path,
@@ -1357,6 +1416,9 @@ fn render_connector_import_draft_markdown(report: &ConnectorImportDraftReport) -
     output.push_str("## Import Policy\n\n");
     output.push_str("- explicit import only; this report does not write memory records\n");
     output.push_str("- review is required before apply\n");
+    if report.import_policy["proposal_mode"] == true {
+        output.push_str("- proposal draft mode is enabled; review queue semantics are projected without writing proposals\n");
+    }
 
     output.push_str("\n## Drafts\n\n");
     for draft in &report.drafts {
@@ -1367,6 +1429,21 @@ fn render_connector_import_draft_markdown(report: &ConnectorImportDraftReport) -
             draft.external_id,
             draft.source_refs.first().cloned().unwrap_or_default()
         ));
+    }
+
+    output.push_str("\n## Proposal Drafts\n\n");
+    if report.proposal_drafts.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for proposal in &report.proposal_drafts {
+            output.push_str(&format!(
+                "- {} [{}]\n  - draft_external_id: {}\n  - evidence: {}\n",
+                proposal.proposal_type,
+                proposal.review_level,
+                proposal.draft_external_id,
+                proposal.evidence.first().cloned().unwrap_or_default()
+            ));
+        }
     }
 
     output.push_str("\n## Failures\n\n");
@@ -1843,22 +1920,28 @@ mod tests {
         )
         .unwrap();
 
-        let report = build_connector_import_draft_report(ConnectorImportDraftRequest::new(
+        let mut request = ConnectorImportDraftRequest::new(
             "chat-export",
             tempdir.path(),
             ScopeId::from_string("scp_chat_import"),
-        ))
-        .unwrap();
+        );
+        request.proposal_mode = true;
+        let report = build_connector_import_draft_report(request).unwrap();
 
         assert_eq!(report.connector, "chat-export");
         assert_eq!(report.mode, "import_draft");
         assert_eq!(report.draft_count, 1);
+        assert_eq!(report.proposal_draft_count, 1);
         assert_eq!(report.drafts[0].title, "Release decision");
         assert_eq!(report.drafts[0].memory_kind, MemoryKind::Summary);
         assert_eq!(report.drafts[0].scope_id.as_str(), "scp_chat_import");
         assert!(report.drafts[0].body.contains("user: Should we ship"));
         assert_eq!(report.drafts[0].metadata["message_count"], 2);
+        assert_eq!(report.proposal_drafts[0].proposal_type, "distill_upsert");
+        assert_eq!(report.proposal_drafts[0].review_level, "required");
+        assert_eq!(report.proposal_drafts[0].draft_external_id, "conv_import");
         assert_eq!(report.import_policy["writes_memory"], false);
+        assert_eq!(report.import_policy["proposal_mode"], true);
     }
 
     #[test]

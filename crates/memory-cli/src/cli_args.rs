@@ -876,6 +876,8 @@ pub(super) struct CompatConnectorImportDraftArgs {
     #[arg(long)]
     pub(super) apply: bool,
     #[arg(long)]
+    pub(super) proposal: bool,
+    #[arg(long)]
     pub(super) json: bool,
 }
 

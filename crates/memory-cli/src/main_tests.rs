@@ -1095,6 +1095,7 @@ fn connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate(
     assert_eq!(rendered["schema_version"], "2.97-A");
     assert_eq!(rendered["mode"], "import_draft");
     assert_eq!(rendered["draft_count"], 1);
+    assert_eq!(rendered["proposal_draft_count"], 0);
     assert_eq!(rendered["import_policy"]["writes_memory"], false);
     assert_eq!(
         rendered["coverage_gate"]["new_feature_test_coverage_required"],
@@ -1109,6 +1110,7 @@ fn connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate(
             .to_string()
     );
     assert!(lines.iter().any(|line| line == "Writes memory: false"));
+    assert!(lines.iter().any(|line| line == "Proposal drafts: 0"));
 }
 
 #[test]
@@ -1199,6 +1201,7 @@ async fn compat_connector_import_draft_command_writes_chat_export_report() {
         output_dir: output_dir.clone(),
         max_items: 10,
         apply: false,
+        proposal: false,
         json: false,
     })
     .await
@@ -1211,6 +1214,7 @@ async fn compat_connector_import_draft_command_writes_chat_export_report() {
         output_dir: output_dir.clone(),
         max_items: 10,
         apply: false,
+        proposal: true,
         json: true,
     })
     .await
@@ -1218,6 +1222,13 @@ async fn compat_connector_import_draft_command_writes_chat_export_report() {
 
     let json_text = fs::read_to_string(output_dir.join("chat-export-import-draft.json")).unwrap();
     let payload: serde_json::Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(payload["proposal_draft_count"], 1);
+    assert_eq!(
+        payload["proposal_drafts"][0]["proposal_type"],
+        "distill_upsert"
+    );
+    assert_eq!(payload["proposal_drafts"][0]["review_level"], "required");
+    assert_eq!(payload["import_policy"]["proposal_mode"], true);
 
     assert!(output_dir.join("chat-export-import-draft.md").exists());
     assert_eq!(payload["connector"], "chat-export");
@@ -1628,6 +1639,7 @@ fn compat_cli_parser_accepts_connector_import_draft() {
         "--max-items",
         "7",
         "--apply",
+        "--proposal",
         "--json",
     ])
     .unwrap();
@@ -1645,6 +1657,7 @@ fn compat_cli_parser_accepts_connector_import_draft() {
             );
             assert_eq!(args.max_items, 7);
             assert!(args.apply);
+            assert!(args.proposal);
             assert!(args.json);
         }
         _ => panic!("expected compat connector import-draft command"),
@@ -4254,6 +4267,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
         output_dir: tempdir.path().join("compat-chat-reports"),
         max_items: 10,
         apply: true,
+        proposal: true,
         json: true,
     })
     .await

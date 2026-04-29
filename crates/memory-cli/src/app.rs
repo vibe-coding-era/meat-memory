@@ -1573,6 +1573,7 @@ async fn compat_connector_import_draft_command(args: CompatConnectorImportDraftA
     let mut request =
         ConnectorImportDraftRequest::new(args.connector, args.root_path, scope_id.clone());
     request.max_items = args.max_items;
+    request.proposal_mode = args.proposal;
     let report = build_connector_import_draft_report(request)?;
     let paths = write_connector_import_draft_report(&args.output_dir, &report)?;
     let mut imported = Vec::new();
@@ -1990,6 +1991,7 @@ fn connector_import_draft_lines(
         format!("Mode: {}", report.mode),
         format!("Apply: {apply}"),
         format!("Drafts: {}", report.draft_count),
+        format!("Proposal drafts: {}", report.proposal_draft_count),
         format!("Imported memories: {}", imported.len()),
         format!("Failures: {}", report.failures.len()),
         format!("Writes memory: {apply}"),
