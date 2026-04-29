@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, bail};
 use memory_domain::{EvidenceSpan, MemoryKind, ScopeId};
 use memory_sync::{
-    LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan, ProjectDocumentSnapshot,
+    LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan, ProjectDocumentConflictReport,
+    ProjectDocumentSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -222,6 +223,7 @@ pub struct ConnectorSyncPlanReport {
     pub missing_count: usize,
     pub conflict_count: usize,
     pub documents: Vec<ConnectorSyncPlanDocument>,
+    pub conflicts: Vec<ProjectDocumentConflictReport>,
     pub evidence_preview: Vec<EvidenceSpan>,
     pub incremental_checkpoint: Value,
 }
@@ -608,6 +610,7 @@ pub fn build_connector_sync_plan(
         missing_count: plan.missing.len(),
         conflict_count: plan.conflicts.len(),
         documents,
+        conflicts: plan.conflicts.clone(),
         evidence_preview,
         incremental_checkpoint: json!({
             "strategy": "canonical_uri_content_hash",
@@ -629,12 +632,14 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
         "missing_count": report.missing_count,
         "conflict_count": report.conflict_count,
         "documents": report.documents,
+        "conflicts": report.conflicts,
         "evidence_preview": report.evidence_preview,
         "incremental_checkpoint": report.incremental_checkpoint,
         "coverage_gate": {
             "new_feature_test_coverage_required": "100%",
             "covered_regions": [
                 "markdown_docs_sync_plan",
+                "sync_plan_conflict_review_projection",
                 "sync_plan_evidence_preview",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
@@ -1249,6 +1254,21 @@ fn render_connector_sync_plan_markdown(report: &ConnectorSyncPlanReport) -> Stri
             "- {} ({})\n  - {}\n",
             document.title, document.sync_state, document.canonical_uri
         ));
+    }
+
+    output.push_str("\n## Conflict Review\n\n");
+    if report.conflicts.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for conflict in &report.conflicts {
+            output.push_str(&format!(
+                "- {} ({}/{})\n  - {}\n",
+                conflict.canonical_uri,
+                conflict.sync_state.as_str(),
+                conflict.conflict_state.as_str(),
+                conflict.reason.as_deref().unwrap_or("review recommended")
+            ));
+        }
     }
 
     output.push_str("\n## Evidence Preview\n\n");
@@ -1930,6 +1950,8 @@ mod tests {
 
         assert_eq!(output.report.planned_count, 0);
         assert_eq!(output.report.missing_count, 1);
+        assert_eq!(output.report.conflict_count, 1);
+        assert_eq!(output.report.conflicts[0].canonical_uri, missing_uri);
         assert_eq!(output.plan.missing[0].canonical_uri, missing_uri);
     }
 
@@ -2003,6 +2025,7 @@ mod tests {
             "100%"
         );
         assert!(markdown_text.contains("Connector Sync Plan"));
+        assert!(markdown_text.contains("Conflict Review"));
         assert!(markdown_text.contains("Evidence Preview"));
     }
 }
