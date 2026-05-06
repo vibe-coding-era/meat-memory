@@ -176,7 +176,8 @@ fn exposes_fetch_context_tool() {
     assert!(tool_supported("memory.connectors.dry_run"));
     assert!(tool_supported("memory.connectors.sync_plan"));
     assert!(tool_supported("memory.connectors.import_draft"));
-    assert_eq!(TOOL_SPECS.len(), 36);
+    assert!(tool_supported("memory.connectors.proposal_queue"));
+    assert_eq!(TOOL_SPECS.len(), 37);
 }
 
 #[test]
@@ -347,6 +348,53 @@ async fn v297_mcp_connector_sync_plan_and_import_draft_return_reports() {
     assert_eq!(import.data["draft_count"], 1);
     assert_eq!(import.data["proposal_draft_count"], 1);
     assert_eq!(import.data["import_policy"]["writes_memory"], false);
+}
+
+#[tokio::test]
+async fn v297_mcp_connector_proposal_queue_returns_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        serde_json::json!({
+            "id": "mcp_queue",
+            "title": "MCP queue import",
+            "messages": [
+                {"role": "user", "content": "Queue this MCP connector import."},
+                {"role": "assistant", "content": "Return a review queue item."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let server = test_server(tempdir.path());
+
+    let response = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.proposal_queue".to_string(),
+            arguments: serde_json::json!({
+                "connector": "chat-export",
+                "root_path": tempdir.path().display().to_string(),
+                "scope_id": "scp_mcp_connector",
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(response.tool, "memory.connectors.proposal_queue");
+    assert_eq!(response.data["schema_version"], "2.97-A");
+    assert_eq!(response.data["connector"], "chat-export");
+    assert_eq!(response.data["mode"], "proposal_queue");
+    assert_eq!(response.data["queue_item_count"], 1);
+    assert_eq!(
+        response.data["queue_items"][0]["proposal_type"],
+        "distill_upsert"
+    );
+    assert_eq!(response.data["queue_policy"]["writes_memory"], false);
+    assert_eq!(
+        response.data["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
 }
 
 #[tokio::test]

@@ -16,19 +16,20 @@ use memory_domain::{
 use memory_kernel::{
     ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
     ChangeMemoryLifecycleStatusRequest, ComposedDistillationProfile, ConnectorDryRunRequest,
-    ConnectorImportDraftRequest, ConnectorSyncPlanRequest, DistillationCandidate,
-    DistillationPromptSegment, DistillationSessionOverride, GetMemoryProposalRequest,
-    GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest,
-    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
-    PreviewDistillationResult, PromoteAgentContextRequest, PromoteMemoryRequest,
-    RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind, RollbackMemoryRequest,
-    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
+    ConnectorImportDraftRequest, ConnectorProposalQueueRequest, ConnectorSyncPlanRequest,
+    DistillationCandidate, DistillationPromptSegment, DistillationSessionOverride,
+    GetMemoryProposalRequest, GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel,
+    ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
+    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryTimeline,
+    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind,
+    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
+    TimelineEvent, TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
     UpsertDistillationProfileRequest, build_competitor_compatibility_report,
-    build_connector_import_draft_report, build_connector_sync_plan, compatibility_report_json,
-    connector_dry_run_json, connector_import_draft_json, connector_sync_plan_json, health_json,
-    run_connector_dry_run, verification_json, verify_memory_passport_bundle,
+    build_connector_import_draft_report, build_connector_proposal_queue_report,
+    build_connector_sync_plan, compatibility_report_json, connector_dry_run_json,
+    connector_import_draft_json, connector_proposal_queue_json, connector_sync_plan_json,
+    health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
 };
 use memory_observability::operation_span;
 use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
@@ -169,6 +170,10 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
         description: "Build a V2.97 connector import draft without writing memory. Required arguments: connector, root_path. Optional: scope_id, max_items, proposal.",
     },
     ToolSpec {
+        name: "memory.connectors.proposal_queue",
+        description: "Build a V2.97 connector proposal queue without applying or writing memory. Required arguments: connector, root_path. Optional: scope_id, max_items.",
+    },
+    ToolSpec {
         name: "memory.context.upsert",
         description: "Create or refresh short-term Agent context. Required arguments: key, session_id, title, body. Optional: scope_id, task_id, labels.",
     },
@@ -228,6 +233,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory.connectors.dry_run",
     "memory.connectors.sync_plan",
     "memory.connectors.import_draft",
+    "memory.connectors.proposal_queue",
     "memory.context.upsert",
     "memory.context.list",
     "memory.context.promote",
@@ -385,6 +391,9 @@ impl McpServer {
                 }
                 "memory.connectors.import_draft" => {
                     self.handle_connector_import_draft(&trace_id, request.arguments)?
+                }
+                "memory.connectors.proposal_queue" => {
+                    self.handle_connector_proposal_queue(&trace_id, request.arguments)?
                 }
                 "memory.context.upsert" => {
                     self.handle_context_upsert(&trace_id, request.arguments)
@@ -1350,6 +1359,31 @@ impl McpServer {
         })
     }
 
+    fn handle_connector_proposal_queue(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ConnectorProposalQueueToolArgs>(arguments)?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| self.default_scope_id.clone());
+        let mut request =
+            ConnectorProposalQueueRequest::new(payload.connector, payload.root_path, scope_id);
+        if let Some(max_items) = payload.max_items {
+            request.max_items = max_items;
+        }
+        let report = build_connector_proposal_queue_report(request).map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.connectors.proposal_queue".to_string(),
+            trace_id: trace_id.to_string(),
+            data: connector_proposal_queue_json(&report),
+            warnings: Vec::new(),
+        })
+    }
+
     async fn handle_context_upsert(
         &self,
         trace_id: &str,
@@ -1884,6 +1918,14 @@ struct ConnectorImportDraftToolArgs {
     scope_id: Option<String>,
     max_items: Option<usize>,
     proposal: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConnectorProposalQueueToolArgs {
+    connector: String,
+    root_path: String,
+    scope_id: Option<String>,
+    max_items: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

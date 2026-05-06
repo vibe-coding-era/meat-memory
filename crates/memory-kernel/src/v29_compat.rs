@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
-use memory_domain::{EvidenceSpan, MemoryKind, ScopeId};
+use memory_domain::{
+    EvidenceId, EvidenceSpan, EvidenceSpanKind, EvidenceSpanLocation, MemoryKind, ScopeId,
+};
 use memory_sync::{
     LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan, ProjectDocumentConflictReport,
     ProjectDocumentSnapshot,
@@ -255,6 +257,71 @@ pub struct ConnectorSyncPlanOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorSyncPlanReportPaths {
+    pub json: PathBuf,
+    pub markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorProposalQueueRequest {
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub scope_id: ScopeId,
+    pub previous_snapshots: Vec<ProjectDocumentSnapshot>,
+    pub max_items: usize,
+}
+
+impl ConnectorProposalQueueRequest {
+    pub fn new(
+        connector: impl Into<String>,
+        root_path: impl Into<PathBuf>,
+        scope_id: ScopeId,
+    ) -> Self {
+        Self {
+            connector: connector.into(),
+            root_path: root_path.into(),
+            scope_id,
+            previous_snapshots: Vec::new(),
+            max_items: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorProposalQueueItem {
+    pub queue_item_id: String,
+    pub connector: String,
+    pub external_id: String,
+    pub scope_id: ScopeId,
+    pub title: String,
+    pub proposal_type: String,
+    pub review_level: String,
+    pub review_status: String,
+    pub apply_target: String,
+    pub blocked: bool,
+    pub block_reason: Option<String>,
+    pub reason: String,
+    pub evidence: Vec<String>,
+    pub source_refs: Vec<String>,
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorProposalQueueReport {
+    pub schema_version: String,
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub mode: String,
+    pub queue_item_count: usize,
+    pub blocked_count: usize,
+    pub queue_items: Vec<ConnectorProposalQueueItem>,
+    pub failures: Vec<String>,
+    pub source_summary: Value,
+    pub queue_policy: Value,
+    pub incremental_checkpoint: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorProposalQueueReportPaths {
     pub json: PathBuf,
     pub markdown: PathBuf,
 }
@@ -705,6 +772,330 @@ pub fn write_connector_sync_plan_report(
         json: json_path,
         markdown: markdown_path,
     })
+}
+
+pub fn build_connector_proposal_queue_report(
+    request: ConnectorProposalQueueRequest,
+) -> Result<ConnectorProposalQueueReport> {
+    match request.connector.as_str() {
+        "chat-export" => build_import_proposal_queue_report(request),
+        "markdown-docs" | "local-git" => build_sync_proposal_queue_report(request),
+        other => bail!(
+            "unsupported connector proposal queue: {other}; supported connectors are markdown-docs, local-git, and chat-export"
+        ),
+    }
+}
+
+pub fn connector_proposal_queue_json(report: &ConnectorProposalQueueReport) -> Value {
+    json!({
+        "schema_version": report.schema_version,
+        "connector": report.connector,
+        "root_path": report.root_path,
+        "mode": report.mode,
+        "queue_item_count": report.queue_item_count,
+        "blocked_count": report.blocked_count,
+        "queue_items": report.queue_items,
+        "failures": report.failures,
+        "source_summary": report.source_summary,
+        "queue_policy": report.queue_policy,
+        "incremental_checkpoint": report.incremental_checkpoint,
+        "coverage_gate": {
+            "new_feature_test_coverage_required": "100%",
+            "covered_regions": [
+                "connector_proposal_queue_projection",
+                "markdown_docs_proposal_queue",
+                "local_git_proposal_queue",
+                "chat_export_proposal_queue",
+                "service_surface_projection"
+            ]
+        }
+    })
+}
+
+pub fn write_connector_proposal_queue_report(
+    output_dir: &Path,
+    report: &ConnectorProposalQueueReport,
+) -> Result<ConnectorProposalQueueReportPaths> {
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+    let json_path = output_dir.join(format!("{}-proposal-queue.json", report.connector));
+    let markdown_path = output_dir.join(format!("{}-proposal-queue.md", report.connector));
+
+    fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&connector_proposal_queue_json(report))?,
+    )
+    .with_context(|| format!("failed to write {}", json_path.display()))?;
+    fs::write(
+        &markdown_path,
+        render_connector_proposal_queue_markdown(report),
+    )
+    .with_context(|| format!("failed to write {}", markdown_path.display()))?;
+
+    Ok(ConnectorProposalQueueReportPaths {
+        json: json_path,
+        markdown: markdown_path,
+    })
+}
+
+fn build_import_proposal_queue_report(
+    request: ConnectorProposalQueueRequest,
+) -> Result<ConnectorProposalQueueReport> {
+    let mut draft_request = ConnectorImportDraftRequest::new(
+        request.connector,
+        request.root_path,
+        request.scope_id.clone(),
+    );
+    draft_request.max_items = request.max_items;
+    draft_request.proposal_mode = true;
+    let report = build_connector_import_draft_report(draft_request)?;
+    let queue_items = report
+        .proposal_drafts
+        .iter()
+        .enumerate()
+        .map(|(index, proposal)| import_proposal_queue_item(index, proposal))
+        .collect::<Vec<_>>();
+
+    Ok(connector_proposal_queue_report(
+        report.connector,
+        report.root_path,
+        queue_items,
+        report.failures,
+        json!({
+            "upstream_mode": report.mode,
+            "draft_count": report.draft_count,
+            "proposal_draft_count": report.proposal_draft_count,
+        }),
+        connector_import_queue_checkpoint(&report.drafts),
+    ))
+}
+
+fn build_sync_proposal_queue_report(
+    request: ConnectorProposalQueueRequest,
+) -> Result<ConnectorProposalQueueReport> {
+    let mut sync_request = ConnectorSyncPlanRequest::new(
+        request.connector,
+        request.root_path,
+        request.scope_id.clone(),
+    );
+    sync_request.previous_snapshots = request.previous_snapshots;
+    sync_request.max_items = request.max_items;
+    let output = build_connector_sync_plan(sync_request)?;
+    let mut queue_items = output
+        .report
+        .documents
+        .iter()
+        .enumerate()
+        .filter(|(_, document)| document.sync_state != "clean")
+        .map(|(index, document)| {
+            sync_document_proposal_queue_item(
+                index,
+                &output.report.connector,
+                &request.scope_id,
+                document,
+                output.report.evidence_preview.get(index),
+            )
+        })
+        .collect::<Vec<_>>();
+    let conflict_offset = queue_items.len();
+    queue_items.extend(
+        output
+            .report
+            .conflicts
+            .iter()
+            .enumerate()
+            .map(|(index, conflict)| {
+                sync_conflict_proposal_queue_item(
+                    conflict_offset + index,
+                    &output.report.connector,
+                    &request.scope_id,
+                    conflict,
+                )
+            }),
+    );
+
+    Ok(connector_proposal_queue_report(
+        output.report.connector,
+        output.report.root_path,
+        queue_items,
+        Vec::new(),
+        json!({
+            "upstream_mode": output.report.mode,
+            "planned_count": output.report.planned_count,
+            "missing_count": output.report.missing_count,
+            "conflict_count": output.report.conflict_count,
+        }),
+        output.report.incremental_checkpoint,
+    ))
+}
+
+fn connector_proposal_queue_report(
+    connector: String,
+    root_path: PathBuf,
+    queue_items: Vec<ConnectorProposalQueueItem>,
+    failures: Vec<String>,
+    source_summary: Value,
+    incremental_checkpoint: Value,
+) -> ConnectorProposalQueueReport {
+    let blocked_count = queue_items.iter().filter(|item| item.blocked).count();
+    ConnectorProposalQueueReport {
+        schema_version: "2.97-A".to_string(),
+        connector,
+        root_path,
+        mode: "proposal_queue".to_string(),
+        queue_item_count: queue_items.len(),
+        blocked_count,
+        queue_items,
+        failures,
+        source_summary,
+        queue_policy: json!({
+            "safe_default": "review_queue_only",
+            "writes_memory": false,
+            "writes_project_documents": false,
+            "review_required_before_apply": true,
+            "service_apply_exposed": false,
+            "compatible_apply_paths": [
+                "memory-cli compat connector-import-draft --apply --proposal",
+                "memory-cli compat connector-sync-plan --apply"
+            ],
+        }),
+        incremental_checkpoint,
+    }
+}
+
+fn import_proposal_queue_item(
+    index: usize,
+    proposal: &ConnectorImportProposalDraft,
+) -> ConnectorProposalQueueItem {
+    ConnectorProposalQueueItem {
+        queue_item_id: connector_queue_item_id(
+            &proposal.connector,
+            index,
+            &proposal.draft_external_id,
+        ),
+        connector: proposal.connector.clone(),
+        external_id: proposal.draft_external_id.clone(),
+        scope_id: proposal.scope_id.clone(),
+        title: proposal.metadata["target_title"]
+            .as_str()
+            .unwrap_or(&proposal.draft_external_id)
+            .to_string(),
+        proposal_type: proposal.proposal_type.clone(),
+        review_level: proposal.review_level.clone(),
+        review_status: "open".to_string(),
+        apply_target: "Kernel::remember_text_after_review".to_string(),
+        blocked: false,
+        block_reason: None,
+        reason: proposal.reason.clone(),
+        evidence: proposal.evidence.clone(),
+        source_refs: proposal.source_refs.clone(),
+        metadata: proposal.metadata.clone(),
+    }
+}
+
+fn sync_document_proposal_queue_item(
+    index: usize,
+    connector: &str,
+    scope_id: &ScopeId,
+    document: &ConnectorSyncPlanDocument,
+    evidence: Option<&EvidenceSpan>,
+) -> ConnectorProposalQueueItem {
+    let evidence_text = evidence
+        .map(|span| format!("{}: {}", span.source_ref, span.quote))
+        .unwrap_or_else(|| document.canonical_uri.clone());
+    ConnectorProposalQueueItem {
+        queue_item_id: connector_queue_item_id(connector, index, &document.canonical_uri),
+        connector: connector.to_string(),
+        external_id: document.canonical_uri.clone(),
+        scope_id: scope_id.clone(),
+        title: document.title.clone(),
+        proposal_type: "project_document_upsert".to_string(),
+        review_level: "suggested".to_string(),
+        review_status: "open".to_string(),
+        apply_target: "Kernel::apply_project_document_sync_plan".to_string(),
+        blocked: false,
+        block_reason: None,
+        reason: format!(
+            "Review {} document '{}' before applying project document sync.",
+            connector, document.title
+        ),
+        evidence: vec![evidence_text],
+        source_refs: vec![document.canonical_uri.clone()],
+        metadata: json!({
+            "sync_state": document.sync_state,
+            "content_hash": document.content_hash,
+            "local_path": document.local_path,
+            "document_metadata": document.metadata,
+        }),
+    }
+}
+
+fn sync_conflict_proposal_queue_item(
+    index: usize,
+    connector: &str,
+    scope_id: &ScopeId,
+    conflict: &ProjectDocumentConflictReport,
+) -> ConnectorProposalQueueItem {
+    let reason = conflict
+        .reason
+        .clone()
+        .unwrap_or_else(|| "Project document conflict requires review before apply.".to_string());
+    ConnectorProposalQueueItem {
+        queue_item_id: connector_queue_item_id(connector, index, &conflict.canonical_uri),
+        connector: connector.to_string(),
+        external_id: conflict.canonical_uri.clone(),
+        scope_id: scope_id.clone(),
+        title: format!("Conflict: {}", conflict.canonical_uri),
+        proposal_type: "project_document_conflict_review".to_string(),
+        review_level: "required".to_string(),
+        review_status: "open".to_string(),
+        apply_target: "Review::resolve_project_document_conflict".to_string(),
+        blocked: true,
+        block_reason: Some(reason.clone()),
+        reason,
+        evidence: vec![format!(
+            "{} sync_state={} conflict_state={}",
+            conflict.canonical_uri,
+            conflict.sync_state.as_str(),
+            conflict.conflict_state.as_str()
+        )],
+        source_refs: vec![conflict.canonical_uri.clone()],
+        metadata: json!({
+            "sync_state": conflict.sync_state.as_str(),
+            "conflict_state": conflict.conflict_state.as_str(),
+        }),
+    }
+}
+
+fn connector_import_queue_checkpoint(drafts: &[ConnectorImportDraft]) -> Value {
+    json!({
+        "strategy": "chat_export_external_id",
+        "apply_target": "Kernel::remember_text_after_review",
+        "external_ids": drafts.iter().map(|draft| draft.external_id.clone()).collect::<Vec<_>>(),
+    })
+}
+
+fn connector_queue_item_id(connector: &str, index: usize, external_id: &str) -> String {
+    let slug = external_id
+        .chars()
+        .map(|value| {
+            if value.is_ascii_alphanumeric() {
+                value.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .chars()
+        .take(48)
+        .collect::<String>();
+    let suffix = if slug.is_empty() {
+        "item".to_string()
+    } else {
+        slug
+    };
+    format!("cpq_{connector}_{index}_{suffix}")
 }
 
 fn local_git_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
@@ -1403,16 +1794,27 @@ fn connector_document_evidence_span(
 ) -> EvidenceSpan {
     let visible_content = markdown_content_without_frontmatter(&document.content_text);
     let quote = evidence_quote(&visible_content);
-    EvidenceSpan::new_text(
-        scope_id.clone(),
-        None,
-        None,
-        document.canonical_uri.clone(),
-        quote.clone(),
-        document.content_hash.clone(),
-        0,
-        quote.len(),
-    )
+    EvidenceSpan {
+        id: connector_document_evidence_id(&document.content_hash),
+        scope_id: scope_id.clone(),
+        memory_id: None,
+        artifact_id: None,
+        source_ref: document.canonical_uri.clone(),
+        kind: EvidenceSpanKind::Text,
+        quote: quote.clone(),
+        content_hash: document.content_hash.clone(),
+        location: EvidenceSpanLocation::text(0, quote.len()),
+        created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn connector_document_evidence_id(content_hash: &str) -> EvidenceId {
+    let suffix = content_hash
+        .chars()
+        .filter(|value| value.is_ascii_alphanumeric())
+        .take(26)
+        .collect::<String>();
+    EvidenceId::from_string(format!("evd_v297_{suffix}"))
 }
 
 fn evidence_quote(content_text: &str) -> String {
@@ -1993,6 +2395,56 @@ fn render_connector_import_draft_markdown(report: &ConnectorImportDraftReport) -
     output
 }
 
+fn render_connector_proposal_queue_markdown(report: &ConnectorProposalQueueReport) -> String {
+    let mut output = format!(
+        "# V2.97-A Connector Proposal Queue\n\nschema_version: {}\nconnector: {}\nroot_path: {}\nmode: {}\nqueue_item_count: {}\nblocked_count: {}\n\n",
+        report.schema_version,
+        report.connector,
+        report.root_path.display(),
+        report.mode,
+        report.queue_item_count,
+        report.blocked_count
+    );
+
+    output.push_str("## Queue Policy\n\n");
+    output
+        .push_str("- review queue only; this report does not write memory or project documents\n");
+    output.push_str("- review is required before apply\n");
+    output.push_str("- service apply is not exposed by this compatibility endpoint\n");
+
+    output.push_str("\n## Queue Items\n\n");
+    if report.queue_items.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for item in &report.queue_items {
+            output.push_str(&format!(
+                "- {} [{} / {}]\n  - id: {}\n  - apply_target: {}\n  - blocked: {}\n",
+                item.title,
+                item.proposal_type,
+                item.review_level,
+                item.queue_item_id,
+                item.apply_target,
+                item.blocked
+            ));
+            if let Some(block_reason) = &item.block_reason {
+                output.push_str(&format!("  - block_reason: {block_reason}\n"));
+            }
+        }
+    }
+
+    output.push_str("\n## Failures\n\n");
+    if report.failures.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for failure in &report.failures {
+            output.push_str(&format!("- {failure}\n"));
+        }
+    }
+
+    output.push_str("\n## Coverage Gate\n\n- V2.97-A connector proposal-queue production regions require 100% targeted test coverage.\n");
+    output
+}
+
 pub fn adapt_mem0_memory_json(scope_id: ScopeId, raw: &str) -> Result<CompetitorAdapterDraft> {
     let value: Value = serde_json::from_str(raw).context("failed to parse mem0-style JSON")?;
     let external_id = required_string(&value, "/id")?;
@@ -2523,6 +2975,156 @@ mod tests {
         );
         assert!(markdown_text.contains("Connector Import Draft"));
         assert!(markdown_text.contains("explicit import only"));
+    }
+
+    #[test]
+    fn v297_connector_proposal_queue_projects_chat_export_review_items() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{
+              "id": "conv_queue",
+              "title": "Queue decision",
+              "messages": [
+                {"role": "user", "content": "Should this be queued?"},
+                {"role": "assistant", "content": "Queue it for review."}
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let report = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_chat_queue"),
+        ))
+        .unwrap();
+        let payload = connector_proposal_queue_json(&report);
+
+        assert_eq!(report.connector, "chat-export");
+        assert_eq!(report.mode, "proposal_queue");
+        assert_eq!(report.queue_item_count, 1);
+        assert_eq!(report.blocked_count, 0);
+        assert_eq!(report.queue_items[0].proposal_type, "distill_upsert");
+        assert_eq!(report.queue_items[0].review_level, "required");
+        assert_eq!(
+            report.queue_items[0].apply_target,
+            "Kernel::remember_text_after_review"
+        );
+        assert_eq!(report.queue_policy["writes_memory"], false);
+        assert_eq!(
+            report.incremental_checkpoint["external_ids"][0],
+            "conv_queue"
+        );
+        assert_eq!(
+            payload["coverage_gate"]["new_feature_test_coverage_required"],
+            "100%"
+        );
+    }
+
+    #[test]
+    fn v297_connector_proposal_queue_projects_markdown_and_local_git_sync_items() {
+        let tempdir = tempdir().unwrap();
+        fs::create_dir_all(tempdir.path().join(".git")).unwrap();
+        fs::write(
+            tempdir.path().join("design.md"),
+            "# Queue Design\n\nQueue this document.",
+        )
+        .unwrap();
+
+        let markdown_report =
+            build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+                "markdown-docs",
+                tempdir.path(),
+                ScopeId::from_string("scp_docs_queue"),
+            ))
+            .unwrap();
+        let local_git_report =
+            build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+                "local-git",
+                tempdir.path(),
+                ScopeId::from_string("scp_docs_queue"),
+            ))
+            .unwrap();
+
+        assert_eq!(markdown_report.queue_item_count, 1);
+        assert_eq!(
+            markdown_report.queue_items[0].proposal_type,
+            "project_document_upsert"
+        );
+        assert_eq!(markdown_report.queue_items[0].review_level, "suggested");
+        assert_eq!(
+            markdown_report.queue_items[0].apply_target,
+            "Kernel::apply_project_document_sync_plan"
+        );
+        assert_eq!(
+            markdown_report.queue_policy["writes_project_documents"],
+            false
+        );
+        assert_eq!(local_git_report.connector, "local-git");
+        assert_eq!(local_git_report.queue_item_count, 1);
+        assert_eq!(
+            local_git_report.incremental_checkpoint["apply_target"],
+            "Kernel::apply_project_document_sync_plan"
+        );
+    }
+
+    #[test]
+    fn v297_connector_proposal_queue_blocks_missing_doc_conflict_items() {
+        let tempdir = tempdir().unwrap();
+        let missing_uri = "file:///tmp/queue-missing.md".to_string();
+        let mut request = ConnectorProposalQueueRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_docs_queue"),
+        );
+        request.previous_snapshots = vec![ProjectDocumentSnapshot {
+            canonical_uri: missing_uri.clone(),
+            content_hash: "sha256:old".to_string(),
+        }];
+
+        let report = build_connector_proposal_queue_report(request).unwrap();
+
+        assert_eq!(report.queue_item_count, 1);
+        assert_eq!(report.blocked_count, 1);
+        assert_eq!(
+            report.queue_items[0].proposal_type,
+            "project_document_conflict_review"
+        );
+        assert_eq!(report.queue_items[0].review_level, "required");
+        assert_eq!(report.queue_items[0].external_id, missing_uri);
+        assert!(report.queue_items[0].blocked);
+    }
+
+    #[test]
+    fn v297_connector_proposal_queue_writer_outputs_json_and_markdown() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{"title":"Queue me","messages":[{"role":"user","content":"hello"}]}"#,
+        )
+        .unwrap();
+        let report = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_chat_queue"),
+        ))
+        .unwrap();
+        let output_dir = tempdir.path().join("reports");
+        let paths = write_connector_proposal_queue_report(&output_dir, &report).unwrap();
+
+        let json_text = fs::read_to_string(&paths.json).unwrap();
+        let markdown_text = fs::read_to_string(&paths.markdown).unwrap();
+        let payload: Value = serde_json::from_str(&json_text).unwrap();
+
+        assert_eq!(payload["schema_version"], "2.97-A");
+        assert_eq!(payload["queue_policy"]["service_apply_exposed"], false);
+        assert_eq!(
+            payload["coverage_gate"]["new_feature_test_coverage_required"],
+            "100%"
+        );
+        assert!(markdown_text.contains("Connector Proposal Queue"));
+        assert!(markdown_text.contains("review queue only"));
     }
 
     #[test]

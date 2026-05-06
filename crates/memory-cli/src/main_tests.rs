@@ -4,11 +4,13 @@ use super::{
     build_distillation_session_override, build_kernel, build_non_interactive_project_init_request,
     build_remember_image_request, build_remember_request, build_search_request,
     check_mcp_http_endpoint, compat_connector_dry_run_command,
-    compat_connector_import_draft_command, compat_connector_sync_plan_command,
-    compat_report_command, compat_report_lines, compat_report_output_json, config_check_json,
-    config_check_lines, config_check_report, config_command, config_summary_json,
-    config_summary_lines, connector_dry_run_lines, connector_dry_run_output_json,
-    connector_import_draft_lines, connector_import_draft_output_json, connector_sync_plan_lines,
+    compat_connector_import_draft_command, compat_connector_proposal_queue_command,
+    compat_connector_sync_plan_command, compat_report_command, compat_report_lines,
+    compat_report_output_json, config_check_json, config_check_lines, config_check_report,
+    config_command, config_summary_json, config_summary_lines, connector_dry_run_lines,
+    connector_dry_run_output_json, connector_import_draft_lines,
+    connector_import_draft_output_json, connector_proposal_queue_lines,
+    connector_proposal_queue_output_json, connector_sync_plan_lines,
     connector_sync_plan_output_json, context_command, detect_image_media_type, distill_command,
     distillation_preview_result_json, distillation_profile_json, docs_command,
     ensure_default_key_material, export_skill_bundle, generated_project_scope_id,
@@ -55,17 +57,18 @@ use memory_domain::{DocumentConflictState, DocumentSyncState};
 use memory_kernel::{
     AuditLogService, BenchmarkReportPaths, BenchmarkRunOutput, ChangeMemoryLifecycleStatusResult,
     ComposedDistillationProfile, ConnectorDryRunRequest, ConnectorImportDraftRequest,
-    ConnectorSyncPlanRequest, DistillationPreviewService, DistillationPromptSegment,
-    InspectMemoryLifecycleResult, LifecycleNormalizer, MemoryHealthReport, MemoryHealthReportPaths,
-    MemoryPassportBundle, MemoryPassportIdMapping, MemoryPassportImportResult, MemoryPassportPaths,
-    MemoryPassportVerification, MemoryProvenance, MemoryTimeline, PreviewDistillationResult,
-    RecallExplainer, RecallTraceReportPaths, RememberImageResult, RememberTextResult,
-    ReviewActorKind, RollbackMemoryResult, RollbackPlan, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, TraceSearchContextResult,
-    build_competitor_compatibility_report, build_connector_import_draft_report,
+    ConnectorProposalQueueRequest, ConnectorSyncPlanRequest, DistillationPreviewService,
+    DistillationPromptSegment, InspectMemoryLifecycleResult, LifecycleNormalizer,
+    MemoryHealthReport, MemoryHealthReportPaths, MemoryPassportBundle, MemoryPassportIdMapping,
+    MemoryPassportImportResult, MemoryPassportPaths, MemoryPassportVerification, MemoryProvenance,
+    MemoryTimeline, PreviewDistillationResult, RecallExplainer, RecallTraceReportPaths,
+    RememberImageResult, RememberTextResult, ReviewActorKind, RollbackMemoryResult, RollbackPlan,
+    TimelineAuditEvent, TimelineEvent, TimelineEventKind, TimelineVersion,
+    TraceSearchContextResult, build_competitor_compatibility_report,
+    build_connector_import_draft_report, build_connector_proposal_queue_report,
     build_connector_sync_plan, run_connector_dry_run, write_competitor_compatibility_report,
     write_connector_dry_run_report, write_connector_import_draft_report,
-    write_connector_sync_plan_report,
+    write_connector_proposal_queue_report, write_connector_sync_plan_report,
 };
 use memory_mcp::TOOL_NAMES;
 use memory_models::VisionResponse;
@@ -1114,6 +1117,44 @@ fn connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate(
 }
 
 #[test]
+fn connector_proposal_queue_output_helpers_include_paths_policy_and_coverage_gate() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        r#"{"id":"queue_chat","title":"Queue thread","messages":[{"role":"user","content":"queue me"}]}"#,
+    )
+    .unwrap();
+    let report = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+        "chat-export",
+        tempdir.path(),
+        ScopeId::from_string("scp_cli_chat_queue"),
+    ))
+    .unwrap();
+    let paths = write_connector_proposal_queue_report(tempdir.path(), &report).unwrap();
+    let rendered = connector_proposal_queue_output_json(&report, &paths);
+    let lines = connector_proposal_queue_lines(&report, &paths);
+
+    assert_eq!(rendered["schema_version"], "2.97-A");
+    assert_eq!(rendered["mode"], "proposal_queue");
+    assert_eq!(rendered["queue_item_count"], 1);
+    assert_eq!(rendered["queue_policy"]["writes_memory"], false);
+    assert_eq!(
+        rendered["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+    assert_eq!(
+        rendered["report_paths"]["markdown"],
+        tempdir
+            .path()
+            .join("chat-export-proposal-queue.md")
+            .display()
+            .to_string()
+    );
+    assert!(lines.iter().any(|line| line == "Writes memory: false"));
+    assert!(lines.iter().any(|line| line == "Queue items: 1"));
+}
+
+#[test]
 fn compat_connector_dry_run_command_writes_report() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("README.md"), "# Project\n").unwrap();
@@ -1234,6 +1275,51 @@ async fn compat_connector_import_draft_command_writes_chat_export_report() {
     assert_eq!(payload["connector"], "chat-export");
     assert_eq!(payload["drafts"][0]["metadata"]["message_count"], 2);
     assert_eq!(payload["import_policy"]["writes_memory"], false);
+}
+
+#[test]
+fn compat_connector_proposal_queue_command_writes_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        r#"{
+          "id": "queue_cli",
+          "title": "CLI queue import",
+          "messages": [
+            {"role": "user", "content": "Queue this discussion."},
+            {"role": "assistant", "content": "Review it before import."}
+          ]
+        }"#,
+    )
+    .unwrap();
+    let output_dir = tempdir.path().join("reports");
+
+    compat_connector_proposal_queue_command(super::CompatConnectorProposalQueueArgs {
+        connector: "chat-export".to_string(),
+        root_path: tempdir.path().to_path_buf(),
+        scope_id: "scp_cli_chat_queue".to_string(),
+        output_dir: output_dir.clone(),
+        max_items: 10,
+        json: false,
+    })
+    .unwrap();
+    compat_connector_proposal_queue_command(super::CompatConnectorProposalQueueArgs {
+        connector: "chat-export".to_string(),
+        root_path: tempdir.path().to_path_buf(),
+        scope_id: "scp_cli_chat_queue".to_string(),
+        output_dir: output_dir.clone(),
+        max_items: 10,
+        json: true,
+    })
+    .unwrap();
+
+    let json_text = fs::read_to_string(output_dir.join("chat-export-proposal-queue.json")).unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&json_text).unwrap();
+    assert!(output_dir.join("chat-export-proposal-queue.md").exists());
+    assert_eq!(payload["connector"], "chat-export");
+    assert_eq!(payload["queue_item_count"], 1);
+    assert_eq!(payload["queue_items"][0]["proposal_type"], "distill_upsert");
+    assert_eq!(payload["queue_policy"]["writes_memory"], false);
 }
 
 #[test]
@@ -1661,6 +1747,43 @@ fn compat_cli_parser_accepts_connector_import_draft() {
             assert!(args.json);
         }
         _ => panic!("expected compat connector import-draft command"),
+    }
+}
+
+#[test]
+fn compat_cli_parser_accepts_connector_proposal_queue() {
+    let cli = Cli::try_parse_from([
+        "memory-cli",
+        "compat",
+        "connector-proposal-queue",
+        "--connector",
+        "chat-export",
+        "--root-path",
+        "exports",
+        "--scope-id",
+        "scp_parser",
+        "--output-dir",
+        "tests/reports/compat/latest",
+        "--max-items",
+        "7",
+        "--json",
+    ])
+    .unwrap();
+    match cli.command {
+        super::Command::Compat(super::CompatArgs {
+            command: super::CompatCommand::ConnectorProposalQueue(args),
+        }) => {
+            assert_eq!(args.connector, "chat-export");
+            assert_eq!(args.root_path, PathBuf::from("exports"));
+            assert_eq!(args.scope_id, "scp_parser");
+            assert_eq!(
+                args.output_dir,
+                PathBuf::from("tests/reports/compat/latest")
+            );
+            assert_eq!(args.max_items, 7);
+            assert!(args.json);
+        }
+        _ => panic!("expected compat connector proposal-queue command"),
     }
 }
 
@@ -2340,6 +2463,20 @@ fn cli_parser_accepts_all_subcommands_and_nested_shapes() {
             "tests/reports/compat/latest",
             "--json",
         ],
+        &[
+            "memory-cli",
+            "compat",
+            "connector-proposal-queue",
+            "--connector",
+            "chat-export",
+            "--root-path",
+            "exports",
+            "--scope-id",
+            "scp_parser",
+            "--output-dir",
+            "tests/reports/compat/latest",
+            "--json",
+        ],
     ];
 
     for args in cases {
@@ -2468,6 +2605,50 @@ fn surface_parity_smoke_covers_mcp_cli_and_http_contracts() {
                 "tests/reports/compat/latest",
             ],
             &["/api/v1/compat/report"],
+        ),
+        (
+            "memory.connectors.dry_run",
+            &[
+                "memory-cli",
+                "compat",
+                "connector-dry-run",
+                "--connector",
+                "markdown-docs",
+            ],
+            &["/api/v1/compat/connectors/dry-run"],
+        ),
+        (
+            "memory.connectors.sync_plan",
+            &[
+                "memory-cli",
+                "compat",
+                "connector-sync-plan",
+                "--connector",
+                "markdown-docs",
+            ],
+            &["/api/v1/compat/connectors/sync-plan"],
+        ),
+        (
+            "memory.connectors.import_draft",
+            &[
+                "memory-cli",
+                "compat",
+                "connector-import-draft",
+                "--connector",
+                "chat-export",
+            ],
+            &["/api/v1/compat/connectors/import-draft"],
+        ),
+        (
+            "memory.connectors.proposal_queue",
+            &[
+                "memory-cli",
+                "compat",
+                "connector-proposal-queue",
+                "--connector",
+                "chat-export",
+            ],
+            &["/api/v1/compat/connectors/proposal-queue"],
         ),
         (
             "memory.context.upsert",

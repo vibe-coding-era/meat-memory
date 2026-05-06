@@ -231,6 +231,7 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/compat/connectors/dry-run"));
     assert!(has_route("/api/v1/compat/connectors/sync-plan"));
     assert!(has_route("/api/v1/compat/connectors/import-draft"));
+    assert!(has_route("/api/v1/compat/connectors/proposal-queue"));
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
@@ -289,7 +290,7 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/assistant/chat"));
     assert!(text.contains("/api/v1/metrics/keys"));
     assert!(text.contains("/api/v1/compat/connectors/dry-run"));
-    assert!(text.contains("sync-plan / import-draft"));
+    assert!(text.contains("sync-plan / import-draft / proposal-queue"));
 }
 
 #[tokio::test]
@@ -422,6 +423,47 @@ async fn v297_http_connector_sync_plan_and_import_draft_return_reports() {
     assert_eq!(import_payload["draft_count"], 1);
     assert_eq!(import_payload["proposal_draft_count"], 1);
     assert_eq!(import_payload["import_policy"]["writes_memory"], false);
+}
+
+#[tokio::test]
+async fn v297_http_connector_proposal_queue_returns_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        serde_json::json!({
+            "id": "http_queue",
+            "title": "HTTP queue import",
+            "messages": [
+                {"role": "user", "content": "Queue this HTTP connector import."},
+                {"role": "assistant", "content": "Return a review queue item."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let uri = format!(
+        "/api/v1/compat/connectors/proposal-queue?connector=chat-export&root_path={}&scope_id=scp_http_connector&max_items=5",
+        tempdir.path().display()
+    );
+
+    let response = app
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let payload = response_json(response).await;
+    assert_eq!(payload["schema_version"], "2.97-A");
+    assert_eq!(payload["connector"], "chat-export");
+    assert_eq!(payload["mode"], "proposal_queue");
+    assert_eq!(payload["queue_item_count"], 1);
+    assert_eq!(payload["queue_items"][0]["proposal_type"], "distill_upsert");
+    assert_eq!(payload["queue_policy"]["writes_memory"], false);
+    assert_eq!(
+        payload["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
 }
 
 #[tokio::test]

@@ -768,6 +768,7 @@ pub(super) enum CompatCommand {
     Report(CompatReportArgs),
     ConnectorDryRun(CompatConnectorDryRunArgs),
     ConnectorImportDraft(CompatConnectorImportDraftArgs),
+    ConnectorProposalQueue(CompatConnectorProposalQueueArgs),
     ConnectorSyncPlan(CompatConnectorSyncPlanArgs),
 }
 
@@ -877,6 +878,22 @@ pub(super) struct CompatConnectorImportDraftArgs {
     pub(super) apply: bool,
     #[arg(long)]
     pub(super) proposal: bool,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct CompatConnectorProposalQueueArgs {
+    #[arg(long)]
+    pub(super) connector: String,
+    #[arg(long, default_value = ".")]
+    pub(super) root_path: PathBuf,
+    #[arg(long, default_value = "scp_v297_connector")]
+    pub(super) scope_id: String,
+    #[arg(long, default_value = "tests/reports/compat/latest")]
+    pub(super) output_dir: PathBuf,
+    #[arg(long, default_value_t = 100)]
+    pub(super) max_items: usize,
     #[arg(long)]
     pub(super) json: bool,
 }

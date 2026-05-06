@@ -1,70 +1,17 @@
 {
-  "conflict_count": 0,
-  "conflicts": [],
+  "blocked_count": 0,
   "connector": "local-git",
   "coverage_gate": {
     "covered_regions": [
-      "markdown_docs_sync_plan",
-      "sync_plan_conflict_review_projection",
-      "sync_plan_evidence_preview",
-      "connector_sync_plan_projection",
-      "cli_parser_and_command"
+      "connector_proposal_queue_projection",
+      "markdown_docs_proposal_queue",
+      "local_git_proposal_queue",
+      "chat_export_proposal_queue",
+      "service_surface_projection"
     ],
     "new_feature_test_coverage_required": "100%"
   },
-  "documents": [
-    {
-      "canonical_uri": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
-      "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
-      "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
-      "metadata": {
-        "frontmatter": {
-          "summary": "Markdown docs connector acceptance fixture.",
-          "tags": [
-            "connector",
-            "acceptance"
-          ],
-          "title": "V2.97 Connector Fixture"
-        },
-        "frontmatter_present": true,
-        "source_kind": "markdown",
-        "visible_content_bytes": 70
-      },
-      "sync_state": "changed",
-      "title": "V2.97 Connector Fixture"
-    }
-  ],
-  "evidence_preview": [
-    {
-      "artifact_id": null,
-      "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
-      "created_at": [
-        1970,
-        1,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      "id": "evd_v297_f48c6f86135070957c9cbe1616",
-      "kind": "Text",
-      "location": {
-        "end": 25,
-        "end_ms": null,
-        "page": null,
-        "region": null,
-        "start": 0,
-        "start_ms": null
-      },
-      "memory_id": null,
-      "quote": "# V2.97 Connector Fixture",
-      "scope_id": "scp_v297_acceptance",
-      "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
-    }
-  ],
+  "failures": [],
   "incremental_checkpoint": {
     "apply_target": "Kernel::apply_project_document_sync_plan",
     "excluded_dir_names": [
@@ -200,9 +147,65 @@
     },
     "strategy": "canonical_uri_content_hash"
   },
-  "missing_count": 0,
-  "mode": "sync_plan",
-  "planned_count": 1,
+  "mode": "proposal_queue",
+  "queue_item_count": 1,
+  "queue_items": [
+    {
+      "apply_target": "Kernel::apply_project_document_sync_plan",
+      "block_reason": null,
+      "blocked": false,
+      "connector": "local-git",
+      "evidence": [
+        "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md: # V2.97 Connector Fixture"
+      ],
+      "external_id": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
+      "metadata": {
+        "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
+        "document_metadata": {
+          "frontmatter": {
+            "summary": "Markdown docs connector acceptance fixture.",
+            "tags": [
+              "connector",
+              "acceptance"
+            ],
+            "title": "V2.97 Connector Fixture"
+          },
+          "frontmatter_present": true,
+          "source_kind": "markdown",
+          "visible_content_bytes": 70
+        },
+        "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
+        "sync_state": "changed"
+      },
+      "proposal_type": "project_document_upsert",
+      "queue_item_id": "cpq_local-git_0_file____users_rou_dev_projects_meat_memory_targe",
+      "reason": "Review local-git document 'V2.97 Connector Fixture' before applying project document sync.",
+      "review_level": "suggested",
+      "review_status": "open",
+      "scope_id": "scp_v297_acceptance",
+      "source_refs": [
+        "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
+      ],
+      "title": "V2.97 Connector Fixture"
+    }
+  ],
+  "queue_policy": {
+    "compatible_apply_paths": [
+      "memory-cli compat connector-import-draft --apply --proposal",
+      "memory-cli compat connector-sync-plan --apply"
+    ],
+    "review_required_before_apply": true,
+    "safe_default": "review_queue_only",
+    "service_apply_exposed": false,
+    "writes_memory": false,
+    "writes_project_documents": false
+  },
   "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs",
-  "schema_version": "2.97-A"
+  "schema_version": "2.97-A",
+  "source_summary": {
+    "conflict_count": 0,
+    "missing_count": 0,
+    "planned_count": 1,
+    "upstream_mode": "sync_plan"
+  }
 }

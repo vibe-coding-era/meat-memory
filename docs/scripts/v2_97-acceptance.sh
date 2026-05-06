@@ -109,6 +109,14 @@ echo "[v2.97] markdown-docs sync-plan report"
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/markdown-docs-sync-plan-cli.json"
 
+echo "[v2.97] markdown-docs proposal-queue report"
+"${MEMORY_CLI}" compat connector-proposal-queue \
+    --connector markdown-docs \
+    --root-path "${FIXTURE_DIR}/docs" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/markdown-docs-proposal-queue-cli.json"
+
 echo "[v2.97] local-git sync-plan report"
 "${MEMORY_CLI}" compat connector-sync-plan \
     --connector local-git \
@@ -116,6 +124,14 @@ echo "[v2.97] local-git sync-plan report"
     --scope-id scp_v297_acceptance \
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/local-git-sync-plan-cli.json"
+
+echo "[v2.97] local-git proposal-queue report"
+"${MEMORY_CLI}" compat connector-proposal-queue \
+    --connector local-git \
+    --root-path "${FIXTURE_DIR}/docs" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/local-git-proposal-queue-cli.json"
 
 echo "[v2.97] chat-export dry-run report"
 "${MEMORY_CLI}" compat connector-dry-run \
@@ -133,21 +149,37 @@ echo "[v2.97] chat-export import-draft report"
     --proposal \
     --json >"${REPORT_DIR}/chat-export-import-draft-cli.json"
 
+echo "[v2.97] chat-export proposal-queue report"
+"${MEMORY_CLI}" compat connector-proposal-queue \
+    --connector chat-export \
+    --root-path "${FIXTURE_DIR}/chat" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/chat-export-proposal-queue-cli.json"
+
 test -f "${REPORT_DIR}/markdown-docs-dry-run.json"
 test -f "${REPORT_DIR}/markdown-docs-sync-plan.json"
+test -f "${REPORT_DIR}/markdown-docs-proposal-queue.json"
 test -f "${REPORT_DIR}/local-git-sync-plan.json"
+test -f "${REPORT_DIR}/local-git-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-dry-run.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
+test -f "${REPORT_DIR}/chat-export-proposal-queue.json"
 grep -q "Conflict Review" "${REPORT_DIR}/markdown-docs-sync-plan.md"
+grep -q "Connector Proposal Queue" "${REPORT_DIR}/markdown-docs-proposal-queue.md"
 grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "Proposal Drafts" "${REPORT_DIR}/chat-export-import-draft.md"
+grep -q "review queue only" "${REPORT_DIR}/chat-export-proposal-queue.md"
 
 python3 - <<'PY' \
   "${REPORT_DIR}/markdown-docs-dry-run-cli.json" \
   "${REPORT_DIR}/markdown-docs-sync-plan-cli.json" \
   "${REPORT_DIR}/local-git-sync-plan-cli.json" \
   "${REPORT_DIR}/chat-export-dry-run-cli.json" \
-  "${REPORT_DIR}/chat-export-import-draft-cli.json"
+  "${REPORT_DIR}/chat-export-import-draft-cli.json" \
+  "${REPORT_DIR}/markdown-docs-proposal-queue-cli.json" \
+  "${REPORT_DIR}/local-git-proposal-queue-cli.json" \
+  "${REPORT_DIR}/chat-export-proposal-queue-cli.json"
 import json
 import sys
 
@@ -156,8 +188,20 @@ markdown_sync_plan = json.load(open(sys.argv[2]))
 local_git_sync_plan = json.load(open(sys.argv[3]))
 chat_dry_run = json.load(open(sys.argv[4]))
 chat_import_draft = json.load(open(sys.argv[5]))
+markdown_proposal_queue = json.load(open(sys.argv[6]))
+local_git_proposal_queue = json.load(open(sys.argv[7]))
+chat_proposal_queue = json.load(open(sys.argv[8]))
 
-for payload in (markdown_dry_run, markdown_sync_plan, local_git_sync_plan, chat_dry_run, chat_import_draft):
+for payload in (
+    markdown_dry_run,
+    markdown_sync_plan,
+    local_git_sync_plan,
+    chat_dry_run,
+    chat_import_draft,
+    markdown_proposal_queue,
+    local_git_proposal_queue,
+    chat_proposal_queue,
+):
     assert payload["schema_version"] == "2.97-A", payload
     assert payload["coverage_gate"]["new_feature_test_coverage_required"] == "100%", payload
 
@@ -208,6 +252,20 @@ assert chat_import_draft["proposal_drafts"][0]["review_level"] == "required", ch
 assert chat_import_draft["import_policy"]["writes_memory"] is False, chat_import_draft
 assert chat_import_draft["import_policy"]["proposal_mode"] is True, chat_import_draft
 assert chat_import_draft["drafts"][0]["source_refs"][0].endswith("chat.json#v297_acceptance_chat"), chat_import_draft
+assert markdown_proposal_queue["connector"] == "markdown-docs", markdown_proposal_queue
+assert markdown_proposal_queue["mode"] == "proposal_queue", markdown_proposal_queue
+assert markdown_proposal_queue["queue_item_count"] == 1, markdown_proposal_queue
+assert markdown_proposal_queue["queue_items"][0]["proposal_type"] == "project_document_upsert", markdown_proposal_queue
+assert markdown_proposal_queue["queue_policy"]["writes_project_documents"] is False, markdown_proposal_queue
+assert local_git_proposal_queue["connector"] == "local-git", local_git_proposal_queue
+assert local_git_proposal_queue["queue_item_count"] == 1, local_git_proposal_queue
+assert local_git_proposal_queue["incremental_checkpoint"]["repository_metadata"]["worktree_status"]["dirty_state"] == "dirty", local_git_proposal_queue
+assert chat_proposal_queue["connector"] == "chat-export", chat_proposal_queue
+assert chat_proposal_queue["mode"] == "proposal_queue", chat_proposal_queue
+assert chat_proposal_queue["queue_item_count"] == 1, chat_proposal_queue
+assert chat_proposal_queue["queue_items"][0]["proposal_type"] == "distill_upsert", chat_proposal_queue
+assert chat_proposal_queue["queue_items"][0]["review_level"] == "required", chat_proposal_queue
+assert chat_proposal_queue["queue_policy"]["writes_memory"] is False, chat_proposal_queue
 PY
 
 cat >"${COVERAGE_REPORT}" <<'EOF'
@@ -229,13 +287,19 @@ Covered regions:
 - chat-export JSON parser
 - chat-export import-draft projection
 - chat-export explicit apply path
+- connector proposal-queue projection
+- markdown-docs proposal queue
+- local-git proposal queue
+- chat-export proposal queue
 - CLI parser and command projections
 - HTTP connector dry-run endpoint
 - HTTP connector sync-plan endpoint
 - HTTP connector import-draft endpoint
+- HTTP connector proposal-queue endpoint
 - MCP connector dry-run tool
 - MCP connector sync-plan tool
 - MCP connector import-draft tool
+- MCP connector proposal-queue tool
 
 Evidence:
 
