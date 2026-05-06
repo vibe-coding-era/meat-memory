@@ -59,19 +59,21 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; fi
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
      Running unittests src/lib.rs (target/debug/deps/memory_http-a69fb5bc13441700)
 
-running 1 test
+running 2 tests
 test app::lib_tests::v297_http_connector_dry_run_returns_report ... ok
+test app::lib_tests::v297_http_connector_sync_plan_and_import_draft_return_reports ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.03s
 
 [v2.97] MCP V2.97 connector management contract
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
      Running unittests src/lib.rs (target/debug/deps/memory_mcp-762b95db191e7ada)
 
-running 1 test
+running 2 tests
 test app::lib_tests::v297_mcp_connector_dry_run_returns_report ... ok
+test app::lib_tests::v297_mcp_connector_sync_plan_and_import_draft_return_reports ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.02s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.02s
 
 [v2.97] CLI binary build
    Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)

@@ -16,17 +16,19 @@ use memory_domain::{
 use memory_kernel::{
     ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
     ChangeMemoryLifecycleStatusRequest, ComposedDistillationProfile, ConnectorDryRunRequest,
-    DistillationCandidate, DistillationPromptSegment, DistillationSessionOverride,
-    GetMemoryProposalRequest, GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel,
-    ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
-    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryTimeline,
-    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
-    PromoteMemoryRequest, RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind,
-    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
-    TimelineEvent, TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
+    ConnectorImportDraftRequest, ConnectorSyncPlanRequest, DistillationCandidate,
+    DistillationPromptSegment, DistillationSessionOverride, GetMemoryProposalRequest,
+    GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest,
+    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
+    ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
+    PreviewDistillationResult, PromoteAgentContextRequest, PromoteMemoryRequest,
+    RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind, RollbackMemoryRequest,
+    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
+    TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
     UpsertDistillationProfileRequest, build_competitor_compatibility_report,
-    compatibility_report_json, connector_dry_run_json, health_json, run_connector_dry_run,
-    verification_json, verify_memory_passport_bundle,
+    build_connector_import_draft_report, build_connector_sync_plan, compatibility_report_json,
+    connector_dry_run_json, connector_import_draft_json, connector_sync_plan_json, health_json,
+    run_connector_dry_run, verification_json, verify_memory_passport_bundle,
 };
 use memory_observability::operation_span;
 use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
@@ -159,6 +161,14 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
         description: "Run a V2.97 connector dry-run without writing memory. Required arguments: connector, root_path. Optional: max_items.",
     },
     ToolSpec {
+        name: "memory.connectors.sync_plan",
+        description: "Build a V2.97 connector sync-plan without applying it. Required arguments: connector, root_path. Optional: scope_id, max_items.",
+    },
+    ToolSpec {
+        name: "memory.connectors.import_draft",
+        description: "Build a V2.97 connector import draft without writing memory. Required arguments: connector, root_path. Optional: scope_id, max_items, proposal.",
+    },
+    ToolSpec {
         name: "memory.context.upsert",
         description: "Create or refresh short-term Agent context. Required arguments: key, session_id, title, body. Optional: scope_id, task_id, labels.",
     },
@@ -216,6 +226,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "memory.passport.manifest",
     "memory.compat.report",
     "memory.connectors.dry_run",
+    "memory.connectors.sync_plan",
+    "memory.connectors.import_draft",
     "memory.context.upsert",
     "memory.context.list",
     "memory.context.promote",
@@ -367,6 +379,12 @@ impl McpServer {
                 }
                 "memory.connectors.dry_run" => {
                     self.handle_connector_dry_run(&trace_id, request.arguments)?
+                }
+                "memory.connectors.sync_plan" => {
+                    self.handle_connector_sync_plan(&trace_id, request.arguments)?
+                }
+                "memory.connectors.import_draft" => {
+                    self.handle_connector_import_draft(&trace_id, request.arguments)?
                 }
                 "memory.context.upsert" => {
                     self.handle_context_upsert(&trace_id, request.arguments)
@@ -1281,6 +1299,57 @@ impl McpServer {
         })
     }
 
+    fn handle_connector_sync_plan(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ConnectorSyncPlanToolArgs>(arguments)?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| self.default_scope_id.clone());
+        let mut request =
+            ConnectorSyncPlanRequest::new(payload.connector, payload.root_path, scope_id);
+        if let Some(max_items) = payload.max_items {
+            request.max_items = max_items;
+        }
+        let output = build_connector_sync_plan(request).map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.connectors.sync_plan".to_string(),
+            trace_id: trace_id.to_string(),
+            data: connector_sync_plan_json(&output.report),
+            warnings: Vec::new(),
+        })
+    }
+
+    fn handle_connector_import_draft(
+        &self,
+        trace_id: &str,
+        arguments: Value,
+    ) -> Result<ToolCallResponse, McpError> {
+        let payload = parse_arguments::<ConnectorImportDraftToolArgs>(arguments)?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| self.default_scope_id.clone());
+        let mut request =
+            ConnectorImportDraftRequest::new(payload.connector, payload.root_path, scope_id);
+        if let Some(max_items) = payload.max_items {
+            request.max_items = max_items;
+        }
+        request.proposal_mode = payload.proposal.unwrap_or(false);
+        let report = build_connector_import_draft_report(request).map_err(map_kernel_error)?;
+
+        Ok(ToolCallResponse {
+            tool: "memory.connectors.import_draft".to_string(),
+            trace_id: trace_id.to_string(),
+            data: connector_import_draft_json(&report),
+            warnings: Vec::new(),
+        })
+    }
+
     async fn handle_context_upsert(
         &self,
         trace_id: &str,
@@ -1798,6 +1867,23 @@ struct ConnectorDryRunToolArgs {
     connector: String,
     root_path: String,
     max_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConnectorSyncPlanToolArgs {
+    connector: String,
+    root_path: String,
+    scope_id: Option<String>,
+    max_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConnectorImportDraftToolArgs {
+    connector: String,
+    root_path: String,
+    scope_id: Option<String>,
+    max_items: Option<usize>,
+    proposal: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -14,12 +14,15 @@ use memory_domain::{
 };
 use memory_kernel::{
     ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
-    ConnectorDryRunRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
-    InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
-    PromoteAgentContextRequest, PromoteMemoryRequest, RememberImageRequest, RememberTextRequest,
-    RememberTextResult, SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
-    build_competitor_compatibility_report, compatibility_report_json, connector_dry_run_json,
-    health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
+    ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorSyncPlanRequest,
+    CreateAccessKeyRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, Kernel,
+    ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, RememberTextResult,
+    SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+    build_competitor_compatibility_report, build_connector_import_draft_report,
+    build_connector_sync_plan, compatibility_report_json, connector_dry_run_json,
+    connector_import_draft_json, connector_sync_plan_json, health_json, run_connector_dry_run,
+    verification_json, verify_memory_passport_bundle,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -73,6 +76,8 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/passports/manifest",
     "/api/v1/compat/report",
     "/api/v1/compat/connectors/dry-run",
+    "/api/v1/compat/connectors/sync-plan",
+    "/api/v1/compat/connectors/import-draft",
     "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
@@ -436,6 +441,23 @@ pub struct ConnectorDryRunQuery {
     pub max_items: Option<usize>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ConnectorSyncPlanQuery {
+    pub connector: Option<String>,
+    pub root_path: Option<String>,
+    pub scope_id: Option<String>,
+    pub max_items: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ConnectorImportDraftQuery {
+    pub connector: Option<String>,
+    pub root_path: Option<String>,
+    pub scope_id: Option<String>,
+    pub max_items: Option<usize>,
+    pub proposal: Option<bool>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LifecycleStatusHttpRequest {
     pub status: Option<String>,
@@ -663,6 +685,14 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route(
             "/api/v1/compat/connectors/dry-run",
             get(compat_connector_dry_run),
+        )
+        .route(
+            "/api/v1/compat/connectors/sync-plan",
+            get(compat_connector_sync_plan),
+        )
+        .route(
+            "/api/v1/compat/connectors/import-draft",
+            get(compat_connector_import_draft),
         )
         .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
@@ -1822,14 +1852,8 @@ async fn compat_report(
 async fn compat_connector_dry_run(
     Query(query): Query<ConnectorDryRunQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let connector = query
-        .connector
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| ApiError::bad_request("connector is required"))?;
-    let root_path = query
-        .root_path
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| ApiError::bad_request("root_path is required"))?;
+    let connector = required_connector(query.connector)?;
+    let root_path = required_connector_root_path(query.root_path)?;
     let mut request = ConnectorDryRunRequest::new(connector, PathBuf::from(root_path));
     if let Some(max_items) = query.max_items {
         request.max_items = max_items;
@@ -1837,6 +1861,56 @@ async fn compat_connector_dry_run(
     let report = run_connector_dry_run(request).map_err(api_error_from_anyhow)?;
 
     Ok(Json(connector_dry_run_json(&report)))
+}
+
+async fn compat_connector_sync_plan(
+    State(state): State<HttpAppState>,
+    Query(query): Query<ConnectorSyncPlanQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let connector = required_connector(query.connector)?;
+    let root_path = required_connector_root_path(query.root_path)?;
+    let scope_id = query
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let mut request = ConnectorSyncPlanRequest::new(connector, PathBuf::from(root_path), scope_id);
+    if let Some(max_items) = query.max_items {
+        request.max_items = max_items;
+    }
+    let output = build_connector_sync_plan(request).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(connector_sync_plan_json(&output.report)))
+}
+
+async fn compat_connector_import_draft(
+    State(state): State<HttpAppState>,
+    Query(query): Query<ConnectorImportDraftQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let connector = required_connector(query.connector)?;
+    let root_path = required_connector_root_path(query.root_path)?;
+    let scope_id = query
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let mut request =
+        ConnectorImportDraftRequest::new(connector, PathBuf::from(root_path), scope_id);
+    if let Some(max_items) = query.max_items {
+        request.max_items = max_items;
+    }
+    request.proposal_mode = query.proposal.unwrap_or(false);
+    let report = build_connector_import_draft_report(request).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(connector_import_draft_json(&report)))
+}
+
+fn required_connector(raw: Option<String>) -> Result<String, ApiError> {
+    raw.filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("connector is required"))
+}
+
+fn required_connector_root_path(raw: Option<String>) -> Result<String, ApiError> {
+    raw.filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("root_path is required"))
 }
 
 fn report_input_dir(input_dir: Option<String>, default_dir: &str) -> PathBuf {
@@ -3235,6 +3309,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             <h2 class="card-title">Projection Debug</h2>
             <span class="memory-meta-tag">source/document</span>
             <span class="memory-meta-tag">connector dry-run /api/v1/compat/connectors/dry-run</span>
+            <span class="memory-meta-tag">sync-plan / import-draft</span>
           </div>
           <div class="chat-note muted">
             填写 raw key、source_id、document_id，直接查看 V2.4 project document markdown projection。

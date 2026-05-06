@@ -174,7 +174,9 @@ fn exposes_fetch_context_tool() {
     assert!(tool_supported("memory.passport.manifest"));
     assert!(tool_supported("memory.compat.report"));
     assert!(tool_supported("memory.connectors.dry_run"));
-    assert_eq!(TOOL_SPECS.len(), 34);
+    assert!(tool_supported("memory.connectors.sync_plan"));
+    assert!(tool_supported("memory.connectors.import_draft"));
+    assert_eq!(TOOL_SPECS.len(), 36);
 }
 
 #[test]
@@ -278,6 +280,73 @@ async fn v297_mcp_connector_dry_run_returns_report() {
         response.data["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"
     );
+}
+
+#[tokio::test]
+async fn v297_mcp_connector_sync_plan_and_import_draft_return_reports() {
+    let tempdir = tempdir().unwrap();
+    let docs_dir = tempdir.path().join("docs");
+    let chat_dir = tempdir.path().join("chat");
+    fs::create_dir_all(&docs_dir).unwrap();
+    fs::create_dir_all(&chat_dir).unwrap();
+    fs::write(
+        docs_dir.join("README.md"),
+        "# MCP Sync\n\nSync-plan fixture.",
+    )
+    .unwrap();
+    fs::write(
+        chat_dir.join("chat.json"),
+        serde_json::json!({
+            "id": "mcp_chat",
+            "title": "MCP chat import",
+            "messages": [
+                {"role": "user", "content": "Capture this MCP connector import draft."},
+                {"role": "assistant", "content": "Return a reviewable draft."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let server = test_server(tempdir.path());
+
+    let sync = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.sync_plan".to_string(),
+            arguments: serde_json::json!({
+                "connector": "markdown-docs",
+                "root_path": docs_dir.display().to_string(),
+                "scope_id": "scp_mcp_connector",
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(sync.tool, "memory.connectors.sync_plan");
+    assert_eq!(sync.data["schema_version"], "2.97-A");
+    assert_eq!(sync.data["connector"], "markdown-docs");
+    assert_eq!(sync.data["mode"], "sync_plan");
+    assert_eq!(sync.data["planned_count"], 1);
+
+    let import = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.import_draft".to_string(),
+            arguments: serde_json::json!({
+                "connector": "chat-export",
+                "root_path": chat_dir.display().to_string(),
+                "scope_id": "scp_mcp_connector",
+                "proposal": true,
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(import.tool, "memory.connectors.import_draft");
+    assert_eq!(import.data["schema_version"], "2.97-A");
+    assert_eq!(import.data["connector"], "chat-export");
+    assert_eq!(import.data["mode"], "import_draft");
+    assert_eq!(import.data["draft_count"], 1);
+    assert_eq!(import.data["proposal_draft_count"], 1);
+    assert_eq!(import.data["import_policy"]["writes_memory"], false);
 }
 
 #[tokio::test]

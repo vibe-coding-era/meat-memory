@@ -229,6 +229,8 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/passports/manifest"));
     assert!(has_route("/api/v1/compat/report"));
     assert!(has_route("/api/v1/compat/connectors/dry-run"));
+    assert!(has_route("/api/v1/compat/connectors/sync-plan"));
+    assert!(has_route("/api/v1/compat/connectors/import-draft"));
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
@@ -287,6 +289,7 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/assistant/chat"));
     assert!(text.contains("/api/v1/metrics/keys"));
     assert!(text.contains("/api/v1/compat/connectors/dry-run"));
+    assert!(text.contains("sync-plan / import-draft"));
 }
 
 #[tokio::test]
@@ -354,6 +357,71 @@ async fn v297_http_connector_dry_run_returns_report() {
         payload["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"
     );
+}
+
+#[tokio::test]
+async fn v297_http_connector_sync_plan_and_import_draft_return_reports() {
+    let tempdir = tempdir().unwrap();
+    let docs_dir = tempdir.path().join("docs");
+    let chat_dir = tempdir.path().join("chat");
+    fs::create_dir_all(&docs_dir).unwrap();
+    fs::create_dir_all(&chat_dir).unwrap();
+    fs::write(
+        docs_dir.join("README.md"),
+        "# HTTP Sync\n\nSync-plan fixture.",
+    )
+    .unwrap();
+    fs::write(
+        chat_dir.join("chat.json"),
+        serde_json::json!({
+            "id": "http_chat",
+            "title": "HTTP chat import",
+            "messages": [
+                {"role": "user", "content": "Capture this HTTP connector import draft."},
+                {"role": "assistant", "content": "Return a reviewable draft."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let sync_uri = format!(
+        "/api/v1/compat/connectors/sync-plan?connector=markdown-docs&root_path={}&scope_id=scp_http_connector&max_items=5",
+        docs_dir.display()
+    );
+    let import_uri = format!(
+        "/api/v1/compat/connectors/import-draft?connector=chat-export&root_path={}&scope_id=scp_http_connector&proposal=true&max_items=5",
+        chat_dir.display()
+    );
+
+    let sync = app
+        .clone()
+        .oneshot(Request::get(sync_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(sync.status(), axum::http::StatusCode::OK);
+    let sync_payload = response_json(sync).await;
+    assert_eq!(sync_payload["schema_version"], "2.97-A");
+    assert_eq!(sync_payload["connector"], "markdown-docs");
+    assert_eq!(sync_payload["mode"], "sync_plan");
+    assert_eq!(sync_payload["planned_count"], 1);
+    assert_eq!(
+        sync_payload["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+
+    let import = app
+        .oneshot(Request::get(import_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(import.status(), axum::http::StatusCode::OK);
+    let import_payload = response_json(import).await;
+    assert_eq!(import_payload["schema_version"], "2.97-A");
+    assert_eq!(import_payload["connector"], "chat-export");
+    assert_eq!(import_payload["mode"], "import_draft");
+    assert_eq!(import_payload["draft_count"], 1);
+    assert_eq!(import_payload["proposal_draft_count"], 1);
+    assert_eq!(import_payload["import_policy"]["writes_memory"], false);
 }
 
 #[tokio::test]

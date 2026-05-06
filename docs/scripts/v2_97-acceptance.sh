@@ -231,7 +231,11 @@ Covered regions:
 - chat-export explicit apply path
 - CLI parser and command projections
 - HTTP connector dry-run endpoint
+- HTTP connector sync-plan endpoint
+- HTTP connector import-draft endpoint
 - MCP connector dry-run tool
+- MCP connector sync-plan tool
+- MCP connector import-draft tool
 
 Evidence:
 
