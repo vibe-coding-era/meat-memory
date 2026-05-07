@@ -157,6 +157,31 @@ echo "[v2.97] chat-export proposal-queue report"
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/chat-export-proposal-queue-cli.json"
 
+CHAT_QUEUE_ITEM_ID="$(python3 - <<'PY' "${REPORT_DIR}/chat-export-proposal-queue-cli.json"
+import json
+import sys
+payload = json.load(open(sys.argv[1]))
+print(payload["queue_items"][0]["queue_item_id"])
+PY
+)"
+CHAT_CONFIRMATION_TOKEN="$(python3 - <<'PY' "${REPORT_DIR}/chat-export-proposal-queue-cli.json"
+import json
+import sys
+payload = json.load(open(sys.argv[1]))
+print(payload["queue_items"][0]["review_token"])
+PY
+)"
+
+echo "[v2.97] chat-export proposal apply-plan report"
+"${MEMORY_CLI}" compat connector-proposal-apply-plan \
+    --connector chat-export \
+    --root-path "${FIXTURE_DIR}/chat" \
+    --scope-id scp_v297_acceptance \
+    --approve-queue-item "${CHAT_QUEUE_ITEM_ID}" \
+    --confirmation-token "${CHAT_CONFIRMATION_TOKEN}" \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/chat-export-proposal-apply-plan-cli.json"
+
 test -f "${REPORT_DIR}/markdown-docs-dry-run.json"
 test -f "${REPORT_DIR}/markdown-docs-sync-plan.json"
 test -f "${REPORT_DIR}/markdown-docs-proposal-queue.json"
@@ -165,11 +190,13 @@ test -f "${REPORT_DIR}/local-git-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-dry-run.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
 test -f "${REPORT_DIR}/chat-export-proposal-queue.json"
+test -f "${REPORT_DIR}/chat-export-proposal-apply-plan.json"
 grep -q "Conflict Review" "${REPORT_DIR}/markdown-docs-sync-plan.md"
 grep -q "Connector Proposal Queue" "${REPORT_DIR}/markdown-docs-proposal-queue.md"
 grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "Proposal Drafts" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "review queue only" "${REPORT_DIR}/chat-export-proposal-queue.md"
+grep -q "Connector Proposal Apply Plan" "${REPORT_DIR}/chat-export-proposal-apply-plan.md"
 
 python3 - <<'PY' \
   "${REPORT_DIR}/markdown-docs-dry-run-cli.json" \
@@ -179,7 +206,8 @@ python3 - <<'PY' \
   "${REPORT_DIR}/chat-export-import-draft-cli.json" \
   "${REPORT_DIR}/markdown-docs-proposal-queue-cli.json" \
   "${REPORT_DIR}/local-git-proposal-queue-cli.json" \
-  "${REPORT_DIR}/chat-export-proposal-queue-cli.json"
+  "${REPORT_DIR}/chat-export-proposal-queue-cli.json" \
+  "${REPORT_DIR}/chat-export-proposal-apply-plan-cli.json"
 import json
 import sys
 
@@ -191,6 +219,7 @@ chat_import_draft = json.load(open(sys.argv[5]))
 markdown_proposal_queue = json.load(open(sys.argv[6]))
 local_git_proposal_queue = json.load(open(sys.argv[7]))
 chat_proposal_queue = json.load(open(sys.argv[8]))
+chat_apply_plan = json.load(open(sys.argv[9]))
 
 for payload in (
     markdown_dry_run,
@@ -201,6 +230,7 @@ for payload in (
     markdown_proposal_queue,
     local_git_proposal_queue,
     chat_proposal_queue,
+    chat_apply_plan,
 ):
     assert payload["schema_version"] == "2.97-A", payload
     assert payload["coverage_gate"]["new_feature_test_coverage_required"] == "100%", payload
@@ -256,6 +286,7 @@ assert markdown_proposal_queue["connector"] == "markdown-docs", markdown_proposa
 assert markdown_proposal_queue["mode"] == "proposal_queue", markdown_proposal_queue
 assert markdown_proposal_queue["queue_item_count"] == 1, markdown_proposal_queue
 assert markdown_proposal_queue["queue_items"][0]["proposal_type"] == "project_document_upsert", markdown_proposal_queue
+assert markdown_proposal_queue["queue_items"][0]["review_token"].startswith("confirm_"), markdown_proposal_queue
 assert markdown_proposal_queue["queue_policy"]["writes_project_documents"] is False, markdown_proposal_queue
 assert local_git_proposal_queue["connector"] == "local-git", local_git_proposal_queue
 assert local_git_proposal_queue["queue_item_count"] == 1, local_git_proposal_queue
@@ -265,7 +296,17 @@ assert chat_proposal_queue["mode"] == "proposal_queue", chat_proposal_queue
 assert chat_proposal_queue["queue_item_count"] == 1, chat_proposal_queue
 assert chat_proposal_queue["queue_items"][0]["proposal_type"] == "distill_upsert", chat_proposal_queue
 assert chat_proposal_queue["queue_items"][0]["review_level"] == "required", chat_proposal_queue
+assert chat_proposal_queue["queue_items"][0]["review_token"].startswith("confirm_"), chat_proposal_queue
 assert chat_proposal_queue["queue_policy"]["writes_memory"] is False, chat_proposal_queue
+assert chat_apply_plan["connector"] == "chat-export", chat_apply_plan
+assert chat_apply_plan["mode"] == "proposal_apply_plan", chat_apply_plan
+assert chat_apply_plan["selected_count"] == 1, chat_apply_plan
+assert chat_apply_plan["applicable_count"] == 1, chat_apply_plan
+assert chat_apply_plan["apply_items"][0]["queue_item_id"] == chat_proposal_queue["queue_items"][0]["queue_item_id"], chat_apply_plan
+assert chat_apply_plan["apply_policy"]["writes_memory"] is False, chat_apply_plan
+assert chat_apply_plan["apply_policy"]["writes_project_documents"] is False, chat_apply_plan
+assert chat_apply_plan["apply_policy"]["requires_confirmation_token"] is True, chat_apply_plan
+assert chat_apply_plan["apply_policy"]["executor_not_invoked"] is True, chat_apply_plan
 PY
 
 cat >"${COVERAGE_REPORT}" <<'EOF'
@@ -288,18 +329,23 @@ Covered regions:
 - chat-export import-draft projection
 - chat-export explicit apply path
 - connector proposal-queue projection
+- connector proposal apply-plan projection
+- connector queue confirmation token
 - markdown-docs proposal queue
 - local-git proposal queue
 - chat-export proposal queue
+- chat-export proposal apply-plan
 - CLI parser and command projections
 - HTTP connector dry-run endpoint
 - HTTP connector sync-plan endpoint
 - HTTP connector import-draft endpoint
 - HTTP connector proposal-queue endpoint
+- HTTP connector proposal apply-plan endpoint
 - MCP connector dry-run tool
 - MCP connector sync-plan tool
 - MCP connector import-draft tool
 - MCP connector proposal-queue tool
+- MCP connector proposal apply-plan tool
 
 Evidence:
 

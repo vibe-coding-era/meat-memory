@@ -1,37 +1,11 @@
 {
-  "blocked_count": 0,
-  "connector": "chat-export",
-  "coverage_gate": {
-    "covered_regions": [
-      "connector_proposal_queue_projection",
-      "markdown_docs_proposal_queue",
-      "local_git_proposal_queue",
-      "chat_export_proposal_queue",
-      "service_surface_projection"
-    ],
-    "new_feature_test_coverage_required": "100%"
-  },
-  "failures": [],
-  "incremental_checkpoint": {
-    "apply_target": "Kernel::remember_text_after_review",
-    "external_ids": [
-      "v297_acceptance_chat"
-    ],
-    "strategy": "chat_export_external_id"
-  },
-  "mode": "proposal_queue",
-  "queue_id": "cpq_chat-export_57892281b5421cbb",
-  "queue_item_count": 1,
-  "queue_items": [
+  "applicable_count": 1,
+  "apply_items": [
     {
       "apply_target": "Kernel::remember_text_after_review",
       "block_reason": null,
       "blocked": false,
-      "connector": "chat-export",
-      "evidence": [
-        "connector=chat-export external_id=v297_acceptance_chat source_refs=file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat/chat.json#v297_acceptance_chat"
-      ],
-      "external_id": "v297_acceptance_chat",
+      "can_apply": true,
       "metadata": {
         "draft_body_bytes": 103,
         "source_metadata": {
@@ -52,17 +26,33 @@
       },
       "proposal_type": "distill_upsert",
       "queue_item_id": "cpq_chat-export_0_v297_acceptance_chat",
-      "reason": "Review chat-export conversation 'V2.97 chat import fixture' before importing it as memory.",
-      "review_level": "required",
-      "review_status": "open",
-      "review_token": "confirm_a0e1ca7fb7d2ecdc",
-      "scope_id": "scp_v297_acceptance",
+      "requires_executor": true,
       "source_refs": [
         "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat/chat.json#v297_acceptance_chat"
       ],
       "title": "V2.97 chat import fixture"
     }
   ],
+  "apply_policy": {
+    "executor_not_invoked": true,
+    "requires_confirmation_token": true,
+    "requires_runtime_key_for_executor": true,
+    "safe_default": "plan_only",
+    "writes_memory": false,
+    "writes_project_documents": false
+  },
+  "blocked_count": 0,
+  "connector": "chat-export",
+  "coverage_gate": {
+    "covered_regions": [
+      "connector_proposal_apply_plan",
+      "connector_queue_confirmation_token",
+      "service_side_confirmed_apply_plan"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "mode": "proposal_apply_plan",
+  "queue_id": "cpq_chat-export_57892281b5421cbb",
   "queue_policy": {
     "compatible_apply_paths": [
       "memory-cli compat connector-import-draft --apply --proposal",
@@ -79,9 +69,7 @@
   },
   "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat",
   "schema_version": "2.97-A",
-  "source_summary": {
-    "draft_count": 1,
-    "proposal_draft_count": 1,
-    "upstream_mode": "import_draft"
-  }
+  "selected_count": 1,
+  "skipped_count": 0,
+  "skipped_queue_item_ids": []
 }

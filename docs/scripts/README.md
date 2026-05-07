@@ -116,7 +116,7 @@
 - `v2_93-acceptance.sh`：V2.93 secret / PII guard、health report、CLI health 投影和新增代码 100% 覆盖率说明
 - `v2_94-acceptance.sh`：V2.94 evidence span、Memory Passport export / verify / import / provenance 和新增代码 100% 覆盖率说明
 - `v2_95-acceptance.sh`：V2.95 竞品映射、adapter skeleton、CLI / HTTP / MCP surface parity 和新增代码 100% 覆盖率说明
-- `v2_97-acceptance.sh`：V2.97 connector dry-run、sync-plan、proposal-queue、conflict review、chat export import draft 和新增代码 100% 覆盖率说明
+- `v2_97-acceptance.sh`：V2.97 connector dry-run、sync-plan、proposal-queue、proposal apply-plan、conflict review、chat export import draft 和新增代码 100% 覆盖率说明
 - `v2_7-production-gate.sh`：V2.7 商用生产门禁，覆盖格式、接口、P1 回归、存储、接入面、安全和严格 PG 验收
 - `v2_8-production-gate.sh`：V2.8 发布门禁，覆盖格式、接口、V2.8 核心套件、接入面、安全和 strict acceptance
 
@@ -186,7 +186,7 @@
 - `v2_93-acceptance.sh`：V2.93 secret / health 验收
 - `v2_94-acceptance.sh`：V2.94 evidence / passport 验收
 - `v2_95-acceptance.sh`：V2.95 compatibility surface 验收
-- `v2_97-acceptance.sh`：V2.97 connectors parity 验收
+- `v2_97-acceptance.sh`：V2.97 connectors parity 与确认式 apply-plan 验收
 - `v2_7-production-gate.sh`：V2.7 生产门禁
 - `v2_8-production-gate.sh`：V2.8 发布门禁
 - `v2-perf.sh`：性能烟测

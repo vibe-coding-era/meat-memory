@@ -289,6 +289,7 @@ impl ConnectorProposalQueueRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorProposalQueueItem {
     pub queue_item_id: String,
+    pub review_token: String,
     pub connector: String,
     pub external_id: String,
     pub scope_id: ScopeId,
@@ -308,6 +309,7 @@ pub struct ConnectorProposalQueueItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorProposalQueueReport {
     pub schema_version: String,
+    pub queue_id: String,
     pub connector: String,
     pub root_path: PathBuf,
     pub mode: String,
@@ -322,6 +324,74 @@ pub struct ConnectorProposalQueueReport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorProposalQueueReportPaths {
+    pub json: PathBuf,
+    pub markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorProposalApplyPlanRequest {
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub scope_id: ScopeId,
+    pub approved_queue_item_ids: Vec<String>,
+    pub confirmation_token: String,
+    pub previous_snapshots: Vec<ProjectDocumentSnapshot>,
+    pub max_items: usize,
+}
+
+impl ConnectorProposalApplyPlanRequest {
+    pub fn new(
+        connector: impl Into<String>,
+        root_path: impl Into<PathBuf>,
+        scope_id: ScopeId,
+        approved_queue_item_ids: Vec<String>,
+        confirmation_token: impl Into<String>,
+    ) -> Self {
+        Self {
+            connector: connector.into(),
+            root_path: root_path.into(),
+            scope_id,
+            approved_queue_item_ids,
+            confirmation_token: confirmation_token.into(),
+            previous_snapshots: Vec::new(),
+            max_items: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorProposalApplyPlanItem {
+    pub queue_item_id: String,
+    pub title: String,
+    pub proposal_type: String,
+    pub apply_target: String,
+    pub can_apply: bool,
+    pub blocked: bool,
+    pub block_reason: Option<String>,
+    pub requires_executor: bool,
+    pub source_refs: Vec<String>,
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorProposalApplyPlanReport {
+    pub schema_version: String,
+    pub queue_id: String,
+    pub connector: String,
+    pub root_path: PathBuf,
+    pub mode: String,
+    pub selected_count: usize,
+    pub applicable_count: usize,
+    pub blocked_count: usize,
+    pub skipped_count: usize,
+    pub apply_items: Vec<ConnectorProposalApplyPlanItem>,
+    pub skipped_queue_item_ids: Vec<String>,
+    pub apply_policy: Value,
+    pub queue_policy: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorProposalApplyPlanReportPaths {
     pub json: PathBuf,
     pub markdown: PathBuf,
 }
@@ -789,6 +859,7 @@ pub fn build_connector_proposal_queue_report(
 pub fn connector_proposal_queue_json(report: &ConnectorProposalQueueReport) -> Value {
     json!({
         "schema_version": report.schema_version,
+        "queue_id": report.queue_id,
         "connector": report.connector,
         "root_path": report.root_path,
         "mode": report.mode,
@@ -812,6 +883,18 @@ pub fn connector_proposal_queue_json(report: &ConnectorProposalQueueReport) -> V
     })
 }
 
+pub fn connector_proposal_confirmation_token(
+    queue_id: &str,
+    approved_queue_item_ids: &[String],
+) -> String {
+    let mut ids = approved_queue_item_ids.to_vec();
+    ids.sort();
+    format!(
+        "confirm_{}",
+        stable_hex_hash(&format!("{queue_id}|{}", ids.join(",")))
+    )
+}
+
 pub fn write_connector_proposal_queue_report(
     output_dir: &Path,
     report: &ConnectorProposalQueueReport,
@@ -833,6 +916,132 @@ pub fn write_connector_proposal_queue_report(
     .with_context(|| format!("failed to write {}", markdown_path.display()))?;
 
     Ok(ConnectorProposalQueueReportPaths {
+        json: json_path,
+        markdown: markdown_path,
+    })
+}
+
+pub fn build_connector_proposal_apply_plan_report(
+    request: ConnectorProposalApplyPlanRequest,
+) -> Result<ConnectorProposalApplyPlanReport> {
+    if request.approved_queue_item_ids.is_empty() {
+        bail!("approved_queue_item_ids is required for connector proposal apply-plan");
+    }
+
+    let mut queue_request =
+        ConnectorProposalQueueRequest::new(request.connector, request.root_path, request.scope_id);
+    queue_request.max_items = request.max_items;
+    queue_request.previous_snapshots = request.previous_snapshots;
+    let queue = build_connector_proposal_queue_report(queue_request)?;
+    let expected_token =
+        connector_proposal_confirmation_token(&queue.queue_id, &request.approved_queue_item_ids);
+    if request.confirmation_token != expected_token {
+        bail!("connector proposal apply-plan confirmation token mismatch");
+    }
+
+    let by_id = queue
+        .queue_items
+        .iter()
+        .map(|item| (item.queue_item_id.as_str(), item))
+        .collect::<BTreeMap<_, _>>();
+    let mut apply_items = Vec::new();
+    let mut skipped_queue_item_ids = Vec::new();
+    for queue_item_id in &request.approved_queue_item_ids {
+        let Some(item) = by_id.get(queue_item_id.as_str()) else {
+            bail!("unknown connector proposal queue item: {queue_item_id}");
+        };
+        if item.review_status != "open" {
+            skipped_queue_item_ids.push(queue_item_id.clone());
+            continue;
+        }
+        let can_apply = !item.blocked;
+        apply_items.push(ConnectorProposalApplyPlanItem {
+            queue_item_id: item.queue_item_id.clone(),
+            title: item.title.clone(),
+            proposal_type: item.proposal_type.clone(),
+            apply_target: item.apply_target.clone(),
+            can_apply,
+            blocked: item.blocked,
+            block_reason: item.block_reason.clone(),
+            requires_executor: true,
+            source_refs: item.source_refs.clone(),
+            metadata: item.metadata.clone(),
+        });
+    }
+
+    let applicable_count = apply_items.iter().filter(|item| item.can_apply).count();
+    let blocked_count = apply_items.iter().filter(|item| item.blocked).count();
+    Ok(ConnectorProposalApplyPlanReport {
+        schema_version: queue.schema_version,
+        queue_id: queue.queue_id,
+        connector: queue.connector,
+        root_path: queue.root_path,
+        mode: "proposal_apply_plan".to_string(),
+        selected_count: request.approved_queue_item_ids.len(),
+        applicable_count,
+        blocked_count,
+        skipped_count: skipped_queue_item_ids.len(),
+        apply_items,
+        skipped_queue_item_ids,
+        apply_policy: json!({
+            "safe_default": "plan_only",
+            "writes_memory": false,
+            "writes_project_documents": false,
+            "requires_confirmation_token": true,
+            "requires_runtime_key_for_executor": true,
+            "executor_not_invoked": true,
+        }),
+        queue_policy: queue.queue_policy,
+    })
+}
+
+pub fn connector_proposal_apply_plan_json(report: &ConnectorProposalApplyPlanReport) -> Value {
+    json!({
+        "schema_version": report.schema_version,
+        "queue_id": report.queue_id,
+        "connector": report.connector,
+        "root_path": report.root_path,
+        "mode": report.mode,
+        "selected_count": report.selected_count,
+        "applicable_count": report.applicable_count,
+        "blocked_count": report.blocked_count,
+        "skipped_count": report.skipped_count,
+        "apply_items": report.apply_items,
+        "skipped_queue_item_ids": report.skipped_queue_item_ids,
+        "apply_policy": report.apply_policy,
+        "queue_policy": report.queue_policy,
+        "coverage_gate": {
+            "new_feature_test_coverage_required": "100%",
+            "covered_regions": [
+                "connector_proposal_apply_plan",
+                "connector_queue_confirmation_token",
+                "service_side_confirmed_apply_plan"
+            ]
+        }
+    })
+}
+
+pub fn write_connector_proposal_apply_plan_report(
+    output_dir: &Path,
+    report: &ConnectorProposalApplyPlanReport,
+) -> Result<ConnectorProposalApplyPlanReportPaths> {
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+    let json_path = output_dir.join(format!("{}-proposal-apply-plan.json", report.connector));
+    let markdown_path = output_dir.join(format!("{}-proposal-apply-plan.md", report.connector));
+
+    fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&connector_proposal_apply_plan_json(report))?,
+    )
+    .with_context(|| format!("failed to write {}", json_path.display()))?;
+    fs::write(
+        &markdown_path,
+        render_connector_proposal_apply_plan_markdown(report),
+    )
+    .with_context(|| format!("failed to write {}", markdown_path.display()))?;
+
+    Ok(ConnectorProposalApplyPlanReportPaths {
         json: json_path,
         markdown: markdown_path,
     })
@@ -932,14 +1141,22 @@ fn build_sync_proposal_queue_report(
 fn connector_proposal_queue_report(
     connector: String,
     root_path: PathBuf,
-    queue_items: Vec<ConnectorProposalQueueItem>,
+    mut queue_items: Vec<ConnectorProposalQueueItem>,
     failures: Vec<String>,
     source_summary: Value,
     incremental_checkpoint: Value,
 ) -> ConnectorProposalQueueReport {
+    let queue_id = connector_queue_id(&connector, &root_path, &queue_items);
+    for item in &mut queue_items {
+        item.review_token = connector_proposal_confirmation_token(
+            &queue_id,
+            std::slice::from_ref(&item.queue_item_id),
+        );
+    }
     let blocked_count = queue_items.iter().filter(|item| item.blocked).count();
     ConnectorProposalQueueReport {
         schema_version: "2.97-A".to_string(),
+        queue_id: queue_id.clone(),
         connector,
         root_path,
         mode: "proposal_queue".to_string(),
@@ -954,9 +1171,12 @@ fn connector_proposal_queue_report(
             "writes_project_documents": false,
             "review_required_before_apply": true,
             "service_apply_exposed": false,
+            "queue_id": queue_id,
+            "confirmation_token_strategy": "confirm_<stable_hash(queue_id|sorted_queue_item_ids)>",
             "compatible_apply_paths": [
                 "memory-cli compat connector-import-draft --apply --proposal",
-                "memory-cli compat connector-sync-plan --apply"
+                "memory-cli compat connector-sync-plan --apply",
+                "memory-cli compat connector-proposal-apply-plan --approve-queue-item <id> --confirmation-token <token>"
             ],
         }),
         incremental_checkpoint,
@@ -973,6 +1193,7 @@ fn import_proposal_queue_item(
             index,
             &proposal.draft_external_id,
         ),
+        review_token: String::new(),
         connector: proposal.connector.clone(),
         external_id: proposal.draft_external_id.clone(),
         scope_id: proposal.scope_id.clone(),
@@ -1005,6 +1226,7 @@ fn sync_document_proposal_queue_item(
         .unwrap_or_else(|| document.canonical_uri.clone());
     ConnectorProposalQueueItem {
         queue_item_id: connector_queue_item_id(connector, index, &document.canonical_uri),
+        review_token: String::new(),
         connector: connector.to_string(),
         external_id: document.canonical_uri.clone(),
         scope_id: scope_id.clone(),
@@ -1042,6 +1264,7 @@ fn sync_conflict_proposal_queue_item(
         .unwrap_or_else(|| "Project document conflict requires review before apply.".to_string());
     ConnectorProposalQueueItem {
         queue_item_id: connector_queue_item_id(connector, index, &conflict.canonical_uri),
+        review_token: String::new(),
         connector: connector.to_string(),
         external_id: conflict.canonical_uri.clone(),
         scope_id: scope_id.clone(),
@@ -1096,6 +1319,30 @@ fn connector_queue_item_id(connector: &str, index: usize, external_id: &str) -> 
         slug
     };
     format!("cpq_{connector}_{index}_{suffix}")
+}
+
+fn connector_queue_id(
+    connector: &str,
+    root_path: &Path,
+    queue_items: &[ConnectorProposalQueueItem],
+) -> String {
+    let mut input = format!("{connector}|{}", root_path.display());
+    for item in queue_items {
+        input.push('|');
+        input.push_str(&item.queue_item_id);
+        input.push(':');
+        input.push_str(&item.external_id);
+    }
+    format!("cpq_{}_{}", connector, stable_hex_hash(&input))
+}
+
+fn stable_hex_hash(input: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 fn local_git_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
@@ -2397,8 +2644,9 @@ fn render_connector_import_draft_markdown(report: &ConnectorImportDraftReport) -
 
 fn render_connector_proposal_queue_markdown(report: &ConnectorProposalQueueReport) -> String {
     let mut output = format!(
-        "# V2.97-A Connector Proposal Queue\n\nschema_version: {}\nconnector: {}\nroot_path: {}\nmode: {}\nqueue_item_count: {}\nblocked_count: {}\n\n",
+        "# V2.97-A Connector Proposal Queue\n\nschema_version: {}\nqueue_id: {}\nconnector: {}\nroot_path: {}\nmode: {}\nqueue_item_count: {}\nblocked_count: {}\n\n",
         report.schema_version,
+        report.queue_id,
         report.connector,
         report.root_path.display(),
         report.mode,
@@ -2418,11 +2666,12 @@ fn render_connector_proposal_queue_markdown(report: &ConnectorProposalQueueRepor
     } else {
         for item in &report.queue_items {
             output.push_str(&format!(
-                "- {} [{} / {}]\n  - id: {}\n  - apply_target: {}\n  - blocked: {}\n",
+                "- {} [{} / {}]\n  - id: {}\n  - review_token: {}\n  - apply_target: {}\n  - blocked: {}\n",
                 item.title,
                 item.proposal_type,
                 item.review_level,
                 item.queue_item_id,
+                item.review_token,
                 item.apply_target,
                 item.blocked
             ));
@@ -2442,6 +2691,58 @@ fn render_connector_proposal_queue_markdown(report: &ConnectorProposalQueueRepor
     }
 
     output.push_str("\n## Coverage Gate\n\n- V2.97-A connector proposal-queue production regions require 100% targeted test coverage.\n");
+    output
+}
+
+fn render_connector_proposal_apply_plan_markdown(
+    report: &ConnectorProposalApplyPlanReport,
+) -> String {
+    let mut output = format!(
+        "# V2.97-A Connector Proposal Apply Plan\n\nschema_version: {}\nqueue_id: {}\nconnector: {}\nroot_path: {}\nmode: {}\nselected_count: {}\napplicable_count: {}\nblocked_count: {}\n\n",
+        report.schema_version,
+        report.queue_id,
+        report.connector,
+        report.root_path.display(),
+        report.mode,
+        report.selected_count,
+        report.applicable_count,
+        report.blocked_count
+    );
+
+    output.push_str("## Apply Policy\n\n");
+    output.push_str("- plan only; this report does not write memory or project documents\n");
+    output.push_str("- confirmation token was verified before generating this plan\n");
+    output.push_str("- runtime key and executor are still required for actual apply\n");
+
+    output.push_str("\n## Apply Items\n\n");
+    if report.apply_items.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for item in &report.apply_items {
+            output.push_str(&format!(
+                "- {} [{}]\n  - id: {}\n  - apply_target: {}\n  - can_apply: {}\n",
+                item.title,
+                item.proposal_type,
+                item.queue_item_id,
+                item.apply_target,
+                item.can_apply
+            ));
+            if let Some(block_reason) = &item.block_reason {
+                output.push_str(&format!("  - block_reason: {block_reason}\n"));
+            }
+        }
+    }
+
+    output.push_str("\n## Skipped Items\n\n");
+    if report.skipped_queue_item_ids.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for queue_item_id in &report.skipped_queue_item_ids {
+            output.push_str(&format!("- {queue_item_id}\n"));
+        }
+    }
+
+    output.push_str("\n## Coverage Gate\n\n- V2.97-A connector proposal apply-plan production regions require 100% targeted test coverage.\n");
     output
 }
 
@@ -3002,9 +3303,11 @@ mod tests {
         let payload = connector_proposal_queue_json(&report);
 
         assert_eq!(report.connector, "chat-export");
+        assert!(report.queue_id.starts_with("cpq_chat-export_"));
         assert_eq!(report.mode, "proposal_queue");
         assert_eq!(report.queue_item_count, 1);
         assert_eq!(report.blocked_count, 0);
+        assert!(report.queue_items[0].review_token.starts_with("confirm_"));
         assert_eq!(report.queue_items[0].proposal_type, "distill_upsert");
         assert_eq!(report.queue_items[0].review_level, "required");
         assert_eq!(
@@ -3094,6 +3397,141 @@ mod tests {
         assert_eq!(report.queue_items[0].review_level, "required");
         assert_eq!(report.queue_items[0].external_id, missing_uri);
         assert!(report.queue_items[0].blocked);
+    }
+
+    #[test]
+    fn v297_connector_proposal_apply_plan_requires_confirmation_and_blocks_conflicts() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{"id":"apply_queue","title":"Apply queue","messages":[{"role":"user","content":"confirm me"}]}"#,
+        )
+        .unwrap();
+        let queue = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_chat_queue"),
+        ))
+        .unwrap();
+        let queue_item_id = queue.queue_items[0].queue_item_id.clone();
+        let token = connector_proposal_confirmation_token(
+            &queue.queue_id,
+            std::slice::from_ref(&queue_item_id),
+        );
+
+        let report =
+            build_connector_proposal_apply_plan_report(ConnectorProposalApplyPlanRequest::new(
+                "chat-export",
+                tempdir.path(),
+                ScopeId::from_string("scp_chat_queue"),
+                vec![queue_item_id.clone()],
+                token,
+            ))
+            .unwrap();
+
+        assert_eq!(report.mode, "proposal_apply_plan");
+        assert_eq!(report.queue_id, queue.queue_id);
+        assert_eq!(report.selected_count, 1);
+        assert_eq!(report.applicable_count, 1);
+        assert_eq!(report.blocked_count, 0);
+        assert_eq!(report.apply_items[0].queue_item_id, queue_item_id);
+        assert!(report.apply_items[0].can_apply);
+        assert_eq!(report.apply_policy["writes_memory"], false);
+        assert_eq!(report.apply_policy["executor_not_invoked"], true);
+
+        let error =
+            build_connector_proposal_apply_plan_report(ConnectorProposalApplyPlanRequest::new(
+                "chat-export",
+                tempdir.path(),
+                ScopeId::from_string("scp_chat_queue"),
+                vec![report.apply_items[0].queue_item_id.clone()],
+                "confirm_wrong",
+            ))
+            .unwrap_err();
+        assert!(error.to_string().contains("confirmation token mismatch"));
+    }
+
+    #[test]
+    fn v297_connector_proposal_apply_plan_keeps_blocked_conflicts_plan_only() {
+        let tempdir = tempdir().unwrap();
+        let missing_uri = "file:///tmp/apply-missing.md".to_string();
+        let mut queue_request = ConnectorProposalQueueRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_docs_queue"),
+        );
+        queue_request.previous_snapshots = vec![ProjectDocumentSnapshot {
+            canonical_uri: missing_uri,
+            content_hash: "sha256:old".to_string(),
+        }];
+        let queue = build_connector_proposal_queue_report(queue_request.clone()).unwrap();
+        let queue_item_id = queue.queue_items[0].queue_item_id.clone();
+        let token = connector_proposal_confirmation_token(
+            &queue.queue_id,
+            std::slice::from_ref(&queue_item_id),
+        );
+        let mut request = ConnectorProposalApplyPlanRequest::new(
+            "markdown-docs",
+            tempdir.path(),
+            ScopeId::from_string("scp_docs_queue"),
+            vec![queue_item_id],
+            token,
+        );
+        request.previous_snapshots = queue_request.previous_snapshots;
+
+        let report = build_connector_proposal_apply_plan_report(request).unwrap();
+
+        assert_eq!(report.selected_count, 1);
+        assert_eq!(report.applicable_count, 0);
+        assert_eq!(report.blocked_count, 1);
+        assert!(!report.apply_items[0].can_apply);
+        assert!(report.apply_items[0].blocked);
+    }
+
+    #[test]
+    fn v297_connector_proposal_apply_plan_writer_outputs_json_and_markdown() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{"id":"write_apply_plan","title":"Write plan","messages":[{"role":"user","content":"hello"}]}"#,
+        )
+        .unwrap();
+        let queue = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_chat_queue"),
+        ))
+        .unwrap();
+        let queue_item_id = queue.queue_items[0].queue_item_id.clone();
+        let token = connector_proposal_confirmation_token(
+            &queue.queue_id,
+            std::slice::from_ref(&queue_item_id),
+        );
+        let report =
+            build_connector_proposal_apply_plan_report(ConnectorProposalApplyPlanRequest::new(
+                "chat-export",
+                tempdir.path(),
+                ScopeId::from_string("scp_chat_queue"),
+                vec![queue_item_id],
+                token,
+            ))
+            .unwrap();
+        let output_dir = tempdir.path().join("reports");
+        let paths = write_connector_proposal_apply_plan_report(&output_dir, &report).unwrap();
+
+        let json_text = fs::read_to_string(&paths.json).unwrap();
+        let markdown_text = fs::read_to_string(&paths.markdown).unwrap();
+        let payload: Value = serde_json::from_str(&json_text).unwrap();
+
+        assert_eq!(payload["schema_version"], "2.97-A");
+        assert_eq!(payload["mode"], "proposal_apply_plan");
+        assert_eq!(payload["apply_policy"]["executor_not_invoked"], true);
+        assert_eq!(
+            payload["coverage_gate"]["new_feature_test_coverage_required"],
+            "100%"
+        );
+        assert!(markdown_text.contains("Connector Proposal Apply Plan"));
+        assert!(markdown_text.contains("plan only"));
     }
 
     #[test]

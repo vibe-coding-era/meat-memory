@@ -148,6 +148,7 @@
     "strategy": "canonical_uri_content_hash"
   },
   "mode": "proposal_queue",
+  "queue_id": "cpq_local-git_3bbbd068e460af9e",
   "queue_item_count": 1,
   "queue_items": [
     {
@@ -182,6 +183,7 @@
       "reason": "Review local-git document 'V2.97 Connector Fixture' before applying project document sync.",
       "review_level": "suggested",
       "review_status": "open",
+      "review_token": "confirm_7b2fc398ab52721b",
       "scope_id": "scp_v297_acceptance",
       "source_refs": [
         "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
@@ -192,8 +194,11 @@
   "queue_policy": {
     "compatible_apply_paths": [
       "memory-cli compat connector-import-draft --apply --proposal",
-      "memory-cli compat connector-sync-plan --apply"
+      "memory-cli compat connector-sync-plan --apply",
+      "memory-cli compat connector-proposal-apply-plan --approve-queue-item <id> --confirmation-token <token>"
     ],
+    "confirmation_token_strategy": "confirm_<stable_hash(queue_id|sorted_queue_item_ids)>",
+    "queue_id": "cpq_local-git_3bbbd068e460af9e",
     "review_required_before_apply": true,
     "safe_default": "review_queue_only",
     "service_apply_exposed": false,

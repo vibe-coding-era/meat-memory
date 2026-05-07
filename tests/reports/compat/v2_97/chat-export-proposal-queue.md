@@ -1,6 +1,7 @@
 # V2.97-A Connector Proposal Queue
 
 schema_version: 2.97-A
+queue_id: cpq_chat-export_57892281b5421cbb
 connector: chat-export
 root_path: /Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/chat
 mode: proposal_queue
@@ -17,6 +18,7 @@ blocked_count: 0
 
 - V2.97 chat import fixture [distill_upsert / required]
   - id: cpq_chat-export_0_v297_acceptance_chat
+  - review_token: confirm_a0e1ca7fb7d2ecdc
   - apply_target: Kernel::remember_text_after_review
   - blocked: false
 

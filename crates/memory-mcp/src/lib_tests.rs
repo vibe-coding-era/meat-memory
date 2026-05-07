@@ -177,7 +177,8 @@ fn exposes_fetch_context_tool() {
     assert!(tool_supported("memory.connectors.sync_plan"));
     assert!(tool_supported("memory.connectors.import_draft"));
     assert!(tool_supported("memory.connectors.proposal_queue"));
-    assert_eq!(TOOL_SPECS.len(), 37);
+    assert!(tool_supported("memory.connectors.proposal_apply_plan"));
+    assert_eq!(TOOL_SPECS.len(), 38);
 }
 
 #[test]
@@ -391,6 +392,72 @@ async fn v297_mcp_connector_proposal_queue_returns_report() {
         "distill_upsert"
     );
     assert_eq!(response.data["queue_policy"]["writes_memory"], false);
+    assert_eq!(
+        response.data["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+}
+
+#[tokio::test]
+async fn v297_mcp_connector_proposal_apply_plan_returns_plan_only_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        serde_json::json!({
+            "id": "mcp_apply_plan",
+            "title": "MCP apply-plan import",
+            "messages": [
+                {"role": "user", "content": "Plan this MCP connector import."},
+                {"role": "assistant", "content": "Keep the executor behind confirmation."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let server = test_server(tempdir.path());
+
+    let queue = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.proposal_queue".to_string(),
+            arguments: serde_json::json!({
+                "connector": "chat-export",
+                "root_path": tempdir.path().display().to_string(),
+                "scope_id": "scp_mcp_connector",
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+    let queue_item_id = queue.data["queue_items"][0]["queue_item_id"]
+        .as_str()
+        .unwrap();
+    let confirmation_token = queue.data["queue_items"][0]["review_token"]
+        .as_str()
+        .unwrap();
+
+    let response = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.proposal_apply_plan".to_string(),
+            arguments: serde_json::json!({
+                "connector": "chat-export",
+                "root_path": tempdir.path().display().to_string(),
+                "scope_id": "scp_mcp_connector",
+                "approved_queue_item_ids": [queue_item_id],
+                "confirmation_token": confirmation_token,
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(response.tool, "memory.connectors.proposal_apply_plan");
+    assert_eq!(response.data["schema_version"], "2.97-A");
+    assert_eq!(response.data["connector"], "chat-export");
+    assert_eq!(response.data["mode"], "proposal_apply_plan");
+    assert_eq!(response.data["selected_count"], 1);
+    assert_eq!(response.data["applicable_count"], 1);
+    assert_eq!(response.data["apply_policy"]["writes_memory"], false);
+    assert_eq!(response.data["apply_policy"]["executor_not_invoked"], true);
     assert_eq!(
         response.data["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"

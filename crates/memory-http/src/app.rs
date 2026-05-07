@@ -14,16 +14,17 @@ use memory_domain::{
 };
 use memory_kernel::{
     ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
-    ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorProposalQueueRequest,
-    ConnectorSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
-    InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
-    PromoteAgentContextRequest, PromoteMemoryRequest, RememberImageRequest, RememberTextRequest,
-    RememberTextResult, SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
-    build_competitor_compatibility_report, build_connector_import_draft_report,
+    ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorProposalApplyPlanRequest,
+    ConnectorProposalQueueRequest, ConnectorSyncPlanRequest, CreateAccessKeyRequest,
+    ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest,
+    ListProjectDocumentsRequest, PromoteAgentContextRequest, PromoteMemoryRequest,
+    RememberImageRequest, RememberTextRequest, RememberTextResult, SearchContextRequest,
+    UpdateAccessKeyRequest, UpsertAgentContextRequest, build_competitor_compatibility_report,
+    build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
     build_connector_proposal_queue_report, build_connector_sync_plan, compatibility_report_json,
-    connector_dry_run_json, connector_import_draft_json, connector_proposal_queue_json,
-    connector_sync_plan_json, health_json, run_connector_dry_run, verification_json,
-    verify_memory_passport_bundle,
+    connector_dry_run_json, connector_import_draft_json, connector_proposal_apply_plan_json,
+    connector_proposal_queue_json, connector_sync_plan_json, health_json, run_connector_dry_run,
+    verification_json, verify_memory_passport_bundle,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -80,6 +81,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/compat/connectors/sync-plan",
     "/api/v1/compat/connectors/import-draft",
     "/api/v1/compat/connectors/proposal-queue",
+    "/api/v1/compat/connectors/proposal-apply-plan",
     "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
@@ -468,6 +470,16 @@ pub struct ConnectorProposalQueueQuery {
     pub max_items: Option<usize>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ConnectorProposalApplyPlanQuery {
+    pub connector: Option<String>,
+    pub root_path: Option<String>,
+    pub scope_id: Option<String>,
+    pub approved_queue_item_ids: Option<String>,
+    pub confirmation_token: Option<String>,
+    pub max_items: Option<usize>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LifecycleStatusHttpRequest {
     pub status: Option<String>,
@@ -707,6 +719,10 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route(
             "/api/v1/compat/connectors/proposal-queue",
             get(compat_connector_proposal_queue),
+        )
+        .route(
+            "/api/v1/compat/connectors/proposal-apply-plan",
+            get(compat_connector_proposal_apply_plan),
         )
         .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
@@ -1937,6 +1953,38 @@ async fn compat_connector_proposal_queue(
     Ok(Json(connector_proposal_queue_json(&report)))
 }
 
+async fn compat_connector_proposal_apply_plan(
+    State(state): State<HttpAppState>,
+    Query(query): Query<ConnectorProposalApplyPlanQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let connector = required_connector(query.connector)?;
+    let root_path = required_connector_root_path(query.root_path)?;
+    let scope_id = query
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let approved_queue_item_ids =
+        required_csv_values(query.approved_queue_item_ids, "approved_queue_item_ids")?;
+    let confirmation_token = query
+        .confirmation_token
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("confirmation_token is required"))?;
+    let mut request = ConnectorProposalApplyPlanRequest::new(
+        connector,
+        PathBuf::from(root_path),
+        scope_id,
+        approved_queue_item_ids,
+        confirmation_token,
+    );
+    if let Some(max_items) = query.max_items {
+        request.max_items = max_items;
+    }
+    let report =
+        build_connector_proposal_apply_plan_report(request).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(connector_proposal_apply_plan_json(&report)))
+}
+
 fn required_connector(raw: Option<String>) -> Result<String, ApiError> {
     raw.filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ApiError::bad_request("connector is required"))
@@ -1945,6 +1993,21 @@ fn required_connector(raw: Option<String>) -> Result<String, ApiError> {
 fn required_connector_root_path(raw: Option<String>) -> Result<String, ApiError> {
     raw.filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ApiError::bad_request("root_path is required"))
+}
+
+fn required_csv_values(raw: Option<String>, field: &'static str) -> Result<Vec<String>, ApiError> {
+    let values = raw
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request(format!("{field} is required")))?
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        return Err(ApiError::bad_request(format!("{field} is required")));
+    }
+    Ok(values)
 }
 
 fn report_input_dir(input_dir: Option<String>, default_dir: &str) -> PathBuf {
@@ -3343,7 +3406,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             <h2 class="card-title">Projection Debug</h2>
             <span class="memory-meta-tag">source/document</span>
             <span class="memory-meta-tag">connector dry-run /api/v1/compat/connectors/dry-run</span>
-            <span class="memory-meta-tag">sync-plan / import-draft / proposal-queue</span>
+            <span class="memory-meta-tag">sync-plan / import-draft / proposal-queue / apply-plan</span>
           </div>
           <div class="chat-note muted">
             填写 raw key、source_id、document_id，直接查看 V2.4 project document markdown projection。

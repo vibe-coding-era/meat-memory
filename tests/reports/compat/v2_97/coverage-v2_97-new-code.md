@@ -17,18 +17,23 @@ Covered regions:
 - chat-export import-draft projection
 - chat-export explicit apply path
 - connector proposal-queue projection
+- connector proposal apply-plan projection
+- connector queue confirmation token
 - markdown-docs proposal queue
 - local-git proposal queue
 - chat-export proposal queue
+- chat-export proposal apply-plan
 - CLI parser and command projections
 - HTTP connector dry-run endpoint
 - HTTP connector sync-plan endpoint
 - HTTP connector import-draft endpoint
 - HTTP connector proposal-queue endpoint
+- HTTP connector proposal apply-plan endpoint
 - MCP connector dry-run tool
 - MCP connector sync-plan tool
 - MCP connector import-draft tool
 - MCP connector proposal-queue tool
+- MCP connector proposal apply-plan tool
 
 Evidence:
 

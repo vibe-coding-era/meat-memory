@@ -232,6 +232,7 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/compat/connectors/sync-plan"));
     assert!(has_route("/api/v1/compat/connectors/import-draft"));
     assert!(has_route("/api/v1/compat/connectors/proposal-queue"));
+    assert!(has_route("/api/v1/compat/connectors/proposal-apply-plan"));
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
@@ -290,7 +291,7 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/assistant/chat"));
     assert!(text.contains("/api/v1/metrics/keys"));
     assert!(text.contains("/api/v1/compat/connectors/dry-run"));
-    assert!(text.contains("sync-plan / import-draft / proposal-queue"));
+    assert!(text.contains("sync-plan / import-draft / proposal-queue / apply-plan"));
 }
 
 #[tokio::test]
@@ -460,6 +461,68 @@ async fn v297_http_connector_proposal_queue_returns_report() {
     assert_eq!(payload["queue_item_count"], 1);
     assert_eq!(payload["queue_items"][0]["proposal_type"], "distill_upsert");
     assert_eq!(payload["queue_policy"]["writes_memory"], false);
+    assert_eq!(
+        payload["coverage_gate"]["new_feature_test_coverage_required"],
+        "100%"
+    );
+}
+
+#[tokio::test]
+async fn v297_http_connector_proposal_apply_plan_returns_plan_only_report() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("chat.json"),
+        serde_json::json!({
+            "id": "http_apply_plan",
+            "title": "HTTP apply-plan import",
+            "messages": [
+                {"role": "user", "content": "Plan this HTTP connector import."},
+                {"role": "assistant", "content": "Require a confirmation token first."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let queue_uri = format!(
+        "/api/v1/compat/connectors/proposal-queue?connector=chat-export&root_path={}&scope_id=scp_http_connector&max_items=5",
+        tempdir.path().display()
+    );
+
+    let queue = app
+        .clone()
+        .oneshot(Request::get(queue_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(queue.status(), axum::http::StatusCode::OK);
+    let queue_payload = response_json(queue).await;
+    let queue_item_id = queue_payload["queue_items"][0]["queue_item_id"]
+        .as_str()
+        .unwrap();
+    let confirmation_token = queue_payload["queue_items"][0]["review_token"]
+        .as_str()
+        .unwrap();
+    let apply_uri = format!(
+        "/api/v1/compat/connectors/proposal-apply-plan?connector=chat-export&root_path={}&scope_id=scp_http_connector&approved_queue_item_ids={}&confirmation_token={}&max_items=5",
+        tempdir.path().display(),
+        queue_item_id,
+        confirmation_token
+    );
+
+    let response = app
+        .oneshot(Request::get(apply_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let payload = response_json(response).await;
+    assert_eq!(payload["schema_version"], "2.97-A");
+    assert_eq!(payload["connector"], "chat-export");
+    assert_eq!(payload["mode"], "proposal_apply_plan");
+    assert_eq!(payload["selected_count"], 1);
+    assert_eq!(payload["applicable_count"], 1);
+    assert_eq!(payload["apply_policy"]["writes_memory"], false);
+    assert_eq!(payload["apply_policy"]["executor_not_invoked"], true);
     assert_eq!(
         payload["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"

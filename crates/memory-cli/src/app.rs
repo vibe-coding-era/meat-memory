@@ -17,30 +17,33 @@ use memory_kernel::{
     CompetitorCompatibilityReport, CompetitorCompatibilityReportPaths, ComposedDistillationProfile,
     ConnectorDryRunReport, ConnectorDryRunReportPaths, ConnectorDryRunRequest,
     ConnectorImportDraftReport, ConnectorImportDraftReportPaths, ConnectorImportDraftRequest,
-    ConnectorProposalQueueReport, ConnectorProposalQueueReportPaths, ConnectorProposalQueueRequest,
-    ConnectorSyncPlanReport, ConnectorSyncPlanReportPaths, ConnectorSyncPlanRequest,
-    CreateAccessKeyRequest, DistillationCandidate, DistillationPromptSegment,
-    DistillationSessionOverride, GetMemoryProposalRequest, GetMemoryTimelineRequest,
-    ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult,
-    Kernel, ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
-    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryHealthReport,
-    MemoryHealthReportPaths, MemoryPassportBundle, MemoryPassportExportRequest,
-    MemoryPassportImportRequest, MemoryPassportImportResult, MemoryPassportPaths,
-    MemoryPassportVerification, MemoryProvenance, MemoryTimeline, PreviewDistillationRequest,
-    PreviewDistillationResult, PromoteAgentContextRequest, RecallTraceBudget,
-    RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest, RememberImageResult,
-    RememberTextRequest, RememberTextResult, ReviewActorKind, RollbackMemoryRequest,
-    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
-    UpsertAgentContextRequest, UpsertDistillationProfileRequest,
+    ConnectorProposalApplyPlanReport, ConnectorProposalApplyPlanReportPaths,
+    ConnectorProposalApplyPlanRequest, ConnectorProposalQueueReport,
+    ConnectorProposalQueueReportPaths, ConnectorProposalQueueRequest, ConnectorSyncPlanReport,
+    ConnectorSyncPlanReportPaths, ConnectorSyncPlanRequest, CreateAccessKeyRequest,
+    DistillationCandidate, DistillationPromptSegment, DistillationSessionOverride,
+    GetMemoryProposalRequest, GetMemoryTimelineRequest, ImportProjectDocumentRequest,
+    InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
+    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
+    ListProjectDocumentsRequest, MemoryHealthReport, MemoryHealthReportPaths, MemoryPassportBundle,
+    MemoryPassportExportRequest, MemoryPassportImportRequest, MemoryPassportImportResult,
+    MemoryPassportPaths, MemoryPassportVerification, MemoryProvenance, MemoryTimeline,
+    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
+    RecallTraceBudget, RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest,
+    RememberImageResult, RememberTextRequest, RememberTextResult, ReviewActorKind,
+    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
+    TimelineEvent, TimelineEventKind, TimelineVersion, TraceSearchContextRequest,
+    TraceSearchContextResult, UpsertAgentContextRequest, UpsertDistillationProfileRequest,
     build_competitor_compatibility_report, build_connector_import_draft_report,
-    build_connector_proposal_queue_report, build_connector_sync_plan, bundle_json,
-    compatibility_report_json, connector_dry_run_json, connector_import_draft_json,
-    connector_proposal_queue_json, connector_sync_plan_json, health_json, run_connector_dry_run,
-    verification_json, verify_memory_passport_bundle, write_competitor_compatibility_report,
+    build_connector_proposal_apply_plan_report, build_connector_proposal_queue_report,
+    build_connector_sync_plan, bundle_json, compatibility_report_json, connector_dry_run_json,
+    connector_import_draft_json, connector_proposal_apply_plan_json, connector_proposal_queue_json,
+    connector_sync_plan_json, health_json, run_connector_dry_run, verification_json,
+    verify_memory_passport_bundle, write_competitor_compatibility_report,
     write_connector_dry_run_report, write_connector_import_draft_report,
-    write_connector_proposal_queue_report, write_connector_sync_plan_report,
-    write_memory_health_report, write_memory_passport_bundle, write_recall_trace_report,
+    write_connector_proposal_apply_plan_report, write_connector_proposal_queue_report,
+    write_connector_sync_plan_report, write_memory_health_report, write_memory_passport_bundle,
+    write_recall_trace_report,
 };
 use memory_mcp::{McpServer, TOOL_SPECS};
 use memory_models::{CapabilityRoute, ModelCapability};
@@ -1528,6 +1531,9 @@ async fn compat_command(args: CompatArgs) -> Result<()> {
         CompatCommand::ConnectorImportDraft(import_draft) => {
             compat_connector_import_draft_command(import_draft).await
         }
+        CompatCommand::ConnectorProposalApplyPlan(apply_plan) => {
+            compat_connector_proposal_apply_plan_command(apply_plan)
+        }
         CompatCommand::ConnectorProposalQueue(proposal_queue) => {
             compat_connector_proposal_queue_command(proposal_queue)
         }
@@ -1605,6 +1611,31 @@ async fn compat_connector_import_draft_command(args: CompatConnectorImportDraftA
         ))?;
     } else {
         for line in connector_import_draft_lines(args.apply, &report, &paths, &imported) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn compat_connector_proposal_apply_plan_command(
+    args: CompatConnectorProposalApplyPlanArgs,
+) -> Result<()> {
+    let mut request = ConnectorProposalApplyPlanRequest::new(
+        args.connector,
+        args.root_path,
+        ScopeId::from_string(args.scope_id),
+        args.approve_queue_item,
+        args.confirmation_token,
+    );
+    request.max_items = args.max_items;
+    let report = build_connector_proposal_apply_plan_report(request)?;
+    let paths = write_connector_proposal_apply_plan_report(&args.output_dir, &report)?;
+
+    if args.json {
+        print_json(connector_proposal_apply_plan_output_json(&report, &paths))?;
+    } else {
+        for line in connector_proposal_apply_plan_lines(&report, &paths) {
             println!("{line}");
         }
     }
@@ -2029,6 +2060,46 @@ fn connector_import_draft_lines(
     ]
 }
 
+fn connector_proposal_apply_plan_output_json(
+    report: &ConnectorProposalApplyPlanReport,
+    paths: &ConnectorProposalApplyPlanReportPaths,
+) -> serde_json::Value {
+    let mut value = connector_proposal_apply_plan_json(report);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "report_paths".to_string(),
+            json!({
+                "json": paths.json.display().to_string(),
+                "markdown": paths.markdown.display().to_string(),
+            }),
+        );
+    }
+    value
+}
+
+fn connector_proposal_apply_plan_lines(
+    report: &ConnectorProposalApplyPlanReport,
+    paths: &ConnectorProposalApplyPlanReportPaths,
+) -> Vec<String> {
+    vec![
+        format!("Connector schema: {}", report.schema_version),
+        format!("Connector: {}", report.connector),
+        format!("Mode: {}", report.mode),
+        format!("Queue id: {}", report.queue_id),
+        format!("Selected items: {}", report.selected_count),
+        format!("Applicable items: {}", report.applicable_count),
+        format!("Blocked items: {}", report.blocked_count),
+        "Writes memory: false".to_string(),
+        "Writes project documents: false".to_string(),
+        "Executor invoked: false".to_string(),
+        "New feature coverage gate: 100%".to_string(),
+        format!(
+            "Connector proposal apply-plan report: {}",
+            paths.markdown.display()
+        ),
+    ]
+}
+
 fn connector_proposal_queue_output_json(
     report: &ConnectorProposalQueueReport,
     paths: &ConnectorProposalQueueReportPaths,
@@ -2054,6 +2125,7 @@ fn connector_proposal_queue_lines(
         format!("Connector schema: {}", report.schema_version),
         format!("Connector: {}", report.connector),
         format!("Mode: {}", report.mode),
+        format!("Queue id: {}", report.queue_id),
         format!("Queue items: {}", report.queue_item_count),
         format!("Blocked items: {}", report.blocked_count),
         format!("Failures: {}", report.failures.len()),
