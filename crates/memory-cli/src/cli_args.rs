@@ -902,9 +902,13 @@ pub(super) struct CompatConnectorProposalQueueArgs {
 #[derive(Debug, Clone, Args)]
 pub(super) struct CompatConnectorProposalApplyPlanArgs {
     #[arg(long)]
+    pub(super) key: Option<String>,
+    #[arg(long)]
     pub(super) connector: String,
     #[arg(long, default_value = ".")]
     pub(super) root_path: PathBuf,
+    #[arg(long)]
+    pub(super) source_id: Option<String>,
     #[arg(long, default_value = "scp_v297_connector")]
     pub(super) scope_id: String,
     #[arg(long, value_delimiter = ',')]
@@ -915,6 +919,8 @@ pub(super) struct CompatConnectorProposalApplyPlanArgs {
     pub(super) output_dir: PathBuf,
     #[arg(long, default_value_t = 100)]
     pub(super) max_items: usize,
+    #[arg(long)]
+    pub(super) apply: bool,
     #[arg(long)]
     pub(super) json: bool,
 }

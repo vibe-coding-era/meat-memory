@@ -1176,7 +1176,7 @@ fn connector_proposal_queue_report(
             "compatible_apply_paths": [
                 "memory-cli compat connector-import-draft --apply --proposal",
                 "memory-cli compat connector-sync-plan --apply",
-                "memory-cli compat connector-proposal-apply-plan --approve-queue-item <id> --confirmation-token <token>"
+                "memory-cli compat connector-proposal-apply-plan --approve-queue-item <id> --confirmation-token <token> --apply --key <key>"
             ],
         }),
         incremental_checkpoint,

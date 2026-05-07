@@ -1186,8 +1186,8 @@ fn connector_proposal_apply_plan_output_helpers_include_paths_policy_and_coverag
         ))
         .unwrap();
     let paths = write_connector_proposal_apply_plan_report(tempdir.path(), &report).unwrap();
-    let rendered = connector_proposal_apply_plan_output_json(&report, &paths);
-    let lines = connector_proposal_apply_plan_lines(&report, &paths);
+    let rendered = connector_proposal_apply_plan_output_json(false, &report, &paths, &[], &[]);
+    let lines = connector_proposal_apply_plan_lines(false, &report, &paths, &[], &[]);
 
     assert_eq!(rendered["schema_version"], "2.97-A");
     assert_eq!(rendered["mode"], "proposal_apply_plan");
@@ -1195,6 +1195,9 @@ fn connector_proposal_apply_plan_output_helpers_include_paths_policy_and_coverag
     assert_eq!(rendered["applicable_count"], 1);
     assert_eq!(rendered["apply_policy"]["writes_memory"], false);
     assert_eq!(rendered["apply_policy"]["executor_not_invoked"], true);
+    assert_eq!(rendered["execution"]["requested"], false);
+    assert_eq!(rendered["execution"]["executor_invoked"], false);
+    assert_eq!(rendered["execution"]["applied_memory_count"], 0);
     assert_eq!(
         rendered["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"
@@ -1207,7 +1210,7 @@ fn connector_proposal_apply_plan_output_helpers_include_paths_policy_and_coverag
             .display()
             .to_string()
     );
-    assert!(lines.iter().any(|line| line == "Writes memory: false"));
+    assert!(lines.iter().any(|line| line == "Plan writes memory: false"));
     assert!(lines.iter().any(|line| line == "Executor invoked: false"));
     assert!(lines.iter().any(|line| line == "Applicable items: 1"));
 }
@@ -1380,8 +1383,8 @@ fn compat_connector_proposal_queue_command_writes_report() {
     assert_eq!(payload["queue_policy"]["writes_memory"], false);
 }
 
-#[test]
-fn compat_connector_proposal_apply_plan_command_writes_report() {
+#[tokio::test]
+async fn compat_connector_proposal_apply_plan_command_writes_report() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("chat.json"),
@@ -1409,26 +1412,34 @@ fn compat_connector_proposal_apply_plan_command_writes_report() {
     );
 
     compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
+        key: None,
         connector: "chat-export".to_string(),
         root_path: tempdir.path().to_path_buf(),
+        source_id: None,
         scope_id: "scp_cli_chat_apply_plan".to_string(),
         approve_queue_item: vec![queue_item_id.clone()],
         confirmation_token: confirmation_token.clone(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        apply: false,
         json: false,
     })
+    .await
     .unwrap();
     compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
+        key: None,
         connector: "chat-export".to_string(),
         root_path: tempdir.path().to_path_buf(),
+        source_id: None,
         scope_id: "scp_cli_chat_apply_plan".to_string(),
         approve_queue_item: vec![queue_item_id],
         confirmation_token,
         output_dir: output_dir.clone(),
         max_items: 10,
+        apply: false,
         json: true,
     })
+    .await
     .unwrap();
 
     let json_text =
@@ -1917,10 +1928,14 @@ fn compat_cli_parser_accepts_connector_proposal_apply_plan() {
         "memory-cli",
         "compat",
         "connector-proposal-apply-plan",
+        "--key",
+        "mk_parser",
         "--connector",
         "chat-export",
         "--root-path",
         "exports",
+        "--source-id",
+        "src_parser",
         "--scope-id",
         "scp_parser",
         "--approve-queue-item",
@@ -1933,6 +1948,7 @@ fn compat_cli_parser_accepts_connector_proposal_apply_plan() {
         "tests/reports/compat/latest",
         "--max-items",
         "7",
+        "--apply",
         "--json",
     ])
     .unwrap();
@@ -1940,8 +1956,10 @@ fn compat_cli_parser_accepts_connector_proposal_apply_plan() {
         super::Command::Compat(super::CompatArgs {
             command: super::CompatCommand::ConnectorProposalApplyPlan(args),
         }) => {
+            assert_eq!(args.key.as_deref(), Some("mk_parser"));
             assert_eq!(args.connector, "chat-export");
             assert_eq!(args.root_path, PathBuf::from("exports"));
+            assert_eq!(args.source_id.as_deref(), Some("src_parser"));
             assert_eq!(args.scope_id, "scp_parser");
             assert_eq!(
                 args.approve_queue_item,
@@ -1953,6 +1971,7 @@ fn compat_cli_parser_accepts_connector_proposal_apply_plan() {
                 PathBuf::from("tests/reports/compat/latest")
             );
             assert_eq!(args.max_items, 7);
+            assert!(args.apply);
             assert!(args.json);
         }
         _ => panic!("expected compat connector proposal-apply-plan command"),
@@ -4631,6 +4650,57 @@ async fn cli_command_functions_cover_pg_management_paths() {
             .count(),
         1
     );
+    fs::write(
+        docs_root.join("PLAN.md"),
+        "# Plan\nConfirmed apply-plan document.",
+    )
+    .unwrap();
+    let docs_queue = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+        "markdown-docs",
+        docs_root.clone(),
+        scope_id.clone(),
+    ))
+    .unwrap();
+    let docs_queue_item_id = docs_queue
+        .queue_items
+        .iter()
+        .find(|item| item.title == "Plan")
+        .unwrap()
+        .queue_item_id
+        .clone();
+    let docs_confirmation_token = connector_proposal_confirmation_token(
+        &docs_queue.queue_id,
+        std::slice::from_ref(&docs_queue_item_id),
+    );
+    compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
+        key: Some(raw_key.clone()),
+        connector: "markdown-docs".to_string(),
+        root_path: docs_root.clone(),
+        source_id: None,
+        scope_id: scope_id.as_str().to_string(),
+        approve_queue_item: vec![docs_queue_item_id],
+        confirmation_token: docs_confirmation_token,
+        output_dir: tempdir.path().join("compat-docs-apply-plan"),
+        max_items: 10,
+        apply: true,
+        json: true,
+    })
+    .await
+    .unwrap();
+    let apply_plan_documents = kernel
+        .list_project_documents(memory_kernel::ListProjectDocumentsRequest {
+            source_id: sync_source.id.clone(),
+            limit: 10,
+            query: Some("Plan".to_string()),
+            context: Some(context.clone()),
+        })
+        .await
+        .unwrap();
+    assert!(
+        apply_plan_documents
+            .iter()
+            .any(|document| document.title == "Plan")
+    );
     let chat_root = tempdir.path().join("chat-export");
     fs::create_dir_all(&chat_root).unwrap();
     fs::write(
@@ -4673,6 +4743,62 @@ async fn cli_command_functions_cover_pg_management_paths() {
                 .source_refs
                 .iter()
                 .any(|source_ref| source_ref.contains("chat.json#chat_apply"))
+    }));
+    let chat_apply_plan_root = tempdir.path().join("chat-apply-plan");
+    fs::create_dir_all(&chat_apply_plan_root).unwrap();
+    fs::write(
+        chat_apply_plan_root.join("chat.json"),
+        r#"{
+          "id": "chat_apply_plan",
+          "title": "Connector chat apply plan",
+          "messages": [
+            {"role": "user", "content": "Apply this reviewed connector queue item."},
+            {"role": "assistant", "content": "Applied after confirmation token verification."}
+          ]
+        }"#,
+    )
+    .unwrap();
+    let chat_queue = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+        "chat-export",
+        chat_apply_plan_root.clone(),
+        scope_id.clone(),
+    ))
+    .unwrap();
+    let chat_queue_item_id = chat_queue.queue_items[0].queue_item_id.clone();
+    let chat_confirmation_token = connector_proposal_confirmation_token(
+        &chat_queue.queue_id,
+        std::slice::from_ref(&chat_queue_item_id),
+    );
+    compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
+        key: Some(raw_key.clone()),
+        connector: "chat-export".to_string(),
+        root_path: chat_apply_plan_root,
+        source_id: None,
+        scope_id: scope_id.as_str().to_string(),
+        approve_queue_item: vec![chat_queue_item_id],
+        confirmation_token: chat_confirmation_token,
+        output_dir: tempdir.path().join("compat-chat-apply-plan"),
+        max_items: 10,
+        apply: true,
+        json: true,
+    })
+    .await
+    .unwrap();
+    let chat_apply_plan_bundle = kernel
+        .search_context(memory_kernel::SearchContextRequest {
+            scope_id: scope_id.clone(),
+            query: "Connector chat apply plan".to_string(),
+            limit: 10,
+            context: Some(context.clone()),
+        })
+        .await
+        .unwrap();
+    assert!(chat_apply_plan_bundle.memories.iter().any(|memory| {
+        memory.title == "Connector chat apply plan"
+            && memory
+                .source_refs
+                .iter()
+                .any(|source_ref| source_ref.contains("chat.json#chat_apply_plan"))
     }));
 
     let mut remember_request = memory_kernel::RememberTextRequest::new(

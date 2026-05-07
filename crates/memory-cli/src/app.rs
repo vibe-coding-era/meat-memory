@@ -6,8 +6,9 @@ use memory_domain::{
     AccessKeyId, AgentContextId, ArtifactKind, ContextBundle, DistillationProfile,
     DistillationProfileId, DistillationProfileLevel, DistillationProfileStatus,
     DocumentConflictState, DocumentSyncState, KeyScopeKind, KeySourceKind, Memory, MemoryId,
-    MemoryKind, MemoryProposal, MemoryRecordStatus, MemoryRelation, MemorySource, ProposalId,
-    RequestContext, ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode, Visibility,
+    MemoryKind, MemoryProposal, MemoryRecordStatus, MemoryRelation, MemorySource, ProjectDocument,
+    ProposalId, RequestContext, ScopeId, Sensitivity, SourceId, SourceSyncMode, StorageMode,
+    Visibility,
 };
 use memory_http::{ApiFeatureFlags, ApiMetadata, HttpAppState, build_router};
 use memory_kernel::{
@@ -1532,7 +1533,7 @@ async fn compat_command(args: CompatArgs) -> Result<()> {
             compat_connector_import_draft_command(import_draft).await
         }
         CompatCommand::ConnectorProposalApplyPlan(apply_plan) => {
-            compat_connector_proposal_apply_plan_command(apply_plan)
+            compat_connector_proposal_apply_plan_command(apply_plan).await
         }
         CompatCommand::ConnectorProposalQueue(proposal_queue) => {
             compat_connector_proposal_queue_command(proposal_queue)
@@ -1618,24 +1619,110 @@ async fn compat_connector_import_draft_command(args: CompatConnectorImportDraftA
     Ok(())
 }
 
-fn compat_connector_proposal_apply_plan_command(
+async fn compat_connector_proposal_apply_plan_command(
     args: CompatConnectorProposalApplyPlanArgs,
 ) -> Result<()> {
+    let scope_id = ScopeId::from_string(args.scope_id.clone());
     let mut request = ConnectorProposalApplyPlanRequest::new(
-        args.connector,
-        args.root_path,
-        ScopeId::from_string(args.scope_id),
-        args.approve_queue_item,
-        args.confirmation_token,
+        args.connector.clone(),
+        args.root_path.clone(),
+        scope_id.clone(),
+        args.approve_queue_item.clone(),
+        args.confirmation_token.clone(),
     );
     request.max_items = args.max_items;
     let report = build_connector_proposal_apply_plan_report(request)?;
     let paths = write_connector_proposal_apply_plan_report(&args.output_dir, &report)?;
+    let mut applied_memories = Vec::new();
+    let mut applied_documents = Vec::new();
+
+    if args.apply {
+        let (_, kernel, _) = bootstrap_runtime().await?;
+        let context = resolve_required_cli_request_context(&kernel, args.key.as_deref()).await?;
+        ensure_cli_context_scope(&context, &scope_id)?;
+        if report.blocked_count > 0 {
+            bail!("connector proposal apply-plan contains blocked queue items");
+        }
+        match report.connector.as_str() {
+            "chat-export" => {
+                let mut draft_request =
+                    ConnectorImportDraftRequest::new("chat-export", args.root_path, scope_id);
+                draft_request.max_items = args.max_items;
+                let import_report = build_connector_import_draft_report(draft_request)?;
+                for item in report.apply_items.iter().filter(|item| item.can_apply) {
+                    let draft = import_report
+                        .drafts
+                        .iter()
+                        .find(|draft| draft.source_refs == item.source_refs)
+                        .with_context(|| {
+                            format!(
+                                "approved queue item {} no longer matches a chat export draft",
+                                item.queue_item_id
+                            )
+                        })?;
+                    let mut request =
+                        RememberTextRequest::new(draft.scope_id.clone(), draft.body.clone());
+                    request.title = Some(draft.title.clone());
+                    request.memory_kind = Some(draft.memory_kind);
+                    request.source_refs = draft.source_refs.clone();
+                    request.visibility = Visibility::Private;
+                    request.sensitivity = Sensitivity::Internal;
+                    request.context = Some(context.clone());
+                    applied_memories.push(kernel.remember_text(request).await?.memory);
+                }
+            }
+            "markdown-docs" | "local-git" => {
+                let source = resolve_connector_source_for_apply(
+                    &kernel,
+                    &context,
+                    args.source_id.as_deref(),
+                    &args.root_path,
+                )
+                .await?;
+                let approved_refs = report
+                    .apply_items
+                    .iter()
+                    .filter(|item| item.can_apply)
+                    .flat_map(|item| item.source_refs.iter().cloned())
+                    .collect::<std::collections::BTreeSet<_>>();
+                let mut sync_request =
+                    ConnectorSyncPlanRequest::new(args.connector, args.root_path, scope_id.clone());
+                sync_request.max_items = args.max_items;
+                let output = build_connector_sync_plan(sync_request)?;
+                let mut apply_plan = output.plan;
+                apply_plan
+                    .documents
+                    .retain(|document| approved_refs.contains(&document.canonical_uri));
+                let result = kernel
+                    .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+                        source_id: source.id,
+                        scope_id,
+                        plan: apply_plan,
+                        context: Some(context),
+                    })
+                    .await?;
+                applied_documents = result.imported;
+            }
+            other => bail!("unsupported connector proposal apply executor: {other}"),
+        }
+    }
 
     if args.json {
-        print_json(connector_proposal_apply_plan_output_json(&report, &paths))?;
+        print_json(connector_proposal_apply_plan_output_json(
+            args.apply,
+            &report,
+            &paths,
+            &applied_memories,
+            &applied_documents,
+        ))?;
     } else {
-        for line in connector_proposal_apply_plan_lines(&report, &paths) {
+        for line in connector_proposal_apply_plan_lines(
+            args.apply,
+            &report,
+            &paths,
+            &applied_memories,
+            &applied_documents,
+        ) {
             println!("{line}");
         }
     }
@@ -2061,8 +2148,11 @@ fn connector_import_draft_lines(
 }
 
 fn connector_proposal_apply_plan_output_json(
+    apply: bool,
     report: &ConnectorProposalApplyPlanReport,
     paths: &ConnectorProposalApplyPlanReportPaths,
+    applied_memories: &[Memory],
+    applied_documents: &[ProjectDocument],
 ) -> serde_json::Value {
     let mut value = connector_proposal_apply_plan_json(report);
     if let Some(object) = value.as_object_mut() {
@@ -2073,13 +2163,30 @@ fn connector_proposal_apply_plan_output_json(
                 "markdown": paths.markdown.display().to_string(),
             }),
         );
+        object.insert(
+            "execution".to_string(),
+            json!({
+                "requested": apply,
+                "executor_invoked": apply,
+                "applied_memory_count": applied_memories.len(),
+                "applied_project_document_count": applied_documents.len(),
+                "applied_memory_ids": applied_memories.iter().map(|memory| memory.id.as_str()).collect::<Vec<_>>(),
+                "applied_project_document_ids": applied_documents.iter().map(|document| document.id.as_str()).collect::<Vec<_>>(),
+                "writes_memory": !applied_memories.is_empty(),
+                "writes_project_documents": !applied_documents.is_empty(),
+                "requires_runtime_key": apply,
+            }),
+        );
     }
     value
 }
 
 fn connector_proposal_apply_plan_lines(
+    apply: bool,
     report: &ConnectorProposalApplyPlanReport,
     paths: &ConnectorProposalApplyPlanReportPaths,
+    applied_memories: &[Memory],
+    applied_documents: &[ProjectDocument],
 ) -> Vec<String> {
     vec![
         format!("Connector schema: {}", report.schema_version),
@@ -2089,9 +2196,16 @@ fn connector_proposal_apply_plan_lines(
         format!("Selected items: {}", report.selected_count),
         format!("Applicable items: {}", report.applicable_count),
         format!("Blocked items: {}", report.blocked_count),
-        "Writes memory: false".to_string(),
-        "Writes project documents: false".to_string(),
-        "Executor invoked: false".to_string(),
+        "Plan writes memory: false".to_string(),
+        "Plan writes project documents: false".to_string(),
+        format!("Executor invoked: {}", apply),
+        format!("Executor writes memory: {}", !applied_memories.is_empty()),
+        format!(
+            "Executor writes project documents: {}",
+            !applied_documents.is_empty()
+        ),
+        format!("Applied memories: {}", applied_memories.len()),
+        format!("Applied project documents: {}", applied_documents.len()),
         "New feature coverage gate: 100%".to_string(),
         format!(
             "Connector proposal apply-plan report: {}",
