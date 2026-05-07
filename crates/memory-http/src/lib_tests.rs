@@ -233,6 +233,9 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/compat/connectors/import-draft"));
     assert!(has_route("/api/v1/compat/connectors/proposal-queue"));
     assert!(has_route("/api/v1/compat/connectors/proposal-apply-plan"));
+    assert!(has_route(
+        "/api/v1/compat/connectors/proposal-apply-plan/apply"
+    ));
     assert!(has_route("/api/v1/agent-contexts"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}"));
     assert!(has_route("/api/v1/agent-contexts/{context_id}/promote"));
@@ -526,6 +529,83 @@ async fn v297_http_connector_proposal_apply_plan_returns_plan_only_report() {
     assert_eq!(
         payload["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"
+    );
+}
+
+#[tokio::test]
+async fn v297_http_connector_proposal_apply_plan_confirmed_executor_writes_memory() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let scope_id = "scp_http_connector_apply_executor";
+    fs::write(
+        tempdir.path().join("chat.json"),
+        serde_json::json!({
+            "id": "http_apply_executor",
+            "title": "HTTP apply executor import",
+            "messages": [
+                {"role": "user", "content": "Apply this HTTP connector import."},
+                {"role": "assistant", "content": "Write memory after explicit confirmation."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let app = build_router(test_state_with_pg(tempdir.path()).await);
+    let raw_key = create_http_key(app.clone(), scope_id).await;
+    let queue_uri = format!(
+        "/api/v1/compat/connectors/proposal-queue?connector=chat-export&root_path={}&scope_id={scope_id}&max_items=5",
+        tempdir.path().display()
+    );
+    let queue = app
+        .clone()
+        .oneshot(Request::get(queue_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(queue.status(), axum::http::StatusCode::OK);
+    let queue_payload = response_json(queue).await;
+    let queue_item_id = queue_payload["queue_items"][0]["queue_item_id"]
+        .as_str()
+        .unwrap();
+    let confirmation_token = queue_payload["queue_items"][0]["review_token"]
+        .as_str()
+        .unwrap();
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/compat/connectors/proposal-apply-plan/apply")
+                .header("content-type", "application/json")
+                .header("x-meat-memory-key", raw_key)
+                .body(Body::from(
+                    serde_json::json!({
+                        "connector": "chat-export",
+                        "root_path": tempdir.path().display().to_string(),
+                        "scope_id": scope_id,
+                        "approved_queue_item_ids": [queue_item_id],
+                        "confirmation_token": confirmation_token,
+                        "max_items": 5
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let payload = response_json(response).await;
+    assert_eq!(payload["mode"], "proposal_apply_plan");
+    assert_eq!(payload["execution"]["executor_invoked"], true);
+    assert_eq!(payload["execution"]["writes_memory"], true);
+    assert_eq!(payload["execution"]["applied_memory_count"], 1);
+    assert_eq!(payload["execution"]["requires_runtime_key"], true);
+    assert!(
+        payload["coverage_gate"]["covered_regions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|region| region == "service_side_confirmed_executor")
     );
 }
 

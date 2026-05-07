@@ -1,6 +1,8 @@
+use crate::{ApplyProjectDocumentSyncPlanRequest, Kernel, RememberTextRequest};
 use anyhow::{Context, Result, bail};
 use memory_domain::{
-    EvidenceId, EvidenceSpan, EvidenceSpanKind, EvidenceSpanLocation, MemoryKind, ScopeId,
+    EvidenceId, EvidenceSpan, EvidenceSpanKind, EvidenceSpanLocation, Memory, MemoryKind,
+    MemorySource, ProjectDocument, RequestContext, ScopeId, Sensitivity, SourceId, Visibility,
 };
 use memory_sync::{
     LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan, ProjectDocumentConflictReport,
@@ -394,6 +396,37 @@ pub struct ConnectorProposalApplyPlanReport {
 pub struct ConnectorProposalApplyPlanReportPaths {
     pub json: PathBuf,
     pub markdown: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectorProposalApplyExecutorRequest {
+    pub report: ConnectorProposalApplyPlanReport,
+    pub scope_id: ScopeId,
+    pub source_id: Option<SourceId>,
+    pub max_items: usize,
+    pub context: RequestContext,
+}
+
+impl ConnectorProposalApplyExecutorRequest {
+    pub fn new(
+        report: ConnectorProposalApplyPlanReport,
+        scope_id: ScopeId,
+        context: RequestContext,
+    ) -> Self {
+        Self {
+            report,
+            scope_id,
+            source_id: None,
+            max_items: 100,
+            context,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectorProposalApplyExecutorResult {
+    pub applied_memories: Vec<Memory>,
+    pub applied_documents: Vec<ProjectDocument>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1028,10 +1061,43 @@ pub fn connector_proposal_apply_plan_json(report: &ConnectorProposalApplyPlanRep
                 "connector_proposal_apply_plan",
                 "connector_queue_confirmation_token",
                 "connector_persistent_queue_manifest",
-                "service_side_confirmed_apply_plan"
+                "service_side_confirmed_apply_plan",
+                "service_side_confirmed_executor"
             ]
         }
     })
+}
+
+pub fn connector_proposal_apply_plan_execution_json(
+    report: &ConnectorProposalApplyPlanReport,
+    result: &ConnectorProposalApplyExecutorResult,
+) -> Value {
+    let mut value = connector_proposal_apply_plan_json(report);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "execution".to_string(),
+            json!({
+                "requested": true,
+                "executor_invoked": true,
+                "applied_memory_count": result.applied_memories.len(),
+                "applied_project_document_count": result.applied_documents.len(),
+                "applied_memory_ids": result
+                    .applied_memories
+                    .iter()
+                    .map(|memory| memory.id.as_str())
+                    .collect::<Vec<_>>(),
+                "applied_project_document_ids": result
+                    .applied_documents
+                    .iter()
+                    .map(|document| document.id.as_str())
+                    .collect::<Vec<_>>(),
+                "writes_memory": !result.applied_memories.is_empty(),
+                "writes_project_documents": !result.applied_documents.is_empty(),
+                "requires_runtime_key": true,
+            }),
+        );
+    }
+    value
 }
 
 pub fn write_connector_proposal_apply_plan_report(
@@ -1058,6 +1124,143 @@ pub fn write_connector_proposal_apply_plan_report(
         json: json_path,
         markdown: markdown_path,
     })
+}
+
+pub async fn apply_connector_proposal_apply_plan(
+    kernel: &Kernel,
+    request: ConnectorProposalApplyExecutorRequest,
+) -> Result<ConnectorProposalApplyExecutorResult> {
+    if request.context.owner_scope_id != request.scope_id {
+        bail!("scope access forbidden for current meat memory key");
+    }
+    if request.report.blocked_count > 0 {
+        bail!("connector proposal apply-plan contains blocked queue items");
+    }
+
+    let mut applied_memories = Vec::new();
+    let mut applied_documents = Vec::new();
+    let connector = request.report.connector.clone();
+    let root_path = request.report.root_path.clone();
+    match request.report.connector.as_str() {
+        "chat-export" => {
+            let mut draft_request =
+                ConnectorImportDraftRequest::new("chat-export", root_path, request.scope_id);
+            draft_request.max_items = request.max_items;
+            let import_report = build_connector_import_draft_report(draft_request)?;
+            for item in request
+                .report
+                .apply_items
+                .iter()
+                .filter(|item| item.can_apply)
+            {
+                let draft = import_report
+                    .drafts
+                    .iter()
+                    .find(|draft| draft.source_refs == item.source_refs)
+                    .with_context(|| {
+                        format!(
+                            "approved queue item {} no longer matches a chat export draft",
+                            item.queue_item_id
+                        )
+                    })?;
+                let mut remember = RememberTextRequest::new(draft.scope_id.clone(), &draft.body);
+                remember.title = Some(draft.title.clone());
+                remember.memory_kind = Some(draft.memory_kind);
+                remember.source_refs = draft.source_refs.clone();
+                remember.visibility = Visibility::Private;
+                remember.sensitivity = Sensitivity::Internal;
+                remember.context = Some(request.context.clone());
+                applied_memories.push(kernel.remember_text(remember).await?.memory);
+            }
+        }
+        "markdown-docs" | "local-git" => {
+            let source = resolve_connector_source_for_apply(
+                kernel,
+                &request.context,
+                request.source_id.as_ref(),
+                &root_path,
+            )
+            .await?;
+            let approved_refs = request
+                .report
+                .apply_items
+                .iter()
+                .filter(|item| item.can_apply)
+                .flat_map(|item| item.source_refs.iter().cloned())
+                .collect::<BTreeSet<_>>();
+            let mut sync_request =
+                ConnectorSyncPlanRequest::new(connector, root_path, request.scope_id.clone());
+            sync_request.max_items = request.max_items;
+            let output = build_connector_sync_plan(sync_request)?;
+            let mut apply_plan = output.plan;
+            apply_plan
+                .documents
+                .retain(|document| approved_refs.contains(&document.canonical_uri));
+            let result = kernel
+                .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
+                    source_id: source.id,
+                    scope_id: request.scope_id,
+                    plan: apply_plan,
+                    context: Some(request.context),
+                })
+                .await?;
+            applied_documents = result.imported;
+        }
+        other => bail!("unsupported connector proposal apply executor: {other}"),
+    }
+
+    Ok(ConnectorProposalApplyExecutorResult {
+        applied_memories,
+        applied_documents,
+    })
+}
+
+async fn resolve_connector_source_for_apply(
+    kernel: &Kernel,
+    context: &RequestContext,
+    source_id: Option<&SourceId>,
+    root_path: &Path,
+) -> Result<MemorySource> {
+    if let Some(source_id) = source_id {
+        let source = kernel
+            .get_memory_source(source_id.clone())
+            .await?
+            .with_context(|| format!("memory source not found: {}", source_id.as_str()))?;
+        if source.owner_scope_id != context.owner_scope_id {
+            bail!("source access forbidden for current meat memory key");
+        }
+        return Ok(source);
+    }
+
+    let root = root_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", root_path.display()))?;
+    let sources = kernel
+        .list_memory_sources(context.owner_scope_id.clone(), 100, Some(context))
+        .await?;
+    let mut matches = sources
+        .into_iter()
+        .filter(|source| {
+            source
+                .local_root
+                .as_deref()
+                .and_then(|local_root| Path::new(local_root).canonicalize().ok())
+                .map(|local_root| local_root == root)
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => bail!(
+            "source_id is required when apply is set and no source local_root matches {}",
+            root.display()
+        ),
+        _ => bail!(
+            "source_id is required when apply is set because multiple sources match {}",
+            root.display()
+        ),
+    }
 }
 
 fn build_import_proposal_queue_report(
@@ -1183,13 +1386,15 @@ fn connector_proposal_queue_report(
             "writes_memory": false,
             "writes_project_documents": false,
             "review_required_before_apply": true,
-            "service_apply_exposed": false,
+            "service_apply_exposed": true,
             "queue_id": queue_id,
             "confirmation_token_strategy": "confirm_<stable_hash(queue_id|sorted_queue_item_ids)>",
             "compatible_apply_paths": [
                 "memory-cli compat connector-import-draft --apply --proposal",
                 "memory-cli compat connector-sync-plan --apply",
-                "memory-cli compat connector-proposal-apply-plan --approve-queue-item <id> --confirmation-token <token> --apply --key <key>"
+                "memory-cli compat connector-proposal-apply-plan --approve-queue-item <id> --confirmation-token <token> --apply --key <key>",
+                "POST /api/v1/compat/connectors/proposal-apply-plan/apply",
+                "memory.connectors.proposal_apply_plan apply=true"
             ],
         }),
         incremental_checkpoint,
@@ -3613,7 +3818,7 @@ mod tests {
         let payload: Value = serde_json::from_str(&json_text).unwrap();
 
         assert_eq!(payload["schema_version"], "2.97-A");
-        assert_eq!(payload["queue_policy"]["service_apply_exposed"], false);
+        assert_eq!(payload["queue_policy"]["service_apply_exposed"], true);
         assert_eq!(
             payload["coverage_gate"]["new_feature_test_coverage_required"],
             "100%"

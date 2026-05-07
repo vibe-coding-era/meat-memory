@@ -465,6 +465,80 @@ async fn v297_mcp_connector_proposal_apply_plan_returns_plan_only_report() {
 }
 
 #[tokio::test]
+async fn v297_mcp_connector_proposal_apply_plan_confirmed_executor_writes_memory() {
+    if !local_pg_test_port_available() {
+        return;
+    }
+    let tempdir = tempdir().unwrap();
+    let scope_id = "scp_mcp_connector_apply_executor";
+    fs::write(
+        tempdir.path().join("chat.json"),
+        serde_json::json!({
+            "id": "mcp_apply_executor",
+            "title": "MCP apply executor import",
+            "messages": [
+                {"role": "user", "content": "Apply this MCP connector import."},
+                {"role": "assistant", "content": "Write memory after explicit confirmation."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let (server, kernel) = test_server_with_pg(tempdir.path()).await;
+    let raw_key = create_test_key(&kernel, scope_id).await;
+
+    let queue = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.proposal_queue".to_string(),
+            arguments: serde_json::json!({
+                "connector": "chat-export",
+                "root_path": tempdir.path().display().to_string(),
+                "scope_id": scope_id,
+                "max_items": 5
+            }),
+        })
+        .await
+        .unwrap();
+    let queue_item_id = queue.data["queue_items"][0]["queue_item_id"]
+        .as_str()
+        .unwrap();
+    let confirmation_token = queue.data["queue_items"][0]["review_token"]
+        .as_str()
+        .unwrap();
+
+    let response = server
+        .dispatch(ToolCallRequest {
+            name: "memory.connectors.proposal_apply_plan".to_string(),
+            arguments: serde_json::json!({
+                "connector": "chat-export",
+                "root_path": tempdir.path().display().to_string(),
+                "scope_id": scope_id,
+                "approved_queue_item_ids": [queue_item_id],
+                "confirmation_token": confirmation_token,
+                "max_items": 5,
+                "apply": true,
+                "key": raw_key
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(response.tool, "memory.connectors.proposal_apply_plan");
+    assert_eq!(response.data["mode"], "proposal_apply_plan");
+    assert_eq!(response.data["execution"]["executor_invoked"], true);
+    assert_eq!(response.data["execution"]["writes_memory"], true);
+    assert_eq!(response.data["execution"]["applied_memory_count"], 1);
+    assert_eq!(response.data["execution"]["requires_runtime_key"], true);
+    assert!(
+        response.data["coverage_gate"]["covered_regions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|region| region == "service_side_confirmed_executor")
+    );
+}
+
+#[tokio::test]
 async fn dispatch_v29_benchmark_and_trace_report_readers() {
     let tempdir = tempdir().unwrap();
     let server = test_server(tempdir.path());

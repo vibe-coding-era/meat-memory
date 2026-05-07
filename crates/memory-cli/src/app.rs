@@ -18,25 +18,26 @@ use memory_kernel::{
     CompetitorCompatibilityReport, CompetitorCompatibilityReportPaths, ComposedDistillationProfile,
     ConnectorDryRunReport, ConnectorDryRunReportPaths, ConnectorDryRunRequest,
     ConnectorImportDraftReport, ConnectorImportDraftReportPaths, ConnectorImportDraftRequest,
-    ConnectorProposalApplyPlanReport, ConnectorProposalApplyPlanReportPaths,
-    ConnectorProposalApplyPlanRequest, ConnectorProposalQueueReport,
-    ConnectorProposalQueueReportPaths, ConnectorProposalQueueRequest, ConnectorSyncPlanReport,
-    ConnectorSyncPlanReportPaths, ConnectorSyncPlanRequest, CreateAccessKeyRequest,
-    DistillationCandidate, DistillationPromptSegment, DistillationSessionOverride,
-    GetMemoryProposalRequest, GetMemoryTimelineRequest, ImportProjectDocumentRequest,
-    InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult, Kernel, ListAgentContextsRequest,
-    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryHealthReport, MemoryHealthReportPaths, MemoryPassportBundle,
-    MemoryPassportExportRequest, MemoryPassportImportRequest, MemoryPassportImportResult,
-    MemoryPassportPaths, MemoryPassportVerification, MemoryProvenance, MemoryTimeline,
-    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
-    RecallTraceBudget, RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest,
-    RememberImageResult, RememberTextRequest, RememberTextResult, ReviewActorKind,
-    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
-    TimelineEvent, TimelineEventKind, TimelineVersion, TraceSearchContextRequest,
-    TraceSearchContextResult, UpsertAgentContextRequest, UpsertDistillationProfileRequest,
-    build_competitor_compatibility_report, build_connector_import_draft_report,
-    build_connector_proposal_apply_plan_report,
+    ConnectorProposalApplyExecutorRequest, ConnectorProposalApplyPlanReport,
+    ConnectorProposalApplyPlanReportPaths, ConnectorProposalApplyPlanRequest,
+    ConnectorProposalQueueReport, ConnectorProposalQueueReportPaths, ConnectorProposalQueueRequest,
+    ConnectorSyncPlanReport, ConnectorSyncPlanReportPaths, ConnectorSyncPlanRequest,
+    CreateAccessKeyRequest, DistillationCandidate, DistillationPromptSegment,
+    DistillationSessionOverride, GetMemoryProposalRequest, GetMemoryTimelineRequest,
+    ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, InspectMemoryLifecycleResult,
+    Kernel, ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
+    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryHealthReport,
+    MemoryHealthReportPaths, MemoryPassportBundle, MemoryPassportExportRequest,
+    MemoryPassportImportRequest, MemoryPassportImportResult, MemoryPassportPaths,
+    MemoryPassportVerification, MemoryProvenance, MemoryTimeline, PreviewDistillationRequest,
+    PreviewDistillationResult, PromoteAgentContextRequest, RecallTraceBudget,
+    RecallTraceReportPaths, RejectMemoryProposalRequest, RememberImageRequest, RememberImageResult,
+    RememberTextRequest, RememberTextResult, ReviewActorKind, RollbackMemoryRequest,
+    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
+    TimelineEventKind, TimelineVersion, TraceSearchContextRequest, TraceSearchContextResult,
+    UpsertAgentContextRequest, UpsertDistillationProfileRequest,
+    apply_connector_proposal_apply_plan, build_competitor_compatibility_report,
+    build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
     build_connector_proposal_apply_plan_report_from_queue, build_connector_proposal_queue_report,
     build_connector_sync_plan, bundle_json, compatibility_report_json, connector_dry_run_json,
     connector_import_draft_json, connector_proposal_apply_plan_json, connector_proposal_queue_json,
@@ -1662,73 +1663,13 @@ async fn compat_connector_proposal_apply_plan_command(
         let (_, kernel, _) = bootstrap_runtime().await?;
         let context = resolve_required_cli_request_context(&kernel, args.key.as_deref()).await?;
         ensure_cli_context_scope(&context, &scope_id)?;
-        if report.blocked_count > 0 {
-            bail!("connector proposal apply-plan contains blocked queue items");
-        }
-        let connector = report.connector.clone();
-        let root_path = report.root_path.clone();
-        match report.connector.as_str() {
-            "chat-export" => {
-                let mut draft_request =
-                    ConnectorImportDraftRequest::new("chat-export", root_path, scope_id);
-                draft_request.max_items = args.max_items;
-                let import_report = build_connector_import_draft_report(draft_request)?;
-                for item in report.apply_items.iter().filter(|item| item.can_apply) {
-                    let draft = import_report
-                        .drafts
-                        .iter()
-                        .find(|draft| draft.source_refs == item.source_refs)
-                        .with_context(|| {
-                            format!(
-                                "approved queue item {} no longer matches a chat export draft",
-                                item.queue_item_id
-                            )
-                        })?;
-                    let mut request =
-                        RememberTextRequest::new(draft.scope_id.clone(), draft.body.clone());
-                    request.title = Some(draft.title.clone());
-                    request.memory_kind = Some(draft.memory_kind);
-                    request.source_refs = draft.source_refs.clone();
-                    request.visibility = Visibility::Private;
-                    request.sensitivity = Sensitivity::Internal;
-                    request.context = Some(context.clone());
-                    applied_memories.push(kernel.remember_text(request).await?.memory);
-                }
-            }
-            "markdown-docs" | "local-git" => {
-                let source = resolve_connector_source_for_apply(
-                    &kernel,
-                    &context,
-                    args.source_id.as_deref(),
-                    &root_path,
-                )
-                .await?;
-                let approved_refs = report
-                    .apply_items
-                    .iter()
-                    .filter(|item| item.can_apply)
-                    .flat_map(|item| item.source_refs.iter().cloned())
-                    .collect::<std::collections::BTreeSet<_>>();
-                let mut sync_request =
-                    ConnectorSyncPlanRequest::new(connector, root_path, scope_id.clone());
-                sync_request.max_items = args.max_items;
-                let output = build_connector_sync_plan(sync_request)?;
-                let mut apply_plan = output.plan;
-                apply_plan
-                    .documents
-                    .retain(|document| approved_refs.contains(&document.canonical_uri));
-                let result = kernel
-                    .apply_project_document_sync_plan(ApplyProjectDocumentSyncPlanRequest {
-                        source_id: source.id,
-                        scope_id,
-                        plan: apply_plan,
-                        context: Some(context),
-                    })
-                    .await?;
-                applied_documents = result.imported;
-            }
-            other => bail!("unsupported connector proposal apply executor: {other}"),
-        }
+        let mut request =
+            ConnectorProposalApplyExecutorRequest::new(report.clone(), scope_id, context);
+        request.source_id = args.source_id.as_deref().map(SourceId::from_string);
+        request.max_items = args.max_items;
+        let execution = apply_connector_proposal_apply_plan(&kernel, request).await?;
+        applied_memories = execution.applied_memories;
+        applied_documents = execution.applied_documents;
     }
 
     if args.json {

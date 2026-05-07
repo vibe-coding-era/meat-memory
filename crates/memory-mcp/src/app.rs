@@ -16,22 +16,23 @@ use memory_domain::{
 use memory_kernel::{
     ApplyMemoryProposalRequest, ApplyProjectDocumentSyncPlanRequest, ApproveMemoryProposalRequest,
     ChangeMemoryLifecycleStatusRequest, ComposedDistillationProfile, ConnectorDryRunRequest,
-    ConnectorImportDraftRequest, ConnectorProposalApplyPlanRequest, ConnectorProposalQueueRequest,
-    ConnectorSyncPlanRequest, DistillationCandidate, DistillationPromptSegment,
-    DistillationSessionOverride, GetMemoryProposalRequest, GetMemoryTimelineRequest,
-    InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest,
-    ListDistillationProfilesRequest, ListMemoryProposalsRequest, ListMemoryVersionsRequest,
-    ListProjectDocumentsRequest, MemoryTimeline, PreviewDistillationRequest,
-    PreviewDistillationResult, PromoteAgentContextRequest, PromoteMemoryRequest,
-    RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind, RollbackMemoryRequest,
-    RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent, TimelineEvent,
-    TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
-    UpsertDistillationProfileRequest, build_competitor_compatibility_report,
-    build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
-    build_connector_proposal_queue_report, build_connector_sync_plan, compatibility_report_json,
-    connector_dry_run_json, connector_import_draft_json, connector_proposal_apply_plan_json,
-    connector_proposal_queue_json, connector_sync_plan_json, health_json, run_connector_dry_run,
-    verification_json, verify_memory_passport_bundle,
+    ConnectorImportDraftRequest, ConnectorProposalApplyExecutorRequest,
+    ConnectorProposalApplyPlanRequest, ConnectorProposalQueueRequest, ConnectorSyncPlanRequest,
+    DistillationCandidate, DistillationPromptSegment, DistillationSessionOverride,
+    GetMemoryProposalRequest, GetMemoryTimelineRequest, InspectMemoryLifecycleRequest, Kernel,
+    ListAgentContextsRequest, ListDistillationProfilesRequest, ListMemoryProposalsRequest,
+    ListMemoryVersionsRequest, ListProjectDocumentsRequest, MemoryTimeline,
+    PreviewDistillationRequest, PreviewDistillationResult, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RejectMemoryProposalRequest, RememberTextRequest, ReviewActorKind,
+    RollbackMemoryRequest, RollbackMemoryResult, SearchContextRequest, TimelineAuditEvent,
+    TimelineEvent, TimelineEventKind, TimelineVersion, UpsertAgentContextRequest,
+    UpsertDistillationProfileRequest, apply_connector_proposal_apply_plan,
+    build_competitor_compatibility_report, build_connector_import_draft_report,
+    build_connector_proposal_apply_plan_report, build_connector_proposal_queue_report,
+    build_connector_sync_plan, compatibility_report_json, connector_dry_run_json,
+    connector_import_draft_json, connector_proposal_apply_plan_execution_json,
+    connector_proposal_apply_plan_json, connector_proposal_queue_json, connector_sync_plan_json,
+    health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
 };
 use memory_observability::operation_span;
 use memory_sync::{LocalProjectDocumentSyncEngine, ProjectDocumentSnapshot};
@@ -177,7 +178,7 @@ pub const TOOL_SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "memory.connectors.proposal_apply_plan",
-        description: "Build a confirmed V2.97 connector proposal apply-plan without executing writes. Required arguments: connector, root_path, approved_queue_item_ids, confirmation_token. Optional: scope_id, max_items.",
+        description: "Build a confirmed V2.97 connector proposal apply-plan. Optional apply=true executes reviewed items and requires key. Required arguments: connector, root_path, approved_queue_item_ids, confirmation_token. Optional: scope_id, source_id, max_items, apply, key.",
     },
     ToolSpec {
         name: "memory.context.upsert",
@@ -403,7 +404,8 @@ impl McpServer {
                     self.handle_connector_proposal_queue(&trace_id, request.arguments)?
                 }
                 "memory.connectors.proposal_apply_plan" => {
-                    self.handle_connector_proposal_apply_plan(&trace_id, request.arguments)?
+                    self.handle_connector_proposal_apply_plan(&trace_id, request.arguments)
+                        .await?
                 }
                 "memory.context.upsert" => {
                     self.handle_context_upsert(&trace_id, request.arguments)
@@ -1394,7 +1396,7 @@ impl McpServer {
         })
     }
 
-    fn handle_connector_proposal_apply_plan(
+    async fn handle_connector_proposal_apply_plan(
         &self,
         trace_id: &str,
         arguments: Value,
@@ -1407,7 +1409,7 @@ impl McpServer {
         let mut request = ConnectorProposalApplyPlanRequest::new(
             payload.connector,
             payload.root_path,
-            scope_id,
+            scope_id.clone(),
             payload.approved_queue_item_ids,
             payload.confirmation_token,
         );
@@ -1416,6 +1418,22 @@ impl McpServer {
         }
         let report =
             build_connector_proposal_apply_plan_report(request).map_err(map_kernel_error)?;
+        if payload.apply.unwrap_or(false) {
+            let context = self.resolve_required_key(payload.key.as_deref()).await?;
+            let mut apply_request =
+                ConnectorProposalApplyExecutorRequest::new(report.clone(), scope_id, context);
+            apply_request.source_id = payload.source_id.map(SourceId::from_string);
+            apply_request.max_items = payload.max_items.unwrap_or(100);
+            let execution = apply_connector_proposal_apply_plan(&self.kernel, apply_request)
+                .await
+                .map_err(map_kernel_error)?;
+            return Ok(ToolCallResponse {
+                tool: "memory.connectors.proposal_apply_plan".to_string(),
+                trace_id: trace_id.to_string(),
+                data: connector_proposal_apply_plan_execution_json(&report, &execution),
+                warnings: Vec::new(),
+            });
+        }
 
         Ok(ToolCallResponse {
             tool: "memory.connectors.proposal_apply_plan".to_string(),
@@ -1974,9 +1992,12 @@ struct ConnectorProposalApplyPlanToolArgs {
     connector: String,
     root_path: String,
     scope_id: Option<String>,
+    source_id: Option<String>,
     approved_queue_item_ids: Vec<String>,
     confirmation_token: String,
     max_items: Option<usize>,
+    apply: Option<bool>,
+    key: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

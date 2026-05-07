@@ -2890,7 +2890,10 @@ fn surface_parity_smoke_covers_mcp_cli_and_http_contracts() {
                 "--confirmation-token",
                 "confirm_1",
             ],
-            &["/api/v1/compat/connectors/proposal-apply-plan"],
+            &[
+                "/api/v1/compat/connectors/proposal-apply-plan",
+                "/api/v1/compat/connectors/proposal-apply-plan/apply",
+            ],
         ),
         (
             "memory.context.upsert",

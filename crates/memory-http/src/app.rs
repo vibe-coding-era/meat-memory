@@ -14,15 +14,17 @@ use memory_domain::{
 };
 use memory_kernel::{
     ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
-    ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorProposalApplyPlanRequest,
-    ConnectorProposalQueueRequest, ConnectorSyncPlanRequest, CreateAccessKeyRequest,
-    ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest,
-    ListProjectDocumentsRequest, PromoteAgentContextRequest, PromoteMemoryRequest,
-    RememberImageRequest, RememberTextRequest, RememberTextResult, SearchContextRequest,
-    UpdateAccessKeyRequest, UpsertAgentContextRequest, build_competitor_compatibility_report,
+    ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorProposalApplyExecutorRequest,
+    ConnectorProposalApplyPlanRequest, ConnectorProposalQueueRequest, ConnectorSyncPlanRequest,
+    CreateAccessKeyRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, Kernel,
+    ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, RememberTextResult,
+    SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+    apply_connector_proposal_apply_plan, build_competitor_compatibility_report,
     build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
     build_connector_proposal_queue_report, build_connector_sync_plan, compatibility_report_json,
-    connector_dry_run_json, connector_import_draft_json, connector_proposal_apply_plan_json,
+    connector_dry_run_json, connector_import_draft_json,
+    connector_proposal_apply_plan_execution_json, connector_proposal_apply_plan_json,
     connector_proposal_queue_json, connector_sync_plan_json, health_json, run_connector_dry_run,
     verification_json, verify_memory_passport_bundle,
 };
@@ -82,6 +84,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/compat/connectors/import-draft",
     "/api/v1/compat/connectors/proposal-queue",
     "/api/v1/compat/connectors/proposal-apply-plan",
+    "/api/v1/compat/connectors/proposal-apply-plan/apply",
     "/api/v1/images",
     "/api/v1/context",
     "/api/v1/context/search",
@@ -481,6 +484,17 @@ pub struct ConnectorProposalApplyPlanQuery {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ConnectorProposalApplyPlanApplyRequest {
+    pub connector: String,
+    pub root_path: String,
+    pub scope_id: Option<String>,
+    pub source_id: Option<String>,
+    pub approved_queue_item_ids: Vec<String>,
+    pub confirmation_token: String,
+    pub max_items: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct LifecycleStatusHttpRequest {
     pub status: Option<String>,
     pub reason: Option<String>,
@@ -723,6 +737,10 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route(
             "/api/v1/compat/connectors/proposal-apply-plan",
             get(compat_connector_proposal_apply_plan),
+        )
+        .route(
+            "/api/v1/compat/connectors/proposal-apply-plan/apply",
+            post(compat_connector_proposal_apply_plan_apply),
         )
         .route("/api/v1/images", post(create_image))
         .route("/api/v1/context", post(search_context))
@@ -1983,6 +2001,51 @@ async fn compat_connector_proposal_apply_plan(
         build_connector_proposal_apply_plan_report(request).map_err(api_error_from_anyhow)?;
 
     Ok(Json(connector_proposal_apply_plan_json(&report)))
+}
+
+async fn compat_connector_proposal_apply_plan_apply(
+    State(state): State<HttpAppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ConnectorProposalApplyPlanApplyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let context = resolve_required_http_context(&state, &headers).await?;
+    let connector = required_connector(Some(payload.connector))?;
+    let root_path = required_connector_root_path(Some(payload.root_path))?;
+    let scope_id = payload
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| context.owner_scope_id.clone());
+    ensure_context_scope_access(&context, &scope_id)?;
+    if payload.approved_queue_item_ids.is_empty() {
+        return Err(ApiError::bad_request("approved_queue_item_ids is required"));
+    }
+    let confirmation_token = if payload.confirmation_token.trim().is_empty() {
+        return Err(ApiError::bad_request("confirmation_token is required"));
+    } else {
+        payload.confirmation_token
+    };
+    let max_items = payload.max_items.unwrap_or(100);
+    let mut plan_request = ConnectorProposalApplyPlanRequest::new(
+        connector,
+        PathBuf::from(root_path),
+        scope_id.clone(),
+        payload.approved_queue_item_ids,
+        confirmation_token,
+    );
+    plan_request.max_items = max_items;
+    let report =
+        build_connector_proposal_apply_plan_report(plan_request).map_err(api_error_from_anyhow)?;
+    let mut apply_request =
+        ConnectorProposalApplyExecutorRequest::new(report.clone(), scope_id, context);
+    apply_request.source_id = payload.source_id.map(SourceId::from_string);
+    apply_request.max_items = max_items;
+    let execution = apply_connector_proposal_apply_plan(&state.kernel, apply_request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+
+    Ok(Json(connector_proposal_apply_plan_execution_json(
+        &report, &execution,
+    )))
 }
 
 fn required_connector(raw: Option<String>) -> Result<String, ApiError> {

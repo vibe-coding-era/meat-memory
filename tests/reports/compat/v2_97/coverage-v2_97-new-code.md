@@ -21,6 +21,7 @@ Covered regions:
 - connector queue confirmation token
 - connector persistent queue manifest
 - connector proposal confirmed executor
+- service-side confirmed executor
 - markdown-docs proposal queue
 - local-git proposal queue
 - chat-export proposal queue
@@ -33,11 +34,13 @@ Covered regions:
 - HTTP connector import-draft endpoint
 - HTTP connector proposal-queue endpoint
 - HTTP connector proposal apply-plan endpoint
+- HTTP connector confirmed executor endpoint
 - MCP connector dry-run tool
 - MCP connector sync-plan tool
 - MCP connector import-draft tool
 - MCP connector proposal-queue tool
 - MCP connector proposal apply-plan tool
+- MCP connector confirmed executor tool
 
 Evidence:
 
