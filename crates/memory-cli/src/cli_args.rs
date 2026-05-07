@@ -908,6 +908,8 @@ pub(super) struct CompatConnectorProposalApplyPlanArgs {
     #[arg(long, default_value = ".")]
     pub(super) root_path: PathBuf,
     #[arg(long)]
+    pub(super) queue_file: Option<PathBuf>,
+    #[arg(long)]
     pub(super) source_id: Option<String>,
     #[arg(long, default_value = "scp_v297_connector")]
     pub(super) scope_id: String,

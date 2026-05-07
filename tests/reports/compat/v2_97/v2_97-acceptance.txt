@@ -4,16 +4,15 @@
 [v2.97] format check
 [v2.97] interface check
     Checking memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
     Checking memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
+    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
     Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.62s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.20s
 [v2.97] kernel V2.97 connector contract
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.69s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
      Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
 
-running 22 tests
+running 23 tests
 test v29_compat::tests::v297_chat_export_dry_run_parses_chatgpt_mapping_json ... ok
 test v29_compat::tests::v297_chat_export_dry_run_parses_generic_messages_json ... ok
 test v29_compat::tests::v297_chat_export_import_draft_projects_reviewable_memory_drafts ... ok
@@ -21,6 +20,7 @@ test v29_compat::tests::v297_connector_dry_run_rejects_unknown_connector ... ok
 test v29_compat::tests::v297_connector_dry_run_scans_markdown_docs ... ok
 test v29_compat::tests::v297_connector_dry_run_writer_outputs_json_and_markdown ... ok
 test v29_compat::tests::v297_connector_import_draft_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_accepts_persisted_queue_manifest ... ok
 test v29_compat::tests::v297_connector_proposal_apply_plan_keeps_blocked_conflicts_plan_only ... ok
 test v29_compat::tests::v297_connector_proposal_apply_plan_requires_confirmation_and_blocks_conflicts ... ok
 test v29_compat::tests::v297_connector_proposal_apply_plan_writer_outputs_json_and_markdown ... ok
@@ -37,14 +37,10 @@ test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_d
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
 
-test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.11s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.06s
 
 [v2.97] CLI V2.97 connector contract
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.32s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
      Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
 
 running 17 tests
@@ -69,17 +65,17 @@ test app::main_tests::connector_sync_plan_output_helpers_include_paths_evidence_
 test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.05s
 
 [v2.97] CLI V2.97 confirmed connector executor contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
      Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
 
 running 1 test
 test app::main_tests::cli_command_functions_cover_pg_management_paths ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.90s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.58s
 
 [v2.97] HTTP V2.97 connector management contract
    Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.05s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.51s
      Running unittests src/lib.rs (target/debug/deps/memory_http-a69fb5bc13441700)
 
 running 4 tests
@@ -93,7 +89,7 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; fin
 [v2.97] MCP V2.97 connector management contract
    Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
    Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.86s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.31s
      Running unittests src/lib.rs (target/debug/deps/memory_mcp-762b95db191e7ada)
 
 running 4 tests
@@ -106,10 +102,10 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; fin
 
 [v2.97] CLI binary build
    Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
    Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
+   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
    Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.94s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.64s
 [v2.97] markdown-docs dry-run report
 [v2.97] markdown-docs sync-plan report
 [v2.97] markdown-docs proposal-queue report

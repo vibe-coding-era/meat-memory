@@ -924,18 +924,30 @@ pub fn write_connector_proposal_queue_report(
 pub fn build_connector_proposal_apply_plan_report(
     request: ConnectorProposalApplyPlanRequest,
 ) -> Result<ConnectorProposalApplyPlanReport> {
-    if request.approved_queue_item_ids.is_empty() {
-        bail!("approved_queue_item_ids is required for connector proposal apply-plan");
-    }
-
     let mut queue_request =
         ConnectorProposalQueueRequest::new(request.connector, request.root_path, request.scope_id);
     queue_request.max_items = request.max_items;
     queue_request.previous_snapshots = request.previous_snapshots;
     let queue = build_connector_proposal_queue_report(queue_request)?;
+    build_connector_proposal_apply_plan_report_from_queue(
+        queue,
+        request.approved_queue_item_ids,
+        request.confirmation_token,
+    )
+}
+
+pub fn build_connector_proposal_apply_plan_report_from_queue(
+    queue: ConnectorProposalQueueReport,
+    approved_queue_item_ids: Vec<String>,
+    confirmation_token: impl AsRef<str>,
+) -> Result<ConnectorProposalApplyPlanReport> {
+    if approved_queue_item_ids.is_empty() {
+        bail!("approved_queue_item_ids is required for connector proposal apply-plan");
+    }
+
     let expected_token =
-        connector_proposal_confirmation_token(&queue.queue_id, &request.approved_queue_item_ids);
-    if request.confirmation_token != expected_token {
+        connector_proposal_confirmation_token(&queue.queue_id, &approved_queue_item_ids);
+    if confirmation_token.as_ref() != expected_token {
         bail!("connector proposal apply-plan confirmation token mismatch");
     }
 
@@ -946,7 +958,7 @@ pub fn build_connector_proposal_apply_plan_report(
         .collect::<BTreeMap<_, _>>();
     let mut apply_items = Vec::new();
     let mut skipped_queue_item_ids = Vec::new();
-    for queue_item_id in &request.approved_queue_item_ids {
+    for queue_item_id in &approved_queue_item_ids {
         let Some(item) = by_id.get(queue_item_id.as_str()) else {
             bail!("unknown connector proposal queue item: {queue_item_id}");
         };
@@ -977,7 +989,7 @@ pub fn build_connector_proposal_apply_plan_report(
         connector: queue.connector,
         root_path: queue.root_path,
         mode: "proposal_apply_plan".to_string(),
-        selected_count: request.approved_queue_item_ids.len(),
+        selected_count: approved_queue_item_ids.len(),
         applicable_count,
         blocked_count,
         skipped_count: skipped_queue_item_ids.len(),
@@ -1015,6 +1027,7 @@ pub fn connector_proposal_apply_plan_json(report: &ConnectorProposalApplyPlanRep
             "covered_regions": [
                 "connector_proposal_apply_plan",
                 "connector_queue_confirmation_token",
+                "connector_persistent_queue_manifest",
                 "service_side_confirmed_apply_plan"
             ]
         }
@@ -3448,6 +3461,50 @@ mod tests {
                 "confirm_wrong",
             ))
             .unwrap_err();
+        assert!(error.to_string().contains("confirmation token mismatch"));
+    }
+
+    #[test]
+    fn v297_connector_proposal_apply_plan_accepts_persisted_queue_manifest() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("chat.json"),
+            r#"{"id":"manifest_apply","title":"Manifest apply","messages":[{"role":"user","content":"hello"}]}"#,
+        )
+        .unwrap();
+        let queue = build_connector_proposal_queue_report(ConnectorProposalQueueRequest::new(
+            "chat-export",
+            tempdir.path(),
+            ScopeId::from_string("scp_v297_manifest"),
+        ))
+        .unwrap();
+        let queue_item_id = queue.queue_items[0].queue_item_id.clone();
+        let token = connector_proposal_confirmation_token(
+            &queue.queue_id,
+            std::slice::from_ref(&queue_item_id),
+        );
+
+        let report = build_connector_proposal_apply_plan_report_from_queue(
+            queue.clone(),
+            vec![queue_item_id.clone()],
+            token,
+        )
+        .unwrap();
+
+        assert_eq!(report.queue_id, queue.queue_id);
+        assert_eq!(report.connector, "chat-export");
+        assert_eq!(report.apply_items[0].queue_item_id, queue_item_id);
+        assert_eq!(
+            report.apply_items[0].source_refs,
+            queue.queue_items[0].source_refs
+        );
+
+        let error = build_connector_proposal_apply_plan_report_from_queue(
+            queue,
+            vec![queue_item_id],
+            "wrong",
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("confirmation token mismatch"));
     }
 

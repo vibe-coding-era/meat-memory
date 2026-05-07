@@ -19,12 +19,14 @@ Covered regions:
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token
+- connector persistent queue manifest
 - connector proposal confirmed executor
 - markdown-docs proposal queue
 - local-git proposal queue
 - chat-export proposal queue
 - chat-export proposal apply-plan
 - CLI parser and command projections
+- CLI connector queue-file manifest
 - CLI confirmed connector executor
 - HTTP connector dry-run endpoint
 - HTTP connector sync-plan endpoint

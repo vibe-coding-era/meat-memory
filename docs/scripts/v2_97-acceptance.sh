@@ -179,6 +179,7 @@ echo "[v2.97] chat-export proposal apply-plan report"
 "${MEMORY_CLI}" compat connector-proposal-apply-plan \
     --connector chat-export \
     --root-path "${FIXTURE_DIR}/chat" \
+    --queue-file "${REPORT_DIR}/chat-export-proposal-queue.json" \
     --scope-id scp_v297_acceptance \
     --approve-queue-item "${CHAT_QUEUE_ITEM_ID}" \
     --confirmation-token "${CHAT_CONFIRMATION_TOKEN}" \
@@ -310,6 +311,7 @@ assert chat_apply_plan["apply_policy"]["writes_memory"] is False, chat_apply_pla
 assert chat_apply_plan["apply_policy"]["writes_project_documents"] is False, chat_apply_plan
 assert chat_apply_plan["apply_policy"]["requires_confirmation_token"] is True, chat_apply_plan
 assert chat_apply_plan["apply_policy"]["executor_not_invoked"] is True, chat_apply_plan
+assert "connector_persistent_queue_manifest" in chat_apply_plan["coverage_gate"]["covered_regions"], chat_apply_plan
 PY
 
 cat >"${COVERAGE_REPORT}" <<'EOF'
@@ -334,12 +336,14 @@ Covered regions:
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token
+- connector persistent queue manifest
 - connector proposal confirmed executor
 - markdown-docs proposal queue
 - local-git proposal queue
 - chat-export proposal queue
 - chat-export proposal apply-plan
 - CLI parser and command projections
+- CLI connector queue-file manifest
 - CLI confirmed connector executor
 - HTTP connector dry-run endpoint
 - HTTP connector sync-plan endpoint

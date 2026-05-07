@@ -47,6 +47,7 @@
     "covered_regions": [
       "connector_proposal_apply_plan",
       "connector_queue_confirmation_token",
+      "connector_persistent_queue_manifest",
       "service_side_confirmed_apply_plan"
     ],
     "new_feature_test_coverage_required": "100%"

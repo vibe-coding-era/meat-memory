@@ -1410,11 +1410,13 @@ async fn compat_connector_proposal_apply_plan_command_writes_report() {
         &queue.queue_id,
         std::slice::from_ref(&queue_item_id),
     );
+    let queue_paths = write_connector_proposal_queue_report(&output_dir, &queue).unwrap();
 
     compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
         key: None,
         connector: "chat-export".to_string(),
         root_path: tempdir.path().to_path_buf(),
+        queue_file: None,
         source_id: None,
         scope_id: "scp_cli_chat_apply_plan".to_string(),
         approve_queue_item: vec![queue_item_id.clone()],
@@ -1430,6 +1432,7 @@ async fn compat_connector_proposal_apply_plan_command_writes_report() {
         key: None,
         connector: "chat-export".to_string(),
         root_path: tempdir.path().to_path_buf(),
+        queue_file: Some(queue_paths.json),
         source_id: None,
         scope_id: "scp_cli_chat_apply_plan".to_string(),
         approve_queue_item: vec![queue_item_id],
@@ -1455,6 +1458,13 @@ async fn compat_connector_proposal_apply_plan_command_writes_report() {
     assert_eq!(payload["selected_count"], 1);
     assert_eq!(payload["apply_policy"]["writes_memory"], false);
     assert_eq!(payload["apply_policy"]["executor_not_invoked"], true);
+    assert!(
+        payload["coverage_gate"]["covered_regions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|region| region == "connector_persistent_queue_manifest")
+    );
 }
 
 #[test]
@@ -1934,6 +1944,8 @@ fn compat_cli_parser_accepts_connector_proposal_apply_plan() {
         "chat-export",
         "--root-path",
         "exports",
+        "--queue-file",
+        "tests/reports/compat/latest/chat-export-proposal-queue.json",
         "--source-id",
         "src_parser",
         "--scope-id",
@@ -1959,6 +1971,12 @@ fn compat_cli_parser_accepts_connector_proposal_apply_plan() {
             assert_eq!(args.key.as_deref(), Some("mk_parser"));
             assert_eq!(args.connector, "chat-export");
             assert_eq!(args.root_path, PathBuf::from("exports"));
+            assert_eq!(
+                args.queue_file,
+                Some(PathBuf::from(
+                    "tests/reports/compat/latest/chat-export-proposal-queue.json"
+                ))
+            );
             assert_eq!(args.source_id.as_deref(), Some("src_parser"));
             assert_eq!(args.scope_id, "scp_parser");
             assert_eq!(
@@ -4672,10 +4690,16 @@ async fn cli_command_functions_cover_pg_management_paths() {
         &docs_queue.queue_id,
         std::slice::from_ref(&docs_queue_item_id),
     );
+    let docs_queue_paths = write_connector_proposal_queue_report(
+        &tempdir.path().join("compat-docs-queue"),
+        &docs_queue,
+    )
+    .unwrap();
     compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
         key: Some(raw_key.clone()),
         connector: "markdown-docs".to_string(),
         root_path: docs_root.clone(),
+        queue_file: Some(docs_queue_paths.json),
         source_id: None,
         scope_id: scope_id.as_str().to_string(),
         approve_queue_item: vec![docs_queue_item_id],
@@ -4769,10 +4793,16 @@ async fn cli_command_functions_cover_pg_management_paths() {
         &chat_queue.queue_id,
         std::slice::from_ref(&chat_queue_item_id),
     );
+    let chat_queue_paths = write_connector_proposal_queue_report(
+        &tempdir.path().join("compat-chat-queue"),
+        &chat_queue,
+    )
+    .unwrap();
     compat_connector_proposal_apply_plan_command(super::CompatConnectorProposalApplyPlanArgs {
         key: Some(raw_key.clone()),
         connector: "chat-export".to_string(),
         root_path: chat_apply_plan_root,
+        queue_file: Some(chat_queue_paths.json),
         source_id: None,
         scope_id: scope_id.as_str().to_string(),
         approve_queue_item: vec![chat_queue_item_id],

@@ -36,7 +36,8 @@ use memory_kernel::{
     TimelineEvent, TimelineEventKind, TimelineVersion, TraceSearchContextRequest,
     TraceSearchContextResult, UpsertAgentContextRequest, UpsertDistillationProfileRequest,
     build_competitor_compatibility_report, build_connector_import_draft_report,
-    build_connector_proposal_apply_plan_report, build_connector_proposal_queue_report,
+    build_connector_proposal_apply_plan_report,
+    build_connector_proposal_apply_plan_report_from_queue, build_connector_proposal_queue_report,
     build_connector_sync_plan, bundle_json, compatibility_report_json, connector_dry_run_json,
     connector_import_draft_json, connector_proposal_apply_plan_json, connector_proposal_queue_json,
     connector_sync_plan_json, health_json, run_connector_dry_run, verification_json,
@@ -1622,16 +1623,37 @@ async fn compat_connector_import_draft_command(args: CompatConnectorImportDraftA
 async fn compat_connector_proposal_apply_plan_command(
     args: CompatConnectorProposalApplyPlanArgs,
 ) -> Result<()> {
-    let scope_id = ScopeId::from_string(args.scope_id.clone());
-    let mut request = ConnectorProposalApplyPlanRequest::new(
-        args.connector.clone(),
-        args.root_path.clone(),
-        scope_id.clone(),
-        args.approve_queue_item.clone(),
-        args.confirmation_token.clone(),
-    );
-    request.max_items = args.max_items;
-    let report = build_connector_proposal_apply_plan_report(request)?;
+    let queue_manifest = args
+        .queue_file
+        .as_deref()
+        .map(read_connector_proposal_queue_manifest)
+        .transpose()?;
+    let mut scope_id = ScopeId::from_string(args.scope_id.clone());
+    let report = if let Some(queue) = queue_manifest {
+        if queue.connector != args.connector {
+            bail!(
+                "--queue-file connector {} does not match --connector {}",
+                queue.connector,
+                args.connector
+            );
+        }
+        scope_id = connector_queue_manifest_scope(&queue, &args.approve_queue_item)?;
+        build_connector_proposal_apply_plan_report_from_queue(
+            queue,
+            args.approve_queue_item.clone(),
+            args.confirmation_token.clone(),
+        )?
+    } else {
+        let mut request = ConnectorProposalApplyPlanRequest::new(
+            args.connector.clone(),
+            args.root_path.clone(),
+            scope_id.clone(),
+            args.approve_queue_item.clone(),
+            args.confirmation_token.clone(),
+        );
+        request.max_items = args.max_items;
+        build_connector_proposal_apply_plan_report(request)?
+    };
     let paths = write_connector_proposal_apply_plan_report(&args.output_dir, &report)?;
     let mut applied_memories = Vec::new();
     let mut applied_documents = Vec::new();
@@ -1643,10 +1665,12 @@ async fn compat_connector_proposal_apply_plan_command(
         if report.blocked_count > 0 {
             bail!("connector proposal apply-plan contains blocked queue items");
         }
+        let connector = report.connector.clone();
+        let root_path = report.root_path.clone();
         match report.connector.as_str() {
             "chat-export" => {
                 let mut draft_request =
-                    ConnectorImportDraftRequest::new("chat-export", args.root_path, scope_id);
+                    ConnectorImportDraftRequest::new("chat-export", root_path, scope_id);
                 draft_request.max_items = args.max_items;
                 let import_report = build_connector_import_draft_report(draft_request)?;
                 for item in report.apply_items.iter().filter(|item| item.can_apply) {
@@ -1676,7 +1700,7 @@ async fn compat_connector_proposal_apply_plan_command(
                     &kernel,
                     &context,
                     args.source_id.as_deref(),
-                    &args.root_path,
+                    &root_path,
                 )
                 .await?;
                 let approved_refs = report
@@ -1686,7 +1710,7 @@ async fn compat_connector_proposal_apply_plan_command(
                     .flat_map(|item| item.source_refs.iter().cloned())
                     .collect::<std::collections::BTreeSet<_>>();
                 let mut sync_request =
-                    ConnectorSyncPlanRequest::new(args.connector, args.root_path, scope_id.clone());
+                    ConnectorSyncPlanRequest::new(connector, root_path, scope_id.clone());
                 sync_request.max_items = args.max_items;
                 let output = build_connector_sync_plan(sync_request)?;
                 let mut apply_plan = output.plan;
@@ -3911,6 +3935,46 @@ async fn resolve_connector_source_for_apply(
             root.display()
         ),
     }
+}
+
+fn read_connector_proposal_queue_manifest(path: &Path) -> Result<ConnectorProposalQueueReport> {
+    let raw = fs::read_to_string(path).with_context(|| {
+        format!(
+            "failed to read connector proposal queue manifest {}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&raw).with_context(|| {
+        format!(
+            "failed to parse connector proposal queue manifest {}",
+            path.display()
+        )
+    })
+}
+
+fn connector_queue_manifest_scope(
+    queue: &ConnectorProposalQueueReport,
+    approved_queue_item_ids: &[String],
+) -> Result<ScopeId> {
+    let mut selected_scope_id: Option<ScopeId> = None;
+    for queue_item_id in approved_queue_item_ids {
+        let item = queue
+            .queue_items
+            .iter()
+            .find(|item| item.queue_item_id == *queue_item_id)
+            .with_context(|| {
+                format!("unknown connector proposal queue item in manifest: {queue_item_id}")
+            })?;
+        match &selected_scope_id {
+            Some(scope_id) if *scope_id != item.scope_id => {
+                bail!("approved connector queue items span multiple scopes");
+            }
+            Some(_) => {}
+            None => selected_scope_id = Some(item.scope_id.clone()),
+        }
+    }
+    selected_scope_id
+        .context("approved_queue_item_ids is required for connector proposal apply-plan")
 }
 
 async fn build_local_docs_sync_plan(
