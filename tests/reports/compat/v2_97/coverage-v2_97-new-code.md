@@ -35,6 +35,7 @@ Covered regions:
 - HTTP connector proposal-queue endpoint
 - HTTP connector proposal apply-plan endpoint
 - HTTP connector confirmed executor endpoint
+- Browser Console connector confirmed executor UI
 - MCP connector dry-run tool
 - MCP connector sync-plan tool
 - MCP connector import-draft tool

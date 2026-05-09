@@ -3469,7 +3469,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             <h2 class="card-title">Projection Debug</h2>
             <span class="memory-meta-tag">source/document</span>
             <span class="memory-meta-tag">connector dry-run /api/v1/compat/connectors/dry-run</span>
-            <span class="memory-meta-tag">sync-plan / import-draft / proposal-queue / apply-plan</span>
+            <span class="memory-meta-tag">sync-plan / import-draft / proposal-queue / apply-plan / POST apply</span>
           </div>
           <div class="chat-note muted">
             填写 raw key、source_id、document_id，直接查看 V2.4 project document markdown projection。
@@ -3510,6 +3510,39 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
           <div id="projection-status" class="status-box hidden" style="margin-top: 12px;"></div>
           <div id="projection-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
           <pre id="projection-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+          <div class="memory-expanded" style="margin-top: 16px;">
+            <div class="memory-expanded-title" style="font-size: 18px;">Connector Review Console</div>
+            <div class="chat-note muted">
+              用同一组参数查看 dry-run、proposal queue、apply-plan，并在 token + raw key 确认后调用 service-side confirmed executor。
+            </div>
+            <div class="chat-composer" style="margin-top: 10px;">
+              <input id="connector-key" class="chat-input" placeholder="raw key for confirmed apply" />
+            </div>
+            <div class="chat-composer" style="margin-top: 10px;">
+              <select id="connector-name" class="chat-input">
+                <option value="chat-export">chat-export</option>
+                <option value="markdown-docs">markdown-docs</option>
+                <option value="local-git">local-git</option>
+              </select>
+              <input id="connector-root-path" class="chat-input" placeholder="root_path" />
+              <input id="connector-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />
+              <input id="connector-source-id" class="chat-input" placeholder="source_id (optional for confirmed apply)" />
+              <input id="connector-max-items" class="chat-input" placeholder="max_items" value="20" />
+            </div>
+            <div class="chat-composer" style="margin-top: 10px;">
+              <input id="connector-queue-item-ids" class="chat-input" placeholder="approved_queue_item_ids, comma separated" />
+              <input id="connector-confirmation-token" class="chat-input" placeholder="confirmation_token" />
+            </div>
+            <div class="chip-row" style="margin-top: 10px;">
+              <button type="button" class="toolbar-button" id="connector-dry-run">Dry Run</button>
+              <button type="button" class="toolbar-button" id="connector-proposal-queue">Proposal Queue</button>
+              <button type="button" class="toolbar-button" id="connector-apply-plan">Apply Plan</button>
+              <button type="button" class="send-button" id="connector-apply-confirm">Confirmed Apply</button>
+            </div>
+            <div id="connector-status" class="status-box hidden" style="margin-top: 12px;"></div>
+            <div id="connector-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
+            <pre id="connector-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+          </div>
         </section>
       </div>
     </div>
@@ -3518,6 +3551,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
   <script>
     const metadata = __METADATA__;
     const PROJECTION_DEBUG_STORAGE_KEY = "meat-memory.projection-debug.v1";
+    const CONNECTOR_DEBUG_STORAGE_KEY = "meat-memory.connector-debug.v1";
     async function fetchJson(url, options) {
       const response = await fetch(url, options);
       const text = await response.text();
@@ -3545,6 +3579,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       projectionDocuments: [],
       projectionSourceSearch: "",
       projectionDocumentSearch: "",
+      connectorReport: null,
       chatLoading: false,
       messages: [
         {
@@ -3600,6 +3635,21 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const projectionStatusEl = document.getElementById("projection-status");
     const projectionMetaEl = document.getElementById("projection-meta");
     const projectionOutputEl = document.getElementById("projection-output");
+    const connectorKeyEl = document.getElementById("connector-key");
+    const connectorNameEl = document.getElementById("connector-name");
+    const connectorRootPathEl = document.getElementById("connector-root-path");
+    const connectorScopeIdEl = document.getElementById("connector-scope-id");
+    const connectorSourceIdEl = document.getElementById("connector-source-id");
+    const connectorMaxItemsEl = document.getElementById("connector-max-items");
+    const connectorQueueItemIdsEl = document.getElementById("connector-queue-item-ids");
+    const connectorConfirmationTokenEl = document.getElementById("connector-confirmation-token");
+    const connectorDryRunEl = document.getElementById("connector-dry-run");
+    const connectorProposalQueueEl = document.getElementById("connector-proposal-queue");
+    const connectorApplyPlanEl = document.getElementById("connector-apply-plan");
+    const connectorApplyConfirmEl = document.getElementById("connector-apply-confirm");
+    const connectorStatusEl = document.getElementById("connector-status");
+    const connectorMetaEl = document.getElementById("connector-meta");
+    const connectorOutputEl = document.getElementById("connector-output");
 
     function escapeHtml(value) {
       return String(value)
@@ -3695,6 +3745,44 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             documentId: projectionDocumentIdEl.value.trim(),
             sourceSearch: projectionSourceSearchEl.value || "",
             documentSearch: projectionDocumentSearchEl.value || "",
+          })
+        );
+      } catch (_error) {
+      }
+    }
+
+    function loadConnectorDebugState() {
+      try {
+        const raw = localStorage.getItem(CONNECTOR_DEBUG_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        const persisted = JSON.parse(raw);
+        connectorKeyEl.value = String(persisted.rawKey || "");
+        connectorNameEl.value = String(persisted.connector || "chat-export");
+        connectorRootPathEl.value = String(persisted.rootPath || "");
+        connectorScopeIdEl.value = String(persisted.scopeId || metadata.default_scope || "");
+        connectorSourceIdEl.value = String(persisted.sourceId || "");
+        connectorMaxItemsEl.value = String(persisted.maxItems || "20");
+        connectorQueueItemIdsEl.value = String(persisted.queueItemIds || "");
+        connectorConfirmationTokenEl.value = String(persisted.confirmationToken || "");
+      } catch (_error) {
+      }
+    }
+
+    function saveConnectorDebugState() {
+      try {
+        localStorage.setItem(
+          CONNECTOR_DEBUG_STORAGE_KEY,
+          JSON.stringify({
+            rawKey: connectorKeyEl.value.trim(),
+            connector: connectorNameEl.value || "chat-export",
+            rootPath: connectorRootPathEl.value.trim(),
+            scopeId: connectorScopeIdEl.value.trim(),
+            sourceId: connectorSourceIdEl.value.trim(),
+            maxItems: connectorMaxItemsEl.value.trim(),
+            queueItemIds: connectorQueueItemIdsEl.value.trim(),
+            confirmationToken: connectorConfirmationTokenEl.value.trim(),
           })
         );
       } catch (_error) {
@@ -4263,6 +4351,177 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       projectionStatusEl.classList.remove("hidden");
     }
 
+    function setConnectorStatus(message) {
+      connectorStatusEl.textContent = message;
+      connectorStatusEl.classList.remove("hidden");
+    }
+
+    function connectorScopeId() {
+      return connectorScopeIdEl.value.trim() || metadata.default_scope || "scp_meat_memory_v1";
+    }
+
+    function connectorMaxItems() {
+      const raw = connectorMaxItemsEl.value.trim();
+      if (!raw) {
+        return null;
+      }
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("max_items 必须是正整数。");
+      }
+      return parsed;
+    }
+
+    function connectorQueueItemIds() {
+      return connectorQueueItemIdsEl.value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function requireConnectorRootPath() {
+      const rootPath = connectorRootPathEl.value.trim();
+      if (!rootPath) {
+        throw new Error("请先填写 root_path。");
+      }
+      return rootPath;
+    }
+
+    function connectorQueryUrl(path, options) {
+      const rootPath = requireConnectorRootPath();
+      const maxItems = connectorMaxItems();
+      const params = new URLSearchParams();
+      params.set("connector", connectorNameEl.value || "chat-export");
+      params.set("root_path", rootPath);
+      if (options && options.includeScope) {
+        params.set("scope_id", connectorScopeId());
+      }
+      if (options && options.includeReview) {
+        const queueItemIds = connectorQueueItemIds();
+        const confirmationToken = connectorConfirmationTokenEl.value.trim();
+        if (!queueItemIds.length || !confirmationToken) {
+          throw new Error("请先填写 approved_queue_item_ids 和 confirmation_token。");
+        }
+        params.set("approved_queue_item_ids", queueItemIds.join(","));
+        params.set("confirmation_token", confirmationToken);
+      }
+      if (maxItems) {
+        params.set("max_items", String(maxItems));
+      }
+      return path + "?" + params.toString();
+    }
+
+    function renderConnectorReport(payload) {
+      state.connectorReport = payload;
+
+      const queueItems = Array.isArray(payload.queue_items) ? payload.queue_items : [];
+      if (queueItems.length) {
+        const first = queueItems[0] || {};
+        if (!connectorQueueItemIdsEl.value.trim() && first.queue_item_id) {
+          connectorQueueItemIdsEl.value = String(first.queue_item_id);
+        }
+        if (!connectorConfirmationTokenEl.value.trim() && first.review_token) {
+          connectorConfirmationTokenEl.value = String(first.review_token);
+        }
+        saveConnectorDebugState();
+      }
+
+      const execution = payload.execution || {};
+      const tags = [
+        ["schema", payload.schema_version],
+        ["connector", payload.connector],
+        ["mode", payload.mode],
+        ["queue", payload.queue_item_count],
+        ["selected", payload.selected_count],
+        ["applicable", payload.applicable_count],
+        ["applied", execution.applied_memory_count || execution.applied_document_count],
+      ].filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== "");
+
+      connectorMetaEl.innerHTML =
+        '<div class="memory-expanded-title">Connector Report</div>' +
+        '<div class="memory-meta">' +
+        tags
+          .map((item) => {
+            return '<span class="memory-meta-tag">' +
+              escapeHtml(item[0] + " " + String(item[1])) +
+              "</span>";
+          })
+          .join("") +
+        "</div>";
+      connectorMetaEl.classList.remove("hidden");
+      connectorOutputEl.textContent = JSON.stringify(payload, null, 2);
+      connectorOutputEl.classList.remove("hidden");
+    }
+
+    async function loadConnectorReport(label, path, options) {
+      saveConnectorDebugState();
+      setConnectorStatus("正在执行 " + label + "...");
+      connectorMetaEl.classList.add("hidden");
+      connectorMetaEl.innerHTML = "";
+      connectorOutputEl.classList.add("hidden");
+      connectorOutputEl.textContent = "";
+
+      try {
+        const payload = await fetchJson(connectorQueryUrl(path, options));
+        renderConnectorReport(payload);
+        setConnectorStatus(label + " 已完成。");
+      } catch (error) {
+        setConnectorStatus(label + " 失败：" + String(error));
+      }
+    }
+
+    async function applyConnectorReport() {
+      saveConnectorDebugState();
+      setConnectorStatus("正在执行 Confirmed Apply...");
+      connectorMetaEl.classList.add("hidden");
+      connectorMetaEl.innerHTML = "";
+      connectorOutputEl.classList.add("hidden");
+      connectorOutputEl.textContent = "";
+
+      try {
+        const rawKey = connectorKeyEl.value.trim();
+        const rootPath = requireConnectorRootPath();
+        const maxItems = connectorMaxItems();
+        const queueItemIds = connectorQueueItemIds();
+        const confirmationToken = connectorConfirmationTokenEl.value.trim();
+        if (!rawKey) {
+          throw new Error("请先填写 raw key。");
+        }
+        if (!queueItemIds.length || !confirmationToken) {
+          throw new Error("请先填写 approved_queue_item_ids 和 confirmation_token。");
+        }
+
+        const body = {
+          connector: connectorNameEl.value || "chat-export",
+          root_path: rootPath,
+          scope_id: connectorScopeId(),
+          approved_queue_item_ids: queueItemIds,
+          confirmation_token: confirmationToken,
+        };
+        const sourceId = connectorSourceIdEl.value.trim();
+        if (sourceId) {
+          body.source_id = sourceId;
+        }
+        if (maxItems) {
+          body.max_items = maxItems;
+        }
+
+        const payload = await fetchJson("/api/v1/compat/connectors/proposal-apply-plan/apply", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-meat-memory-key": rawKey,
+          },
+          body: JSON.stringify(body),
+        });
+        renderConnectorReport(payload);
+        setConnectorStatus("Confirmed Apply 已完成。");
+        loadWorkspace();
+      } catch (error) {
+        setConnectorStatus("Confirmed Apply 失败：" + String(error));
+      }
+    }
+
     document.querySelectorAll("#ownership-filter button").forEach((button) => {
       button.addEventListener("click", () => {
         state.ownershipFilter = button.dataset.value || "all";
@@ -4292,6 +4551,19 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     projectionKeyEl.addEventListener("input", saveProjectionDebugState);
     projectionSourceIdEl.addEventListener("input", saveProjectionDebugState);
     projectionDocumentIdEl.addEventListener("input", saveProjectionDebugState);
+    [
+      connectorKeyEl,
+      connectorNameEl,
+      connectorRootPathEl,
+      connectorScopeIdEl,
+      connectorSourceIdEl,
+      connectorMaxItemsEl,
+      connectorQueueItemIdsEl,
+      connectorConfirmationTokenEl,
+    ].forEach((element) => {
+      element.addEventListener("input", saveConnectorDebugState);
+      element.addEventListener("change", saveConnectorDebugState);
+    });
 
     refreshButtonEl.addEventListener("click", loadWorkspace);
     chatFormEl.addEventListener("submit", submitChat);
@@ -4326,8 +4598,19 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     projectionCopyMarkdownEl.addEventListener("click", () => {
       copyProjectionValue(projectionCopyMarkdownEl, "当前没有可复制的 Markdown 内容。", "已复制 Markdown 内容。");
     });
+    connectorDryRunEl.addEventListener("click", () => {
+      loadConnectorReport("Dry Run", "/api/v1/compat/connectors/dry-run", { includeScope: false, includeReview: false });
+    });
+    connectorProposalQueueEl.addEventListener("click", () => {
+      loadConnectorReport("Proposal Queue", "/api/v1/compat/connectors/proposal-queue", { includeScope: true, includeReview: false });
+    });
+    connectorApplyPlanEl.addEventListener("click", () => {
+      loadConnectorReport("Apply Plan", "/api/v1/compat/connectors/proposal-apply-plan", { includeScope: true, includeReview: true });
+    });
+    connectorApplyConfirmEl.addEventListener("click", applyConnectorReport);
 
     loadProjectionDebugState();
+    loadConnectorDebugState();
     render();
     loadWorkspace();
     restoreProjectionDebugSession();

@@ -294,7 +294,11 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/assistant/chat"));
     assert!(text.contains("/api/v1/metrics/keys"));
     assert!(text.contains("/api/v1/compat/connectors/dry-run"));
-    assert!(text.contains("sync-plan / import-draft / proposal-queue / apply-plan"));
+    assert!(text.contains("sync-plan / import-draft / proposal-queue / apply-plan / POST apply"));
+    assert!(text.contains("Connector Review Console"));
+    assert!(text.contains("meat-memory.connector-debug.v1"));
+    assert!(text.contains("connector-apply-confirm"));
+    assert!(text.contains("/api/v1/compat/connectors/proposal-apply-plan/apply"));
 }
 
 #[tokio::test]
