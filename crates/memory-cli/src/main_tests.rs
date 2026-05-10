@@ -1515,6 +1515,7 @@ async fn compat_connector_sync_plan_command_writes_report() {
         scope_id: "scp_cli_connector_sync".to_string(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        allow_remote_fetch: false,
         apply: false,
         json: false,
     })
@@ -1528,6 +1529,7 @@ async fn compat_connector_sync_plan_command_writes_report() {
         scope_id: "scp_cli_connector_sync".to_string(),
         output_dir: output_dir.clone(),
         max_items: 10,
+        allow_remote_fetch: false,
         apply: false,
         json: true,
     })
@@ -1551,6 +1553,7 @@ async fn compat_connector_sync_plan_apply_without_source_id_fails_without_match(
         scope_id: "scp_cli_connector_sync".to_string(),
         output_dir: tempdir.path().join("reports"),
         max_items: 10,
+        allow_remote_fetch: false,
         apply: true,
         json: false,
     })
@@ -2016,6 +2019,7 @@ fn compat_cli_parser_accepts_connector_sync_plan() {
         "tests/reports/compat/latest",
         "--max-items",
         "7",
+        "--allow-remote-fetch",
         "--apply",
         "--json",
     ])
@@ -2034,6 +2038,7 @@ fn compat_cli_parser_accepts_connector_sync_plan() {
                 PathBuf::from("tests/reports/compat/latest")
             );
             assert_eq!(args.max_items, 7);
+            assert!(args.allow_remote_fetch);
             assert!(args.apply);
             assert!(args.json);
         }
@@ -4623,6 +4628,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
         scope_id: scope_id.as_str().to_string(),
         output_dir: tempdir.path().join("compat-reports"),
         max_items: 10,
+        allow_remote_fetch: false,
         apply: true,
         json: true,
     })
@@ -4650,6 +4656,7 @@ async fn cli_command_functions_cover_pg_management_paths() {
         scope_id: scope_id.as_str().to_string(),
         output_dir: tempdir.path().join("compat-reports-repeat"),
         max_items: 10,
+        allow_remote_fetch: false,
         apply: true,
         json: false,
     })

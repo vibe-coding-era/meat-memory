@@ -1335,6 +1335,7 @@ impl McpServer {
         if let Some(max_items) = payload.max_items {
             request.max_items = max_items;
         }
+        request.allow_remote_fetch = payload.allow_remote_fetch.unwrap_or(false);
         let output = build_connector_sync_plan(request).map_err(map_kernel_error)?;
 
         Ok(ToolCallResponse {
@@ -1969,6 +1970,7 @@ struct ConnectorSyncPlanToolArgs {
     root_path: String,
     scope_id: Option<String>,
     max_items: Option<usize>,
+    allow_remote_fetch: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

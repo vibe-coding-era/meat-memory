@@ -1723,6 +1723,7 @@ async fn compat_connector_sync_plan_command(args: CompatConnectorSyncPlanArgs) -
         ScopeId::from_string(args.scope_id.clone()),
     );
     request.max_items = args.max_items;
+    request.allow_remote_fetch = args.allow_remote_fetch;
     let mut imported = Vec::new();
 
     let output = if args.apply {

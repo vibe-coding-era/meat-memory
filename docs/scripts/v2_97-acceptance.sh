@@ -352,8 +352,12 @@ assert web_crawler_sync_plan["documents"][0]["metadata"]["allowlist_allowed"] is
 assert web_crawler_sync_plan["documents"][0]["metadata"]["fetch_policy"] == "local_snapshot_only_no_remote_fetch", web_crawler_sync_plan
 assert web_crawler_sync_plan["documents"][0]["metadata"]["link_count"] == 1, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["blocked_count"] == 0, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["remote_fetch_allowed"] is False, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["remote_network"] is False, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["update_detection"][2] == "etag", web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["update_detection"][3] == "last_modified", web_crawler_sync_plan
 assert "web_crawler_sync_plan" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert "web_crawler_remote_fetch_policy" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -413,6 +417,7 @@ Covered regions:
 - chat-export explicit apply path
 - web-crawler dry-run / canonical URL / allowlist
 - web-crawler sync-plan / project document projection
+- web-crawler remote fetch policy / robots / validators
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

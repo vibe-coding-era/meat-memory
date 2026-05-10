@@ -470,6 +470,7 @@ pub struct ConnectorSyncPlanQuery {
     pub root_path: Option<String>,
     pub scope_id: Option<String>,
     pub max_items: Option<usize>,
+    pub allow_remote_fetch: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -2079,6 +2080,7 @@ async fn compat_connector_sync_plan(
     if let Some(max_items) = query.max_items {
         request.max_items = max_items;
     }
+    request.allow_remote_fetch = query.allow_remote_fetch.unwrap_or(false);
     let output = build_connector_sync_plan(request).map_err(api_error_from_anyhow)?;
 
     Ok(Json(connector_sync_plan_json(&output.report)))
@@ -3793,6 +3795,10 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
               <input id="connector-source-id" class="chat-input" placeholder="source_id (optional for confirmed apply)" />
               <input id="connector-max-items" class="chat-input" placeholder="max_items" value="20" />
             </div>
+            <label class="chat-note" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">
+              <input id="connector-allow-remote-fetch" type="checkbox" />
+              allow remote fetch
+            </label>
             <div class="chat-composer" style="margin-top: 10px;">
               <input id="connector-queue-item-ids" class="chat-input" placeholder="approved_queue_item_ids, comma separated" />
               <input id="connector-confirmation-token" class="chat-input" placeholder="confirmation_token" />
@@ -3800,6 +3806,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             </div>
             <div class="chip-row" style="margin-top: 10px;">
               <button type="button" class="toolbar-button" id="connector-dry-run">Dry Run</button>
+              <button type="button" class="toolbar-button" id="connector-sync-plan">Sync Plan</button>
               <button type="button" class="toolbar-button" id="connector-proposal-queue">Proposal Queue</button>
               <button type="button" class="toolbar-button" id="connector-persist-queue">Persist Queue</button>
               <button type="button" class="toolbar-button" id="connector-load-queue">Load Queue</button>
@@ -3908,10 +3915,12 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const connectorScopeIdEl = document.getElementById("connector-scope-id");
     const connectorSourceIdEl = document.getElementById("connector-source-id");
     const connectorMaxItemsEl = document.getElementById("connector-max-items");
+    const connectorAllowRemoteFetchEl = document.getElementById("connector-allow-remote-fetch");
     const connectorQueueItemIdsEl = document.getElementById("connector-queue-item-ids");
     const connectorConfirmationTokenEl = document.getElementById("connector-confirmation-token");
     const connectorQueueIdEl = document.getElementById("connector-queue-id");
     const connectorDryRunEl = document.getElementById("connector-dry-run");
+    const connectorSyncPlanEl = document.getElementById("connector-sync-plan");
     const connectorProposalQueueEl = document.getElementById("connector-proposal-queue");
     const connectorPersistQueueEl = document.getElementById("connector-persist-queue");
     const connectorLoadQueueEl = document.getElementById("connector-load-queue");
@@ -4034,6 +4043,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
         connectorScopeIdEl.value = String(persisted.scopeId || metadata.default_scope || "");
         connectorSourceIdEl.value = String(persisted.sourceId || "");
         connectorMaxItemsEl.value = String(persisted.maxItems || "20");
+        connectorAllowRemoteFetchEl.checked = Boolean(persisted.allowRemoteFetch);
         connectorQueueItemIdsEl.value = String(persisted.queueItemIds || "");
         connectorConfirmationTokenEl.value = String(persisted.confirmationToken || "");
         connectorQueueIdEl.value = String(persisted.queueId || "");
@@ -4052,6 +4062,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             scopeId: connectorScopeIdEl.value.trim(),
             sourceId: connectorSourceIdEl.value.trim(),
             maxItems: connectorMaxItemsEl.value.trim(),
+            allowRemoteFetch: connectorAllowRemoteFetchEl.checked,
             queueItemIds: connectorQueueItemIdsEl.value.trim(),
             confirmationToken: connectorConfirmationTokenEl.value.trim(),
             queueId: connectorQueueIdEl.value.trim(),
@@ -4690,6 +4701,9 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       if (maxItems) {
         params.set("max_items", String(maxItems));
       }
+      if (connectorAllowRemoteFetchEl.checked) {
+        params.set("allow_remote_fetch", "true");
+      }
       return path + "?" + params.toString();
     }
 
@@ -4875,6 +4889,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       connectorScopeIdEl,
       connectorSourceIdEl,
       connectorMaxItemsEl,
+      connectorAllowRemoteFetchEl,
       connectorQueueItemIdsEl,
       connectorConfirmationTokenEl,
       connectorQueueIdEl,
@@ -4918,6 +4933,9 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     });
     connectorDryRunEl.addEventListener("click", () => {
       loadConnectorReport("Dry Run", "/api/v1/compat/connectors/dry-run", { includeScope: false, includeReview: false });
+    });
+    connectorSyncPlanEl.addEventListener("click", () => {
+      loadConnectorReport("Sync Plan", "/api/v1/compat/connectors/sync-plan", { includeScope: true, includeReview: false });
     });
     connectorProposalQueueEl.addEventListener("click", () => {
       loadConnectorReport("Proposal Queue", "/api/v1/compat/connectors/proposal-queue", { includeScope: true, includeReview: false });

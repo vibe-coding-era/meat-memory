@@ -10,6 +10,7 @@
       "sync_plan_conflict_review_projection",
       "sync_plan_evidence_preview",
       "web_crawler_sync_plan",
+      "web_crawler_remote_fetch_policy",
       "connector_sync_plan_projection",
       "cli_parser_and_command"
     ],

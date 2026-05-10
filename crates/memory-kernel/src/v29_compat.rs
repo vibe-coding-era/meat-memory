@@ -15,8 +15,11 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    io::{Read, Write},
+    net::TcpStream,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 use time::OffsetDateTime;
 
@@ -205,6 +208,7 @@ pub struct ConnectorSyncPlanRequest {
     pub previous_snapshots: Vec<ProjectDocumentSnapshot>,
     pub excluded_dir_names: Vec<String>,
     pub max_items: usize,
+    pub allow_remote_fetch: bool,
 }
 
 impl ConnectorSyncPlanRequest {
@@ -224,6 +228,7 @@ impl ConnectorSyncPlanRequest {
                 "target".to_string(),
             ],
             max_items: 500,
+            allow_remote_fetch: false,
         }
     }
 }
@@ -876,6 +881,8 @@ fn build_web_crawler_sync_plan(
     let mut seen = BTreeSet::new();
     let mut documents = Vec::new();
     let mut blocked_urls = Vec::new();
+    let mut fetch_failures = Vec::new();
+    let url_manifest = web_url_manifest(&root)?;
 
     for path in files {
         if documents.len() >= request.max_items {
@@ -905,6 +912,48 @@ fn build_web_crawler_sync_plan(
             sync_state,
             metadata: parsed.metadata,
         });
+    }
+
+    if request.allow_remote_fetch {
+        for url in &url_manifest {
+            if documents.len() >= request.max_items {
+                break;
+            }
+            match web_page_remote_sync_candidate(&root, url, &allowlist_domains) {
+                Ok(parsed) => {
+                    seen.insert(parsed.canonical_uri.clone());
+                    if !parsed.allowlist_allowed {
+                        blocked_urls.push(json!({
+                            "canonical_url": parsed.canonical_uri,
+                            "relative_path": parsed.relative_path,
+                        }));
+                        continue;
+                    }
+                    let content_hash =
+                        memory_domain::Artifact::compute_content_hash(&parsed.content_text);
+                    let sync_state = match previous_by_uri.get(&parsed.canonical_uri) {
+                        Some(previous_hash) if previous_hash == &content_hash => {
+                            DocumentSyncState::Clean
+                        }
+                        Some(_) => DocumentSyncState::Changed,
+                        None => DocumentSyncState::Changed,
+                    };
+                    documents.push(LocalProjectDocumentDraft {
+                        canonical_uri: parsed.canonical_uri,
+                        local_path: root.join("urls.txt"),
+                        title: parsed.title,
+                        content_text: parsed.content_text,
+                        content_hash,
+                        sync_state,
+                        metadata: parsed.metadata,
+                    });
+                }
+                Err(error) => fetch_failures.push(json!({
+                    "url": url,
+                    "error": error.to_string(),
+                })),
+            }
+        }
     }
 
     let missing = request
@@ -942,9 +991,13 @@ fn build_web_crawler_sync_plan(
         "allowlist_domains": allowlist_domains,
         "blocked_count": blocked_urls.len(),
         "blocked_urls": blocked_urls,
-        "remote_network": false,
+        "fetch_failures": fetch_failures,
+        "remote_fetch_allowed": request.allow_remote_fetch,
+        "remote_network": request.allow_remote_fetch,
         "safe_default": "local_snapshot_only_no_remote_fetch",
-        "update_detection": ["canonical_url", "content_hash"],
+        "url_manifest": "urls.txt",
+        "url_manifest_count": url_manifest.len(),
+        "update_detection": ["canonical_url", "content_hash", "etag", "last_modified"],
     });
     let planned_count = documents.len();
     let plan = LocalProjectDocumentSyncPlan {
@@ -992,6 +1045,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "sync_plan_conflict_review_projection",
                 "sync_plan_evidence_preview",
                 "web_crawler_sync_plan",
+                "web_crawler_remote_fetch_policy",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -2471,6 +2525,119 @@ fn web_page_sync_candidate(
     })
 }
 
+fn web_page_remote_sync_candidate(
+    _root_path: &Path,
+    url: &str,
+    allowlist_domains: &[String],
+) -> Result<WebPageSyncCandidate> {
+    let requested = parse_http_url(url)?;
+    if !web_url_allowed(url, allowlist_domains) {
+        return Ok(web_blocked_sync_candidate(
+            url,
+            url,
+            "allowlist",
+            json!({
+                "requested_url": url,
+                "remote_network": false,
+            }),
+        ));
+    }
+
+    let robots_url = requested.robots_url();
+    let robots_response = web_fetch_url(&robots_url)?;
+    let robots_body = if (200..300).contains(&robots_response.status_code) {
+        robots_response.body.as_str()
+    } else {
+        ""
+    };
+    let robots_path = requested.path_without_query();
+    let robots_allowed = web_robots_allows(robots_body, &robots_path);
+    if !robots_allowed {
+        return Ok(web_blocked_sync_candidate(
+            url,
+            url,
+            "robots",
+            json!({
+                "requested_url": url,
+                "robots_url": robots_url,
+                "robots_status": robots_response.status_code,
+                "robots_allowed": false,
+                "remote_network": true,
+            }),
+        ));
+    }
+
+    let response = web_fetch_url(url)?;
+    if !(200..300).contains(&response.status_code) {
+        bail!("remote fetch returned HTTP {}", response.status_code);
+    }
+
+    let canonical_uri = html_canonical_url(&response.body).unwrap_or_else(|| url.to_string());
+    let title = html_title(&response.body).unwrap_or_else(|| {
+        requested
+            .path_without_query()
+            .rsplit('/')
+            .find(|segment| !segment.is_empty())
+            .unwrap_or("web page")
+            .replace(['_', '-'], " ")
+    });
+    let visible_text = html_visible_text(&response.body);
+    let allowlist_allowed = web_url_allowed(&canonical_uri, allowlist_domains);
+    let content_text = web_page_document_content(&title, &canonical_uri, &visible_text);
+    let metadata = json!({
+        "source_kind": "web_page",
+        "relative_path": url,
+        "requested_url": url,
+        "canonical_url": canonical_uri,
+        "allowlist_allowed": allowlist_allowed,
+        "allowlist_domains": allowlist_domains,
+        "link_count": html_link_count(&response.body),
+        "visible_text_bytes": visible_text.len(),
+        "html_content_hash": stable_hex_hash(&response.body),
+        "remote_network": true,
+        "fetch_policy": "remote_fetch_opt_in",
+        "http_status": response.status_code,
+        "etag": response.headers.get("etag"),
+        "last_modified": response.headers.get("last-modified"),
+        "robots_allowed": true,
+        "robots_status": robots_response.status_code,
+        "robots_url": robots_url,
+    });
+
+    Ok(WebPageSyncCandidate {
+        canonical_uri,
+        relative_path: url.to_string(),
+        title,
+        content_text,
+        allowlist_allowed,
+        metadata,
+    })
+}
+
+fn web_blocked_sync_candidate(
+    requested_url: &str,
+    canonical_uri: &str,
+    block_kind: &str,
+    metadata: Value,
+) -> WebPageSyncCandidate {
+    WebPageSyncCandidate {
+        canonical_uri: canonical_uri.to_string(),
+        relative_path: requested_url.to_string(),
+        title: requested_url.to_string(),
+        content_text: String::new(),
+        allowlist_allowed: false,
+        metadata: json!({
+            "source_kind": "web_page",
+            "relative_path": requested_url,
+            "requested_url": requested_url,
+            "canonical_url": canonical_uri,
+            "allowlist_allowed": false,
+            "block_kind": block_kind,
+            "details": metadata,
+        }),
+    }
+}
+
 fn web_page_document_content(title: &str, canonical_uri: &str, visible_text: &str) -> String {
     let mut content = format!("# {title}\n\nSource: {canonical_uri}\n\n");
     if visible_text.trim().is_empty() {
@@ -2544,6 +2711,23 @@ fn web_allowlist_domains(root_path: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
+fn web_url_manifest(root_path: &Path) -> Result<Vec<String>> {
+    let path = root_path.join("urls.txt");
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", path.display()));
+        }
+    };
+    Ok(raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect())
+}
+
 fn web_url_allowed(url: &str, allowlist_domains: &[String]) -> bool {
     if allowlist_domains.is_empty() || url.starts_with("file://") {
         return true;
@@ -2570,6 +2754,151 @@ fn web_url_host(url: &str) -> Option<String> {
                 .to_ascii_lowercase(),
         )
     }
+}
+
+#[derive(Debug, Clone)]
+struct ParsedHttpUrl {
+    host: String,
+    port: u16,
+    path_and_query: String,
+}
+
+impl ParsedHttpUrl {
+    fn host_header(&self) -> String {
+        if self.port == 80 {
+            self.host.clone()
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+
+    fn path_without_query(&self) -> String {
+        self.path_and_query
+            .split('?')
+            .next()
+            .filter(|path| !path.is_empty())
+            .unwrap_or("/")
+            .to_string()
+    }
+
+    fn robots_url(&self) -> String {
+        format!("http://{}/robots.txt", self.host_header())
+    }
+}
+
+#[derive(Debug)]
+struct WebHttpResponse {
+    status_code: u16,
+    headers: BTreeMap<String, String>,
+    body: String,
+}
+
+fn parse_http_url(url: &str) -> Result<ParsedHttpUrl> {
+    let tail = url
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow::anyhow!("remote fetch currently supports http:// URLs only"))?;
+    let (authority, path) = tail.split_once('/').unwrap_or((tail, ""));
+    if authority.trim().is_empty() {
+        bail!("remote fetch URL is missing host");
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !host.is_empty() => (
+            host.to_ascii_lowercase(),
+            port.parse::<u16>()
+                .with_context(|| format!("invalid remote fetch port in {url}"))?,
+        ),
+        _ => (authority.to_ascii_lowercase(), 80),
+    };
+    Ok(ParsedHttpUrl {
+        host,
+        port,
+        path_and_query: format!("/{}", path),
+    })
+}
+
+fn web_fetch_url(url: &str) -> Result<WebHttpResponse> {
+    let parsed = parse_http_url(url)?;
+    let mut stream = TcpStream::connect((parsed.host.as_str(), parsed.port))
+        .with_context(|| format!("failed to connect to {}", parsed.host_header()))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .context("failed to configure remote fetch read timeout")?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .context("failed to configure remote fetch write timeout")?;
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: meat-memory-web-crawler/2.97\r\nAccept: text/html,text/plain;q=0.9,*/*;q=0.1\r\nConnection: close\r\n\r\n",
+        parsed.path_and_query,
+        parsed.host_header()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .with_context(|| format!("failed to send remote fetch request to {url}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read remote fetch response from {url}"))?;
+    let response = String::from_utf8_lossy(&bytes);
+    let (head, body) = response
+        .split_once("\r\n\r\n")
+        .or_else(|| response.split_once("\n\n"))
+        .ok_or_else(|| anyhow::anyhow!("remote fetch response missing headers"))?;
+    let mut lines = head.lines();
+    let status_line = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("remote fetch response missing status line"))?;
+    let status_code = status_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("remote fetch response missing status code"))?
+        .parse::<u16>()
+        .context("remote fetch response has invalid status code")?;
+    let headers = lines
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            Some((name.trim().to_ascii_lowercase(), value.trim().to_string()))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    Ok(WebHttpResponse {
+        status_code,
+        headers,
+        body: body.to_string(),
+    })
+}
+
+fn web_robots_allows(robots_text: &str, path: &str) -> bool {
+    let mut current_group_matches = false;
+    let mut has_matching_group = false;
+    let mut disallow_rules = Vec::new();
+
+    for raw_line in robots_text.lines() {
+        let line = raw_line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            current_group_matches = false;
+            continue;
+        }
+        let Some((field, value)) = line.split_once(':') else {
+            continue;
+        };
+        let field = field.trim().to_ascii_lowercase();
+        let value = value.trim();
+        if field == "user-agent" {
+            current_group_matches =
+                value == "*" || value.eq_ignore_ascii_case("meat-memory-web-crawler");
+            has_matching_group |= current_group_matches;
+        } else if field == "disallow" && current_group_matches {
+            disallow_rules.push(value.to_string());
+        }
+    }
+
+    if !has_matching_group {
+        return true;
+    }
+
+    disallow_rules
+        .iter()
+        .all(|rule| rule.is_empty() || !path.starts_with(rule))
 }
 
 fn html_canonical_url(html: &str) -> Option<String> {
@@ -3720,6 +4049,9 @@ fn parse_memory_kind(raw: &str) -> Result<MemoryKind> {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::{Duration, Instant};
     use tempfile::tempdir;
 
     #[test]
@@ -4022,6 +4354,156 @@ mod tests {
             output.report.conflicts[0].canonical_uri,
             "https://blocked.example.net/private"
         );
+    }
+
+    #[test]
+    fn v297_web_crawler_remote_fetch_records_robots_and_validators() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "127.0.0.1\n").unwrap();
+        let (base_url, handle) = spawn_web_fixture_server(
+            "User-agent: *\nDisallow: /private\n",
+            |url| {
+                format!(
+                    "<!doctype html><html><head><link rel=\"canonical\" href=\"{url}\" /><title>Fetched Page</title></head><body><p>Fetched remote web body.</p><a href=\"/next\">Next</a></body></html>"
+                )
+            },
+            2,
+        );
+        let page_url = format!("{base_url}/docs/page");
+        fs::write(tempdir.path().join("urls.txt"), format!("{page_url}\n")).unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.allow_remote_fetch = true;
+        let output = build_connector_sync_plan(request).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(output.report.connector, "web-crawler");
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].title, "Fetched Page");
+        assert_eq!(output.report.documents[0].canonical_uri, page_url);
+        assert_eq!(
+            output.report.documents[0].metadata["fetch_policy"],
+            "remote_fetch_opt_in"
+        );
+        assert_eq!(output.report.documents[0].metadata["remote_network"], true);
+        assert_eq!(output.report.documents[0].metadata["robots_allowed"], true);
+        assert_eq!(output.report.documents[0].metadata["etag"], "\"v297\"");
+        assert_eq!(
+            output.report.documents[0].metadata["last_modified"],
+            "Sun, 10 May 2026 00:00:00 GMT"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["remote_fetch_allowed"],
+            true
+        );
+        assert_eq!(output.report.incremental_checkpoint["remote_network"], true);
+        assert_eq!(
+            output.report.incremental_checkpoint["update_detection"][2],
+            "etag"
+        );
+    }
+
+    #[test]
+    fn v297_web_crawler_remote_fetch_blocks_robots_disallow() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "127.0.0.1\n").unwrap();
+        let (base_url, handle) = spawn_web_fixture_server(
+            "User-agent: *\nDisallow: /private\n",
+            |_| "<!doctype html><title>Should Not Fetch</title>".to_string(),
+            1,
+        );
+        let page_url = format!("{base_url}/private/page");
+        fs::write(tempdir.path().join("urls.txt"), format!("{page_url}\n")).unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.allow_remote_fetch = true;
+        let output = build_connector_sync_plan(request).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(output.report.planned_count, 0);
+        assert_eq!(output.report.incremental_checkpoint["blocked_count"], 1);
+        assert_eq!(
+            output.report.incremental_checkpoint["blocked_urls"][0]["canonical_url"],
+            page_url
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["remote_fetch_allowed"],
+            true
+        );
+    }
+
+    fn spawn_web_fixture_server<F>(
+        robots_body: &'static str,
+        page_body: F,
+        expected_requests: usize,
+    ) -> (String, thread::JoinHandle<()>)
+    where
+        F: Fn(&str) -> String + Send + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{}", addr);
+        let server_base_url = base_url.clone();
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut served = 0usize;
+            while served < expected_requests {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        use std::io::{Read as _, Write as _};
+                        let mut buffer = [0_u8; 1024];
+                        let bytes_read = stream.read(&mut buffer).unwrap_or(0);
+                        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+                        let first_line = request.lines().next().unwrap_or("");
+                        let response = if first_line.contains("GET /robots.txt ") {
+                            http_response("text/plain", robots_body, &[])
+                        } else {
+                            let path = first_line.split_whitespace().nth(1).unwrap_or("/");
+                            let url = format!("{server_base_url}{path}");
+                            let body = page_body(&url);
+                            http_response(
+                                "text/html",
+                                &body,
+                                &[
+                                    ("ETag", "\"v297\""),
+                                    ("Last-Modified", "Sun, 10 May 2026 00:00:00 GMT"),
+                                ],
+                            )
+                        };
+                        stream.write_all(response.as_bytes()).unwrap();
+                        served += 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            panic!("test web fixture server timed out");
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("test web fixture server failed: {error}"),
+                }
+            }
+        });
+        (base_url, handle)
+    }
+
+    fn http_response(content_type: &str, body: &str, headers: &[(&str, &str)]) -> String {
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str("\r\n");
+        response.push_str(body);
+        response
     }
 
     #[test]

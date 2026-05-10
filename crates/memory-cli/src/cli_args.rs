@@ -944,6 +944,8 @@ pub(super) struct CompatConnectorSyncPlanArgs {
     #[arg(long, default_value_t = 500)]
     pub(super) max_items: usize,
     #[arg(long)]
+    pub(super) allow_remote_fetch: bool,
+    #[arg(long)]
     pub(super) apply: bool,
     #[arg(long)]
     pub(super) json: bool,
