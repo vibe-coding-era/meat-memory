@@ -8,8 +8,8 @@ ACCEPTANCE_REPORT="${REPORT_DIR}/v2_97-acceptance.txt"
 COVERAGE_REPORT="${REPORT_DIR}/coverage-v2_97-new-code.md"
 
 mkdir -p "${REPORT_DIR}" "${FIXTURE_DIR}"
-rm -rf "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat"
-mkdir -p "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat"
+rm -rf "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat" "${FIXTURE_DIR}/web"
+mkdir -p "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat" "${FIXTURE_DIR}/web"
 cd "${ROOT_DIR}"
 
 exec > >(tee "${ACCEPTANCE_REPORT}") 2>&1
@@ -77,6 +77,24 @@ cat >"${FIXTURE_DIR}/chat/chat.json" <<'EOF'
     {"role": "assistant", "content": "Create an import draft with source refs."}
   ]
 }
+EOF
+
+cat >"${FIXTURE_DIR}/web/allowlist.txt" <<'EOF'
+example.com
+EOF
+cat >"${FIXTURE_DIR}/web/index.html" <<'EOF'
+<!doctype html>
+<html>
+  <head>
+    <link rel="canonical" href="https://example.com/v2.97/web-fixture" />
+    <title>V2.97 Web Fixture</title>
+  </head>
+  <body>
+    <h1>Web fixture heading</h1>
+    <p>Web crawler connector acceptance fixture.</p>
+    <a href="/docs">Docs</a>
+  </body>
+</html>
 EOF
 
 run_step "format check" cargo fmt --all --check
@@ -151,6 +169,13 @@ echo "[v2.97] chat-export dry-run report"
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/chat-export-dry-run-cli.json"
 
+echo "[v2.97] web-crawler dry-run report"
+"${MEMORY_CLI}" compat connector-dry-run \
+    --connector web-crawler \
+    --root-path "${FIXTURE_DIR}/web" \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/web-crawler-dry-run-cli.json"
+
 echo "[v2.97] chat-export import-draft report"
 "${MEMORY_CLI}" compat connector-import-draft \
     --connector chat-export \
@@ -200,6 +225,7 @@ test -f "${REPORT_DIR}/markdown-docs-proposal-queue.json"
 test -f "${REPORT_DIR}/local-git-sync-plan.json"
 test -f "${REPORT_DIR}/local-git-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-dry-run.json"
+test -f "${REPORT_DIR}/web-crawler-dry-run.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
 test -f "${REPORT_DIR}/chat-export-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-proposal-apply-plan.json"
@@ -207,6 +233,7 @@ grep -q "Conflict Review" "${REPORT_DIR}/markdown-docs-sync-plan.md"
 grep -q "Connector Proposal Queue" "${REPORT_DIR}/markdown-docs-proposal-queue.md"
 grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "Proposal Drafts" "${REPORT_DIR}/chat-export-import-draft.md"
+grep -q "V2.97 Web Fixture" "${REPORT_DIR}/web-crawler-dry-run.md"
 grep -q "review queue only" "${REPORT_DIR}/chat-export-proposal-queue.md"
 grep -q "Connector Proposal Apply Plan" "${REPORT_DIR}/chat-export-proposal-apply-plan.md"
 
@@ -215,6 +242,7 @@ python3 - <<'PY' \
   "${REPORT_DIR}/markdown-docs-sync-plan-cli.json" \
   "${REPORT_DIR}/local-git-sync-plan-cli.json" \
   "${REPORT_DIR}/chat-export-dry-run-cli.json" \
+  "${REPORT_DIR}/web-crawler-dry-run-cli.json" \
   "${REPORT_DIR}/chat-export-import-draft-cli.json" \
   "${REPORT_DIR}/markdown-docs-proposal-queue-cli.json" \
   "${REPORT_DIR}/local-git-proposal-queue-cli.json" \
@@ -227,17 +255,19 @@ markdown_dry_run = json.load(open(sys.argv[1]))
 markdown_sync_plan = json.load(open(sys.argv[2]))
 local_git_sync_plan = json.load(open(sys.argv[3]))
 chat_dry_run = json.load(open(sys.argv[4]))
-chat_import_draft = json.load(open(sys.argv[5]))
-markdown_proposal_queue = json.load(open(sys.argv[6]))
-local_git_proposal_queue = json.load(open(sys.argv[7]))
-chat_proposal_queue = json.load(open(sys.argv[8]))
-chat_apply_plan = json.load(open(sys.argv[9]))
+web_crawler_dry_run = json.load(open(sys.argv[5]))
+chat_import_draft = json.load(open(sys.argv[6]))
+markdown_proposal_queue = json.load(open(sys.argv[7]))
+local_git_proposal_queue = json.load(open(sys.argv[8]))
+chat_proposal_queue = json.load(open(sys.argv[9]))
+chat_apply_plan = json.load(open(sys.argv[10]))
 
 for payload in (
     markdown_dry_run,
     markdown_sync_plan,
     local_git_sync_plan,
     chat_dry_run,
+    web_crawler_dry_run,
     chat_import_draft,
     markdown_proposal_queue,
     local_git_proposal_queue,
@@ -291,6 +321,16 @@ assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["rec
 assert local_git_sync_plan["incremental_checkpoint"]["repository_metadata"]["important_files"][0]["relative_path"] == "README.md", local_git_sync_plan
 assert chat_dry_run["connector"] == "chat-export", chat_dry_run
 assert chat_dry_run["items"][0]["metadata"]["message_count"] == 2, chat_dry_run
+assert web_crawler_dry_run["connector"] == "web-crawler", web_crawler_dry_run
+assert web_crawler_dry_run["candidate_count"] == 1, web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["title"] == "V2.97 Web Fixture", web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["canonical_url"] == "https://example.com/v2.97/web-fixture", web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["allowlist_allowed"] is True, web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["allowlist_domains"][0] == "example.com", web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["link_count"] == 1, web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["remote_network"] is False, web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["visible_text_bytes"] > 0, web_crawler_dry_run
+assert "web_crawler_dry_run" in web_crawler_dry_run["coverage_gate"]["covered_regions"], web_crawler_dry_run
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -348,6 +388,7 @@ Covered regions:
 - chat-export JSON parser
 - chat-export import-draft projection
 - chat-export explicit apply path
+- web-crawler dry-run / canonical URL / allowlist
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

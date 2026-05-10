@@ -1,0 +1,53 @@
+{
+  "candidate_count": 1,
+  "connector": "web-crawler",
+  "coverage_gate": {
+    "covered_regions": [
+      "local_git_dry_run",
+      "markdown_docs_dry_run",
+      "yaml_frontmatter_compatibility",
+      "chat_export_dry_run",
+      "web_crawler_dry_run",
+      "connector_report_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "failures": [],
+  "incremental_checkpoint": {
+    "allowlist_domains": [
+      "example.com"
+    ],
+    "remote_network": false,
+    "safe_default": "dry_run_only_no_remote_fetch",
+    "strategy": "path_mtime_size_canonical_url"
+  },
+  "items": [
+    {
+      "content_bytes": 295,
+      "metadata": {
+        "allowlist_allowed": true,
+        "allowlist_domains": [
+          "example.com"
+        ],
+        "canonical_url": "https://example.com/v2.97/web-fixture",
+        "content_hash": "dec0ab2ab4c5d503",
+        "link_count": 1,
+        "relative_path": "index.html",
+        "remote_network": false,
+        "source_kind": "web_page",
+        "visible_text_bytes": 84
+      },
+      "source_ref": "https://example.com/v2.97/web-fixture",
+      "title": "V2.97 Web Fixture"
+    }
+  ],
+  "mode": "dry_run",
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/web-crawler-dry-run.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/web-crawler-dry-run.md"
+  },
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/web",
+  "schema_version": "2.97-A",
+  "status": "ready"
+}

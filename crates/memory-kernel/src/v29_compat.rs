@@ -577,6 +577,15 @@ pub fn connector_skeletons() -> Vec<ConnectorSkeleton> {
             safe_default: "explicit_import_only".to_string(),
             status: "skeleton".to_string(),
         },
+        ConnectorSkeleton {
+            name: "web-crawler".to_string(),
+            source_kind: "web_snapshot".to_string(),
+            capability:
+                "Inspect local web page snapshots with canonical URL and allowlist metadata."
+                    .to_string(),
+            safe_default: "dry_run_only_no_remote_fetch".to_string(),
+            status: "skeleton".to_string(),
+        },
     ]
 }
 
@@ -599,6 +608,7 @@ pub fn run_connector_dry_run(request: ConnectorDryRunRequest) -> Result<Connecto
         "local-git" => local_git_dry_run(root_path, request.max_items),
         "markdown-docs" => markdown_docs_dry_run(root_path, request.max_items),
         "chat-export" => chat_export_dry_run(root_path, request.max_items),
+        "web-crawler" => web_crawler_dry_run(root_path, request.max_items),
         other => bail!("unsupported connector dry-run: {other}"),
     }
 }
@@ -621,6 +631,7 @@ pub fn connector_dry_run_json(report: &ConnectorDryRunReport) -> Value {
                 "markdown_docs_dry_run",
                 "yaml_frontmatter_compatibility",
                 "chat_export_dry_run",
+                "web_crawler_dry_run",
                 "connector_report_projection",
                 "cli_parser_and_command"
             ]
@@ -1673,6 +1684,59 @@ fn chat_export_dry_run(root_path: PathBuf, max_items: usize) -> Result<Connector
     })
 }
 
+fn web_crawler_dry_run(root_path: PathBuf, max_items: usize) -> Result<ConnectorDryRunReport> {
+    let allowlist_domains = web_allowlist_domains(&root_path)?;
+    let mut files = Vec::new();
+    collect_web_page_files(&root_path, &mut files)?;
+    files.sort();
+
+    let mut failures = Vec::new();
+    let mut items = Vec::new();
+    for path in files.into_iter().take(max_items) {
+        match web_page_item(&root_path, &path, &allowlist_domains) {
+            Ok(item) => {
+                if item.metadata["allowlist_allowed"] != true {
+                    failures.push(format!(
+                        "{} blocked by allowlist: {}",
+                        path.display(),
+                        item.metadata["canonical_url"]
+                            .as_str()
+                            .unwrap_or("unknown canonical url")
+                    ));
+                }
+                items.push(item);
+            }
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    if items.is_empty() {
+        failures.push("no local web snapshots found".to_string());
+    }
+
+    let candidate_count = items.len();
+    Ok(ConnectorDryRunReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "web-crawler".to_string(),
+        root_path,
+        mode: "dry_run".to_string(),
+        status: if failures.is_empty() {
+            "ready".to_string()
+        } else {
+            "needs_attention".to_string()
+        },
+        candidate_count,
+        items,
+        failures,
+        incremental_checkpoint: json!({
+            "strategy": "path_mtime_size_canonical_url",
+            "allowlist_domains": allowlist_domains,
+            "remote_network": false,
+            "safe_default": "dry_run_only_no_remote_fetch",
+        }),
+    })
+}
+
 fn markdown_items(root_path: &Path, max_items: usize) -> Result<Vec<ConnectorDryRunItem>> {
     let mut files = Vec::new();
     collect_markdown_files(root_path, &mut files)?;
@@ -1724,6 +1788,31 @@ fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
             .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn collect_web_page_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+        let entry =
+            entry.with_context(|| format!("failed to read entry under {}", dir.display()))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.starts_with('.') || matches!(file_name.as_ref(), "target" | "reports") {
+            continue;
+        }
+        if path.is_dir() {
+            collect_web_page_files(&path, files)?;
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("html") || extension.eq_ignore_ascii_case("htm")
+            })
         {
             files.push(path);
         }
@@ -2142,6 +2231,244 @@ fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
             "frontmatter_present": frontmatter_present,
         }),
     })
+}
+
+fn web_page_item(
+    root_path: &Path,
+    path: &Path,
+    allowlist_domains: &[String],
+) -> Result<ConnectorDryRunItem> {
+    let metadata =
+        fs::metadata(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let html =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let relative_path = path.strip_prefix(root_path).unwrap_or(path);
+    let canonical_url =
+        html_canonical_url(&html).unwrap_or_else(|| format!("file://{}", path.display()));
+    let title = html_title(&html).unwrap_or_else(|| {
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("web page")
+            .replace(['_', '-'], " ")
+    });
+    let visible_text = html_visible_text(&html);
+    let allowlist_allowed = web_url_allowed(&canonical_url, allowlist_domains);
+
+    Ok(ConnectorDryRunItem {
+        title,
+        source_ref: canonical_url.clone(),
+        content_bytes: metadata.len(),
+        metadata: json!({
+            "source_kind": "web_page",
+            "relative_path": relative_path.display().to_string(),
+            "canonical_url": canonical_url,
+            "allowlist_allowed": allowlist_allowed,
+            "allowlist_domains": allowlist_domains,
+            "link_count": html_link_count(&html),
+            "visible_text_bytes": visible_text.len(),
+            "content_hash": stable_hex_hash(&html),
+            "remote_network": false,
+        }),
+    })
+}
+
+fn web_allowlist_domains(root_path: &Path) -> Result<Vec<String>> {
+    let path = root_path.join("allowlist.txt");
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", path.display()));
+        }
+    };
+    Ok(raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            line.trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_start_matches("www.")
+                .trim_end_matches('/')
+                .to_ascii_lowercase()
+        })
+        .collect())
+}
+
+fn web_url_allowed(url: &str, allowlist_domains: &[String]) -> bool {
+    if allowlist_domains.is_empty() || url.starts_with("file://") {
+        return true;
+    }
+    let Some(host) = web_url_host(url) else {
+        return false;
+    };
+    allowlist_domains
+        .iter()
+        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+}
+
+fn web_url_host(url: &str) -> Option<String> {
+    let (_, tail) = url.split_once("://")?;
+    let host = tail.split(['/', '?', '#']).next()?.trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(
+            host.trim_start_matches("www.")
+                .split(':')
+                .next()
+                .unwrap_or(host)
+                .to_ascii_lowercase(),
+        )
+    }
+}
+
+fn html_canonical_url(html: &str) -> Option<String> {
+    html_tags(html, "link")
+        .into_iter()
+        .find(|tag| {
+            html_attribute(tag, "rel")
+                .map(|value| {
+                    value
+                        .split_whitespace()
+                        .any(|part| part.eq_ignore_ascii_case("canonical"))
+                })
+                .unwrap_or(false)
+        })
+        .and_then(|tag| html_attribute(tag, "href"))
+        .or_else(|| {
+            html_tags(html, "meta")
+                .into_iter()
+                .find(|tag| {
+                    html_attribute(tag, "property")
+                        .as_deref()
+                        .is_some_and(|property| property.eq_ignore_ascii_case("og:url"))
+                        || html_attribute(tag, "name")
+                            .as_deref()
+                            .is_some_and(|name| name.eq_ignore_ascii_case("og:url"))
+                })
+                .and_then(|tag| html_attribute(tag, "content"))
+        })
+}
+
+fn html_title(html: &str) -> Option<String> {
+    html_tag_text(html, "title").or_else(|| html_tag_text(html, "h1"))
+}
+
+fn html_tag_text(html: &str, tag_name: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let start_tag = format!("<{tag_name}");
+    let close_tag = format!("</{tag_name}>");
+    let start = lower.find(&start_tag)?;
+    let body_start = lower[start..].find('>').map(|offset| start + offset + 1)?;
+    let body_end = lower[body_start..]
+        .find(&close_tag)
+        .map(|offset| body_start + offset)?;
+    let text = html_visible_text(&html[body_start..body_end]);
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn html_link_count(html: &str) -> usize {
+    html_tags(html, "a").len()
+}
+
+fn html_tags<'a>(html: &'a str, tag_name: &str) -> Vec<&'a str> {
+    let mut tags = Vec::new();
+    let lower = html.to_ascii_lowercase();
+    let mut offset = 0usize;
+    let prefix = format!("<{tag_name}");
+    while let Some(start) = lower[offset..].find(&prefix) {
+        let start = offset + start;
+        let after_name = lower[start + prefix.len()..].chars().next();
+        if after_name.is_some_and(|value| !value.is_whitespace() && value != '>' && value != '/') {
+            offset = start + prefix.len();
+            continue;
+        }
+        let Some(end) = lower[start..].find('>') else {
+            break;
+        };
+        let end = start + end + 1;
+        tags.push(&html[start..end]);
+        offset = end;
+    }
+    tags
+}
+
+fn html_attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let name = name.to_ascii_lowercase();
+    let mut cursor = 0usize;
+    while let Some(position) = lower[cursor..].find(&name) {
+        let start = cursor + position;
+        let before = lower[..start].chars().next_back().unwrap_or(' ');
+        let after = lower[start + name.len()..].chars().next().unwrap_or(' ');
+        if !before.is_ascii_alphanumeric() && matches!(after, '=' | ' ' | '\t' | '\n' | '\r') {
+            let mut value_start = start + name.len();
+            while lower[value_start..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+            {
+                value_start += 1;
+            }
+            if !lower[value_start..].starts_with('=') {
+                cursor = start + name.len();
+                continue;
+            }
+            value_start += 1;
+            while lower[value_start..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+            {
+                value_start += 1;
+            }
+            let quote = tag[value_start..].chars().next()?;
+            if quote == '"' || quote == '\'' {
+                let value_start = value_start + quote.len_utf8();
+                let value_end = tag[value_start..]
+                    .find(quote)
+                    .map(|offset| value_start + offset)?;
+                return Some(html_decode_entities(&tag[value_start..value_end]));
+            }
+            let value_end = lower[value_start..]
+                .find(|value: char| value.is_whitespace() || value == '>')
+                .map(|offset| value_start + offset)
+                .unwrap_or(tag.len());
+            return Some(html_decode_entities(&tag[value_start..value_end]));
+        }
+        cursor = start + name.len();
+    }
+    None
+}
+
+fn html_visible_text(html: &str) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for value in html.chars() {
+        match value {
+            '<' => {
+                in_tag = true;
+                text.push(' ');
+            }
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(value),
+            _ => {}
+        }
+    }
+    html_decode_entities(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn html_decode_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
 }
 
 fn markdown_frontmatter(content_text: &str) -> Option<Value> {
@@ -3160,10 +3487,11 @@ mod tests {
             .into_iter()
             .map(|connector| connector.name)
             .collect::<BTreeSet<_>>();
-        assert_eq!(connectors.len(), 3);
+        assert_eq!(connectors.len(), 4);
         assert!(connectors.contains("local-git"));
         assert!(connectors.contains("markdown-docs"));
         assert!(connectors.contains("chat-export"));
+        assert!(connectors.contains("web-crawler"));
     }
 
     #[test]
@@ -3252,6 +3580,95 @@ mod tests {
         assert_eq!(
             report.incremental_checkpoint["frontmatter"],
             "parse_yaml_frontmatter_when_present"
+        );
+    }
+
+    #[test]
+    fn v297_web_crawler_dry_run_extracts_canonical_allowlist_and_visible_text() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "example.com\n").unwrap();
+        fs::write(
+            tempdir.path().join("index.html"),
+            r#"<!doctype html>
+<html>
+  <head>
+    <link rel="canonical" href="https://example.com/docs/start?utm_source=test" />
+    <title>Start &amp; Guide</title>
+  </head>
+  <body>
+    <h1>Fallback Heading</h1>
+    <p>Visible crawler body.</p>
+    <a href="/next">Next</a>
+  </body>
+</html>"#,
+        )
+        .unwrap();
+
+        let mut request = ConnectorDryRunRequest::new("web-crawler", tempdir.path());
+        request.max_items = 5;
+        let report = run_connector_dry_run(request).unwrap();
+
+        assert_eq!(report.connector, "web-crawler");
+        assert_eq!(report.status, "ready");
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.items[0].title, "Start & Guide");
+        assert_eq!(
+            report.items[0].source_ref,
+            "https://example.com/docs/start?utm_source=test"
+        );
+        assert_eq!(
+            report.items[0].metadata["canonical_url"],
+            "https://example.com/docs/start?utm_source=test"
+        );
+        assert_eq!(report.items[0].metadata["allowlist_allowed"], true);
+        assert_eq!(
+            report.items[0].metadata["allowlist_domains"][0],
+            "example.com"
+        );
+        assert_eq!(report.items[0].metadata["link_count"], 1);
+        assert_eq!(report.items[0].metadata["remote_network"], false);
+        assert!(
+            report.items[0].metadata["visible_text_bytes"]
+                .as_u64()
+                .unwrap()
+                > 20
+        );
+        assert_eq!(report.incremental_checkpoint["remote_network"], false);
+    }
+
+    #[test]
+    fn v297_web_crawler_dry_run_reports_allowlist_blocks() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "example.com\n").unwrap();
+        fs::write(
+            tempdir.path().join("blocked.html"),
+            r#"<!doctype html>
+<html>
+  <head>
+    <meta property="OG:URL" content="https://blocked.example.net/private" />
+    <title>Blocked Snapshot</title>
+  </head>
+  <body>
+    <article>Article text should not count as a link.</article>
+  </body>
+</html>"#,
+        )
+        .unwrap();
+
+        let report =
+            run_connector_dry_run(ConnectorDryRunRequest::new("web-crawler", tempdir.path()))
+                .unwrap();
+
+        assert_eq!(report.connector, "web-crawler");
+        assert_eq!(report.status, "needs_attention");
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.items[0].metadata["allowlist_allowed"], false);
+        assert_eq!(report.items[0].metadata["link_count"], 0);
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("blocked by allowlist"))
         );
     }
 

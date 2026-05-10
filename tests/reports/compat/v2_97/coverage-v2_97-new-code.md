@@ -18,6 +18,7 @@ Covered regions:
 - chat-export JSON parser
 - chat-export import-draft projection
 - chat-export explicit apply path
+- web-crawler dry-run / canonical URL / allowlist
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token
