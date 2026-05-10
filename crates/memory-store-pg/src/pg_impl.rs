@@ -40,6 +40,7 @@ const MIGRATION_0011: &str =
     include_str!("../../../migrations/0011_memory_v2_93_secret_health.sql");
 const MIGRATION_0012: &str =
     include_str!("../../../migrations/0012_memory_v2_94_evidence_passport.sql");
+const MIGRATION_0013: &str = include_str!("../../../migrations/0013_project_document_metadata.sql");
 const DEFAULT_SCHEMA: &str = "public";
 
 pub(crate) fn migration_0009_sql() -> &'static str {
@@ -56,6 +57,10 @@ pub(crate) fn migration_0011_sql() -> &'static str {
 
 pub(crate) fn migration_0012_sql() -> &'static str {
     MIGRATION_0012
+}
+
+pub(crate) fn migration_0013_sql() -> &'static str {
+    MIGRATION_0013
 }
 const SEED_SCOPE_SQL: &str = "INSERT INTO scopes (id, parent_scope_id, scope_type, name, path, owner_principal_id, inherit_policy, default_visibility, sync_policy)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -220,8 +225,8 @@ const SELECT_AGENT_CONTEXT_SQL: &str = "SELECT id, source_id, key_id, scope_id, 
                AND (expires_at IS NULL OR expires_at > NOW())";
 const DELETE_AGENT_CONTEXT_SQL: &str = "DELETE FROM agent_contexts WHERE id = $1";
 const UPSERT_PROJECT_DOCUMENT_SQL: &str = "INSERT INTO project_documents
-                 (id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                 (id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, metadata, created_at, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                  ON CONFLICT (source_id, canonical_uri) DO UPDATE SET
                    scope_id = EXCLUDED.scope_id,
                    local_path = EXCLUDED.local_path,
@@ -232,16 +237,17 @@ const UPSERT_PROJECT_DOCUMENT_SQL: &str = "INSERT INTO project_documents
                    conflict_state = EXCLUDED.conflict_state,
                    artifact_id = EXCLUDED.artifact_id,
                    memory_id = EXCLUDED.memory_id,
+                   metadata = EXCLUDED.metadata,
                    updated_at = EXCLUDED.updated_at";
-const SELECT_PROJECT_DOCUMENT_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at
+const SELECT_PROJECT_DOCUMENT_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, metadata, created_at, updated_at
              FROM project_documents
              WHERE source_id = $1 AND canonical_uri = $2";
-const LIST_PROJECT_DOCUMENTS_FOR_SOURCE_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at
+const LIST_PROJECT_DOCUMENTS_FOR_SOURCE_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, metadata, created_at, updated_at
              FROM project_documents
              WHERE source_id = $1
              ORDER BY updated_at DESC
              LIMIT $2";
-const LIST_PROJECT_DOCUMENT_CONFLICTS_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, created_at, updated_at
+const LIST_PROJECT_DOCUMENT_CONFLICTS_SQL: &str = "SELECT id, source_id, scope_id, local_path, canonical_uri, title, content_hash, last_seen_mtime, sync_state, conflict_state, artifact_id, memory_id, metadata, created_at, updated_at
              FROM project_documents
              WHERE source_id = $1
                AND (sync_state = 'conflicted' OR conflict_state <> 'none')
@@ -367,6 +373,7 @@ struct ProjectDocumentRecord {
     conflict_state: String,
     artifact_id: Option<String>,
     memory_id: Option<String>,
+    metadata: serde_json::Value,
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
 }
@@ -407,6 +414,7 @@ impl PgStore {
         tx.execute(sqlx::raw_sql(migration_0010_sql())).await?;
         tx.execute(sqlx::raw_sql(migration_0011_sql())).await?;
         tx.execute(sqlx::raw_sql(migration_0012_sql())).await?;
+        tx.execute(sqlx::raw_sql(migration_0013_sql())).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -1088,6 +1096,7 @@ impl PgStore {
                     .bind(document.conflict_state.as_str())
                     .bind(document.artifact_id.as_ref().map(ArtifactId::as_str))
                     .bind(document.memory_id.as_ref().map(MemoryId::as_str))
+                    .bind(sqlx::types::Json(&document.metadata))
                     .bind(document.created_at)
                     .bind(document.updated_at),
             )
@@ -1341,6 +1350,9 @@ fn row_to_project_document(row: sqlx::postgres::PgRow) -> Result<ProjectDocument
         conflict_state: row.try_get("conflict_state")?,
         artifact_id: row.try_get("artifact_id")?,
         memory_id: row.try_get("memory_id")?,
+        metadata: row
+            .try_get::<sqlx::types::Json<serde_json::Value>, _>("metadata")?
+            .0,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -1442,6 +1454,7 @@ fn project_document_from_record(record: ProjectDocumentRecord) -> Result<Project
         conflict_state: DocumentConflictState::parse(&record.conflict_state)?,
         artifact_id: record.artifact_id.map(ArtifactId::from_string),
         memory_id: record.memory_id.map(MemoryId::from_string),
+        metadata: record.metadata,
         created_at: record.created_at,
         updated_at: record.updated_at,
     })

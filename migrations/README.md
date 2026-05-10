@@ -16,6 +16,7 @@
 - `0010_memory_v2_92_recall_trace.sql`：加入 V2.92 recall trace / candidate / budget pack 结构
 - `0011_memory_v2_93_secret_health.sql`：加入 V2.93 secret finding / health report 结构
 - `0012_memory_v2_94_evidence_passport.sql`：加入 V2.94 evidence span / passport metadata 结构
+- `0013_project_document_metadata.sql`：加入 ProjectDocument JSONB metadata，用于 frontmatter / connector metadata 持久化
 
 ## 维护约定
 

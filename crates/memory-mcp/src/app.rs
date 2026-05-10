@@ -1711,6 +1711,7 @@ impl McpServer {
                     "title": document.title,
                     "content_hash": document.content_hash,
                     "sync_state": document.sync_state.as_str(),
+                    "metadata": document.metadata.clone(),
                 })
             })
             .collect::<Vec<_>>();
@@ -2535,6 +2536,7 @@ fn project_document_payload(document: ProjectDocument) -> Value {
         "conflict_state": document.conflict_state.as_str(),
         "artifact_id": document.artifact_id.as_ref().map(|artifact_id| artifact_id.as_str()),
         "memory_id": document.memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+        "metadata": document.metadata,
         "created_at": document.created_at,
         "updated_at": document.updated_at,
     })

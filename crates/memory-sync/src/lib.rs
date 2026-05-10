@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use memory_domain::{Artifact, DocumentConflictState, DocumentSyncState};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{
     fs,
@@ -352,6 +352,8 @@ pub struct LocalProjectDocumentDraft {
     pub content_text: String,
     pub content_hash: String,
     pub sync_state: DocumentSyncState,
+    #[serde(default = "empty_json_object")]
+    pub metadata: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -453,13 +455,16 @@ impl LocalProjectDocumentSyncEngine {
                 Some(_) => DocumentSyncState::Changed,
                 None => DocumentSyncState::Changed,
             };
+            let title = document_title(&path, &content_text);
+            let metadata = document_metadata(&root, &path, &content_text);
             documents.push(LocalProjectDocumentDraft {
-                title: document_title(&path, &content_text),
+                title,
                 canonical_uri,
                 local_path: path,
                 content_text,
                 content_hash,
                 sync_state,
+                metadata,
             });
         }
 
@@ -657,18 +662,140 @@ fn canonical_file_uri(path: &Path) -> String {
 }
 
 fn document_title(path: &Path, content_text: &str) -> String {
-    content_text
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(|line| line.trim_start_matches('#').trim().to_string())
-        .filter(|line| !line.is_empty())
+    markdown_frontmatter(content_text)
+        .and_then(|frontmatter| {
+            frontmatter
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            markdown_content_without_frontmatter(content_text)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(|line| line.trim_start_matches('#').trim().to_string())
+                .filter(|line| !line.is_empty())
+        })
         .or_else(|| {
             path.file_stem()
                 .and_then(|name| name.to_str())
                 .map(ToOwned::to_owned)
         })
         .unwrap_or_else(|| path.to_string_lossy().to_string())
+}
+
+fn document_metadata(root: &Path, path: &Path, content_text: &str) -> Value {
+    let frontmatter = markdown_frontmatter(content_text);
+    let frontmatter_present = frontmatter.is_some();
+    let visible_content = markdown_content_without_frontmatter(content_text);
+    json!({
+        "source_kind": document_source_kind(path),
+        "relative_path": metadata_path(root, path),
+        "frontmatter_present": frontmatter_present,
+        "frontmatter": frontmatter,
+        "content_bytes": content_text.len(),
+        "visible_content_bytes": visible_content.len(),
+    })
+}
+
+fn document_source_kind(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(normalize_extension)
+        .as_deref()
+    {
+        Some("md" | "markdown") => "markdown",
+        _ => "text",
+    }
+}
+
+fn metadata_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn markdown_frontmatter(content_text: &str) -> Option<Value> {
+    let mut lines = content_text.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+
+    let mut values = serde_json::Map::new();
+    for line in lines {
+        let line = line.trim();
+        if line == "---" {
+            return Some(Value::Object(values));
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        values.insert(key.to_string(), markdown_frontmatter_value(value.trim()));
+    }
+
+    None
+}
+
+fn markdown_frontmatter_value(value: &str) -> Value {
+    if let Some(items) = value
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        return Value::Array(
+            items
+                .split(',')
+                .map(markdown_frontmatter_string)
+                .filter(|value| !value.is_empty())
+                .map(Value::String)
+                .collect(),
+        );
+    }
+
+    Value::String(markdown_frontmatter_string(value))
+}
+
+fn markdown_frontmatter_string(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn markdown_content_without_frontmatter(content_text: &str) -> String {
+    let mut lines = content_text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return content_text.to_string();
+    }
+
+    let mut body = Vec::new();
+    let mut closed = false;
+    for line in lines {
+        if closed {
+            body.push(line);
+            continue;
+        }
+        if line.trim() == "---" {
+            closed = true;
+        }
+    }
+
+    if closed {
+        body.join("\n")
+    } else {
+        content_text.to_string()
+    }
+}
+
+fn empty_json_object() -> Value {
+    Value::Object(serde_json::Map::new())
 }
 
 fn normalize_extension(extension: &str) -> String {
@@ -1194,6 +1321,34 @@ mod tests {
 
         assert_eq!(plan.documents.len(), 1);
         assert_eq!(plan.documents[0].title, "Project README");
+    }
+
+    #[test]
+    fn local_project_document_sync_persists_frontmatter_metadata() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let docs = tempdir.path().join("docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(
+            docs.join("guide.md"),
+            "---\ntitle: Frontmatter Guide\ntags: [sync, docs]\nsummary: Metadata survives import.\n---\n# Hidden Heading\nbody",
+        )
+        .unwrap();
+
+        let plan = LocalProjectDocumentSyncEngine::new(&docs)
+            .scan(&[])
+            .unwrap();
+
+        assert_eq!(plan.documents.len(), 1);
+        let document = &plan.documents[0];
+        assert_eq!(document.title, "Frontmatter Guide");
+        assert_eq!(document.metadata["source_kind"], "markdown");
+        assert_eq!(document.metadata["relative_path"], "guide.md");
+        assert_eq!(document.metadata["frontmatter_present"], true);
+        assert_eq!(document.metadata["frontmatter"]["tags"][0], "sync");
+        assert_eq!(
+            document.metadata["frontmatter"]["summary"],
+            "Metadata survives import."
+        );
     }
 
     #[test]

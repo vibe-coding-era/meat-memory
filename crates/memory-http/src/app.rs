@@ -33,7 +33,7 @@ use memory_sync::{
     ProjectDocumentConflictReport, ProjectDocumentSnapshot,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, io::ErrorKind, path::PathBuf, sync::Arc};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::error;
@@ -249,6 +249,7 @@ pub struct ImportProjectDocumentHttpRequest {
     pub local_path: Option<String>,
     pub sync_state: Option<String>,
     pub conflict_state: Option<String>,
+    pub metadata: Option<Value>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -278,6 +279,7 @@ pub struct ProjectDocumentResponse {
     pub conflict_state: String,
     pub artifact_id: Option<String>,
     pub memory_id: Option<String>,
+    pub metadata: Value,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -289,6 +291,7 @@ pub struct ProjectDocumentDraftResponse {
     pub title: String,
     pub content_hash: String,
     pub sync_state: String,
+    pub metadata: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -1308,6 +1311,7 @@ async fn import_project_document(
         .map(parse_document_conflict_state)
         .transpose()?
         .unwrap_or(DocumentConflictState::None);
+    request.metadata = payload.metadata.unwrap_or_else(|| json!({}));
     request.context = Some(context);
 
     let document = state
@@ -2666,6 +2670,7 @@ fn project_document_response(document: ProjectDocument) -> ProjectDocumentRespon
         memory_id: document
             .memory_id
             .map(|memory_id| memory_id.as_str().to_string()),
+        metadata: document.metadata,
         created_at: format_timestamp(document.created_at),
         updated_at: format_timestamp(document.updated_at),
     }
@@ -2680,6 +2685,7 @@ fn project_document_draft_response(
         title: document.title.clone(),
         content_hash: document.content_hash.clone(),
         sync_state: document.sync_state.as_str().to_string(),
+        metadata: document.metadata.clone(),
     }
 }
 

@@ -1071,6 +1071,7 @@ name = "memory-domain"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "sha2",
  "thiserror",
  "time",
@@ -1207,6 +1208,7 @@ dependencies = [
  "anyhow",
  "memory-domain",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "time",

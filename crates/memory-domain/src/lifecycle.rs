@@ -3,6 +3,7 @@ use crate::{
     SourceId,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,6 +277,8 @@ pub struct ProjectDocument {
     pub conflict_state: DocumentConflictState,
     pub artifact_id: Option<ArtifactId>,
     pub memory_id: Option<MemoryId>,
+    #[serde(default = "empty_json_object")]
+    pub metadata: Value,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
@@ -302,10 +305,15 @@ impl ProjectDocument {
             conflict_state: DocumentConflictState::None,
             artifact_id: None,
             memory_id: None,
+            metadata: empty_json_object(),
             created_at: now,
             updated_at: now,
         })
     }
+}
+
+fn empty_json_object() -> Value {
+    Value::Object(serde_json::Map::new())
 }
 
 fn non_empty(value: String, field: &'static str) -> Result<String, DomainError> {

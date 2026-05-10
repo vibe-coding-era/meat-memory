@@ -460,7 +460,7 @@ async fn http_project_document_sync_scans_imports_and_lists_documents() {
     let docs_root = tempdir().unwrap();
     std::fs::write(
         docs_root.path().join("README.md"),
-        "# Project README\nHTTP sync imports project docs.",
+        "---\ntitle: Project README\ntags: [http, frontmatter]\nsummary: Metadata persists through project documents.\n---\n# README Heading\nHTTP sync imports project docs.",
     )
     .unwrap();
     std::fs::write(
@@ -547,6 +547,27 @@ async fn http_project_document_sync_scans_imports_and_lists_documents() {
     );
     assert_eq!(sync_payload["imported"].as_array().unwrap().len(), 2);
     assert!(sync_payload["missing"].as_array().unwrap().is_empty());
+    let planned_readme = sync_payload["planned_documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|document| document["title"] == "Project README")
+        .unwrap();
+    assert_eq!(planned_readme["metadata"]["frontmatter_present"], true);
+    assert_eq!(
+        planned_readme["metadata"]["frontmatter"]["tags"][1],
+        "frontmatter"
+    );
+    let imported_readme = sync_payload["imported"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|document| document["title"] == "Project README")
+        .unwrap();
+    assert_eq!(
+        imported_readme["metadata"]["frontmatter"]["summary"],
+        "Metadata persists through project documents."
+    );
 
     let list_response = app
         .clone()
@@ -569,6 +590,11 @@ async fn http_project_document_sync_scans_imports_and_lists_documents() {
     .unwrap();
     assert_eq!(list_payload.as_array().unwrap().len(), 1);
     assert_eq!(list_payload[0]["title"], "Project README");
+    assert_eq!(list_payload[0]["metadata"]["frontmatter_present"], true);
+    assert_eq!(
+        list_payload[0]["metadata"]["frontmatter"]["tags"][0],
+        "http"
+    );
     let document_id = list_payload[0]["document_id"].as_str().unwrap();
 
     let projection_response = app
@@ -591,6 +617,10 @@ async fn http_project_document_sync_scans_imports_and_lists_documents() {
     )
     .unwrap();
     assert_eq!(projection_payload["document"]["document_id"], document_id);
+    assert_eq!(
+        projection_payload["document"]["metadata"]["frontmatter"]["summary"],
+        "Metadata persists through project documents."
+    );
     assert!(
         projection_payload["projection_path"]
             .as_str()

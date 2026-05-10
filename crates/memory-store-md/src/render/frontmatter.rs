@@ -76,6 +76,8 @@ pub struct ProjectDocumentFrontmatter {
     pub artifact_id: Option<String>,
     #[serde(default)]
     pub memory_id: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -168,6 +170,7 @@ impl ProjectDocumentFrontmatter {
                 .memory_id
                 .as_ref()
                 .map(|memory_id| memory_id.as_str().to_string()),
+            metadata: document.metadata.clone(),
             created_at: format_timestamp(document.created_at)?,
             updated_at: format_timestamp(document.updated_at)?,
         })
@@ -422,6 +425,7 @@ mod tests {
         assert_eq!(frontmatter.content_hash, "sha256:frontmatter");
         assert_eq!(frontmatter.sync_state, "changed");
         assert_eq!(frontmatter.conflict_state, "local_changed");
+        assert_eq!(frontmatter.metadata, serde_json::json!({}));
         assert_eq!(frontmatter.created_at, "2025-01-02T03:04:05Z");
         assert_eq!(frontmatter.updated_at, "2025-01-03T04:05:06Z");
     }

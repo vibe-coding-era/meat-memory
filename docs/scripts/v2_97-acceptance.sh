@@ -91,6 +91,9 @@ run_step "CLI V2.97 confirmed connector executor contract" \
 run_step "HTTP V2.97 connector management contract" \
   cargo test -p memory-http --lib v297_http_connector_ -- --test-threads=1
 
+run_step "HTTP project document frontmatter persistence contract" \
+  cargo test -p memory-http --test http_api_tests http_project_document_sync_scans_imports_and_lists_documents -- --test-threads=1
+
 run_step "MCP V2.97 connector management contract" \
   cargo test -p memory-mcp --lib v297_mcp_connector_ -- --test-threads=1
 
@@ -248,6 +251,7 @@ assert markdown_sync_plan["connector"] == "markdown-docs", markdown_sync_plan
 assert markdown_sync_plan["planned_count"] == 1, markdown_sync_plan
 assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter_present"] is True, markdown_sync_plan
 assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter"]["summary"] == "Markdown docs connector acceptance fixture.", markdown_sync_plan
+assert "frontmatter_metadata_persistence" in markdown_sync_plan["coverage_gate"]["covered_regions"], markdown_sync_plan
 assert "conflicts" in markdown_sync_plan, markdown_sync_plan
 assert local_git_sync_plan["connector"] == "local-git", local_git_sync_plan
 assert local_git_sync_plan["planned_count"] == 1, local_git_sync_plan
@@ -328,6 +332,7 @@ Covered regions:
 - local-git sync-plan checkpoint
 - markdown-docs dry-run
 - markdown-docs sync-plan / conflict review projection
+- markdown-docs frontmatter metadata persistence
 - markdown-docs explicit apply path
 - source auto discovery for connector apply
 - chat-export JSON parser

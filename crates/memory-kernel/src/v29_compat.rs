@@ -802,7 +802,7 @@ pub fn build_connector_sync_plan(
             local_path: document.local_path.clone(),
             content_hash: document.content_hash.clone(),
             sync_state: document.sync_state.as_str().to_string(),
-            metadata: markdown_document_metadata(&document.content_text),
+            metadata: connector_sync_plan_document_metadata(document),
         })
         .collect::<Vec<_>>();
     let evidence_preview = plan
@@ -845,6 +845,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
             "new_feature_test_coverage_required": "100%",
             "covered_regions": [
                 "markdown_docs_sync_plan",
+                "frontmatter_metadata_persistence",
                 "sync_plan_conflict_review_projection",
                 "sync_plan_evidence_preview",
                 "connector_sync_plan_projection",
@@ -2226,6 +2227,15 @@ fn markdown_document_metadata(content_text: &str) -> Value {
         "frontmatter": frontmatter,
         "visible_content_bytes": visible_content.len(),
     })
+}
+
+fn connector_sync_plan_document_metadata(
+    document: &memory_sync::LocalProjectDocumentDraft,
+) -> Value {
+    match document.metadata.as_object() {
+        Some(metadata) if !metadata.is_empty() => document.metadata.clone(),
+        _ => markdown_document_metadata(&document.content_text),
+    }
 }
 
 fn markdown_content_without_frontmatter(content_text: &str) -> String {
@@ -3879,6 +3889,10 @@ mod tests {
         assert_eq!(output.report.connector, "markdown-docs");
         assert_eq!(output.report.mode, "sync_plan");
         assert_eq!(output.plan.documents.len(), 1);
+        assert_eq!(
+            output.plan.documents[0].metadata["frontmatter"]["tags"][0],
+            "sync"
+        );
         assert_eq!(output.report.planned_count, 1);
         assert_eq!(
             output.report.documents[0].title,

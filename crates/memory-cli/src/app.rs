@@ -5135,6 +5135,7 @@ fn project_document_json(document: &memory_domain::ProjectDocument) -> serde_jso
         "conflict_state": document.conflict_state.as_str(),
         "artifact_id": document.artifact_id.as_ref().map(|artifact_id| artifact_id.as_str()),
         "memory_id": document.memory_id.as_ref().map(|memory_id| memory_id.as_str()),
+        "metadata": document.metadata.clone(),
     })
 }
 
@@ -5152,6 +5153,7 @@ fn local_docs_plan_json(
             "title": document.title,
             "content_hash": document.content_hash,
             "sync_state": document.sync_state.as_str(),
+            "metadata": document.metadata.clone(),
         })).collect::<Vec<_>>(),
         "imported": imported.iter().map(project_document_json).collect::<Vec<_>>(),
         "missing": plan.missing,

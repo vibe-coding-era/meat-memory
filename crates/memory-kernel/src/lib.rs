@@ -385,6 +385,7 @@ pub struct ImportProjectDocumentRequest {
     pub local_path: Option<String>,
     pub sync_state: DocumentSyncState,
     pub conflict_state: DocumentConflictState,
+    pub metadata: serde_json::Value,
     pub context: Option<RequestContext>,
 }
 
@@ -405,6 +406,7 @@ impl ImportProjectDocumentRequest {
             local_path: None,
             sync_state: DocumentSyncState::Clean,
             conflict_state: DocumentConflictState::None,
+            metadata: serde_json::json!({}),
             context: None,
         }
     }
@@ -1122,6 +1124,7 @@ impl Kernel {
             document.local_path = request.local_path;
             document.sync_state = request.sync_state;
             document.conflict_state = request.conflict_state;
+            document.metadata = request.metadata;
             document.artifact_id = Some(artifact_id);
             document.updated_at = time::OffsetDateTime::now_utc();
             pg_store.upsert_project_document(&document).await?;
@@ -1222,6 +1225,7 @@ impl Kernel {
                 );
                 import.local_path = Some(draft.local_path.to_string_lossy().to_string());
                 import.sync_state = draft.sync_state;
+                import.metadata = draft.metadata;
                 import.context = request.context.clone();
                 imported.push(self.import_project_document(import).await?);
             }

@@ -11,6 +11,7 @@ Covered regions:
 - local-git sync-plan checkpoint
 - markdown-docs dry-run
 - markdown-docs sync-plan / conflict review projection
+- markdown-docs frontmatter metadata persistence
 - markdown-docs explicit apply path
 - source auto discovery for connector apply
 - chat-export JSON parser
