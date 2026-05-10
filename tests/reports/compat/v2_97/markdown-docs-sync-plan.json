@@ -6,6 +6,7 @@
     "covered_regions": [
       "markdown_docs_sync_plan",
       "frontmatter_metadata_persistence",
+      "yaml_frontmatter_compatibility",
       "sync_plan_conflict_review_projection",
       "sync_plan_evidence_preview",
       "connector_sync_plan_projection",
@@ -16,12 +17,15 @@
   "documents": [
     {
       "canonical_uri": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
-      "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
+      "content_hash": "5427167c7480bf5b611518b52b2efcd68451bb4efa516c8351d70285f7cc951d",
       "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
       "metadata": {
-        "content_bytes": 193,
+        "content_bytes": 224,
         "frontmatter": {
-          "summary": "Markdown docs connector acceptance fixture.",
+          "owner": {
+            "team": "memory"
+          },
+          "summary": "Markdown docs connector acceptance fixture.\n",
           "tags": [
             "connector",
             "acceptance"
@@ -40,7 +44,7 @@
   "evidence_preview": [
     {
       "artifact_id": null,
-      "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
+      "content_hash": "5427167c7480bf5b611518b52b2efcd68451bb4efa516c8351d70285f7cc951d",
       "created_at": [
         1970,
         1,
@@ -52,7 +56,7 @@
         0,
         0
       ],
-      "id": "evd_v297_f48c6f86135070957c9cbe1616",
+      "id": "evd_v297_5427167c7480bf5b611518b52b",
       "kind": "Text",
       "location": {
         "end": 25,

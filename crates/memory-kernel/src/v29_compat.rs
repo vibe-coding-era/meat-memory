@@ -619,6 +619,7 @@ pub fn connector_dry_run_json(report: &ConnectorDryRunReport) -> Value {
             "covered_regions": [
                 "local_git_dry_run",
                 "markdown_docs_dry_run",
+                "yaml_frontmatter_compatibility",
                 "chat_export_dry_run",
                 "connector_report_projection",
                 "cli_parser_and_command"
@@ -846,6 +847,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
             "covered_regions": [
                 "markdown_docs_sync_plan",
                 "frontmatter_metadata_persistence",
+                "yaml_frontmatter_compatibility",
                 "sync_plan_conflict_review_projection",
                 "sync_plan_evidence_preview",
                 "connector_sync_plan_projection",
@@ -1623,7 +1625,7 @@ fn markdown_docs_dry_run(root_path: PathBuf, max_items: usize) -> Result<Connect
         failures: Vec::new(),
         incremental_checkpoint: json!({
             "strategy": "path_mtime_size",
-            "frontmatter": "parse_simple_yaml_when_present",
+            "frontmatter": "parse_yaml_frontmatter_when_present",
         }),
     })
 }
@@ -2143,78 +2145,11 @@ fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
 }
 
 fn markdown_frontmatter(content_text: &str) -> Option<Value> {
-    let mut lines = content_text.lines();
-    if lines.next()?.trim() != "---" {
-        return None;
-    }
-
-    let mut values = serde_json::Map::new();
-    for line in lines {
-        let line = line.trim();
-        if line == "---" {
-            return Some(Value::Object(values));
-        }
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let key = key.trim();
-        if key.is_empty() {
-            continue;
-        }
-        values.insert(key.to_string(), markdown_frontmatter_value(value.trim()));
-    }
-
-    None
-}
-
-fn markdown_frontmatter_value(value: &str) -> Value {
-    if let Some(items) = value
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        return Value::Array(
-            items
-                .split(',')
-                .map(markdown_frontmatter_string)
-                .filter(|value| !value.is_empty())
-                .map(Value::String)
-                .collect(),
-        );
-    }
-
-    Value::String(markdown_frontmatter_string(value))
-}
-
-fn markdown_frontmatter_string(value: &str) -> String {
-    value
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .to_string()
+    memory_sync::markdown_frontmatter(content_text)
 }
 
 fn markdown_document_title(path: &Path, content_text: &str) -> String {
-    markdown_frontmatter(content_text)
-        .and_then(|value| {
-            value
-                .get("title")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            markdown_content_without_frontmatter(content_text)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-                .map(|line| line.trim_start_matches('#').trim().to_string())
-                .filter(|line| !line.is_empty())
-        })
-        .or_else(|| {
-            path.file_stem()
-                .and_then(|name| name.to_str())
-                .map(ToOwned::to_owned)
-        })
-        .unwrap_or_else(|| path.to_string_lossy().to_string())
+    memory_sync::markdown_document_title(path, content_text)
 }
 
 fn markdown_document_metadata(content_text: &str) -> Value {
@@ -2239,28 +2174,7 @@ fn connector_sync_plan_document_metadata(
 }
 
 fn markdown_content_without_frontmatter(content_text: &str) -> String {
-    let mut lines = content_text.lines();
-    if lines.next().map(str::trim) != Some("---") {
-        return content_text.to_string();
-    }
-
-    let mut body = Vec::new();
-    let mut closed = false;
-    for line in lines {
-        if closed {
-            body.push(line);
-            continue;
-        }
-        if line.trim() == "---" {
-            closed = true;
-        }
-    }
-
-    if closed {
-        body.join("\n")
-    } else {
-        content_text.to_string()
-    }
+    memory_sync::markdown_content_without_frontmatter(content_text)
 }
 
 fn connector_document_evidence_span(
@@ -3302,7 +3216,7 @@ mod tests {
         fs::create_dir_all(&docs_dir).unwrap();
         fs::write(
             docs_dir.join("alpha-note.md"),
-            "---\ntitle: Alpha Frontmatter\ntags: [connector, docs]\nsummary: Parsed by dry-run.\n---\n# Alpha\n",
+            "---\ntitle: Alpha Frontmatter\ntags:\n  - connector\n  - docs\nsummary: |\n  Parsed by dry-run.\n  Supports real YAML blocks.\nowner:\n  team: memory\n---\n# Alpha\n",
         )
         .unwrap();
         fs::write(docs_dir.join("ignored.txt"), "ignored").unwrap();
@@ -3326,8 +3240,18 @@ mod tests {
             "connector"
         );
         assert_eq!(
+            report.items[0].metadata["frontmatter"]["owner"]["team"],
+            "memory"
+        );
+        assert!(
+            report.items[0].metadata["frontmatter"]["summary"]
+                .as_str()
+                .unwrap()
+                .contains("real YAML blocks")
+        );
+        assert_eq!(
             report.incremental_checkpoint["frontmatter"],
-            "parse_simple_yaml_when_present"
+            "parse_yaml_frontmatter_when_present"
         );
     }
 
@@ -3873,7 +3797,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(
             tempdir.path().join("design.md"),
-            "---\ntitle: Connector Design Frontmatter\ntags: [sync, connector]\n---\n# Connector Design\n\nSync this into project docs.\n",
+            "---\ntitle: Connector Design Frontmatter\ntags:\n  - sync\n  - connector\nsummary: |\n  Sync this into project docs.\nowner:\n  team: memory\n---\n# Connector Design\n\nSync this into project docs.\n",
         )
         .unwrap();
         fs::write(tempdir.path().join("ignored.txt"), "ignored").unwrap();
@@ -3893,6 +3817,10 @@ mod tests {
             output.plan.documents[0].metadata["frontmatter"]["tags"][0],
             "sync"
         );
+        assert_eq!(
+            output.plan.documents[0].metadata["frontmatter"]["owner"]["team"],
+            "memory"
+        );
         assert_eq!(output.report.planned_count, 1);
         assert_eq!(
             output.report.documents[0].title,
@@ -3901,6 +3829,12 @@ mod tests {
         assert_eq!(
             output.report.documents[0].metadata["frontmatter"]["tags"][0],
             "sync"
+        );
+        assert!(
+            output.report.documents[0].metadata["frontmatter"]["summary"]
+                .as_str()
+                .unwrap()
+                .contains("project docs")
         );
         assert_eq!(
             output.report.documents[0].metadata["frontmatter_present"],

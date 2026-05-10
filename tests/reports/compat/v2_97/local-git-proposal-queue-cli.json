@@ -27,7 +27,7 @@
           "kind": "branch",
           "name": "main",
           "ref_name": "refs/heads/main",
-          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
+          "sha": "9fd7c43ad3cbbda65500806300890965bf17271d",
           "source": "loose",
           "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
         }
@@ -37,7 +37,7 @@
       "git_head_ref": "ref: refs/heads/main",
       "important_files": [
         {
-          "content_bytes": 193,
+          "content_bytes": 224,
           "relative_path": "README.md",
           "source_ref": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md"
         }
@@ -47,7 +47,7 @@
         {
           "kind": "tag",
           "name": "refs/tags/v2.97",
-          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9",
+          "sha": "a122368448c41b51e8277f532f5c49834c9f819d",
           "short_name": "v2.97",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
@@ -55,7 +55,7 @@
         {
           "kind": "branch",
           "name": "refs/heads/main",
-          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9",
+          "sha": "a122368448c41b51e8277f532f5c49834c9f819d",
           "short_name": "main",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/heads/main"
@@ -63,7 +63,7 @@
         {
           "kind": "remote_ref",
           "name": "refs/remotes/origin/main",
-          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
+          "sha": "9fd7c43ad3cbbda65500806300890965bf17271d",
           "short_name": "origin/main",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
@@ -73,12 +73,12 @@
         {
           "committed_at_unix": 1709942460,
           "message": "commit: update V2.97 connector fixture",
-          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07"
+          "sha": "9fd7c43ad3cbbda65500806300890965bf17271d"
         },
         {
           "committed_at_unix": 1709942400,
           "message": "commit (initial): add V2.97 docs",
-          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9"
+          "sha": "a122368448c41b51e8277f532f5c49834c9f819d"
         }
       ],
       "ref_count": 3,
@@ -86,7 +86,7 @@
         {
           "kind": "branch",
           "name": "refs/heads/main",
-          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
+          "sha": "9fd7c43ad3cbbda65500806300890965bf17271d",
           "short_name": "main",
           "source": "loose",
           "source_ref": "git-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/.git/refs/heads/main"
@@ -94,7 +94,7 @@
         {
           "kind": "remote_ref",
           "name": "refs/remotes/origin/main",
-          "sha": "aff647308de403b7f1b173a9dfb2db2f2b3eac07",
+          "sha": "9fd7c43ad3cbbda65500806300890965bf17271d",
           "short_name": "origin/main",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/remotes/origin/main"
@@ -102,7 +102,7 @@
         {
           "kind": "tag",
           "name": "refs/tags/v2.97",
-          "sha": "9db162c39a45ded7320cd8c89ccb4399828f7be9",
+          "sha": "a122368448c41b51e8277f532f5c49834c9f819d",
           "short_name": "v2.97",
           "source": "packed",
           "source_ref": "git-packed-ref:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs#refs/tags/v2.97"
@@ -161,11 +161,14 @@
       ],
       "external_id": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
       "metadata": {
-        "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
+        "content_hash": "5427167c7480bf5b611518b52b2efcd68451bb4efa516c8351d70285f7cc951d",
         "document_metadata": {
-          "content_bytes": 193,
+          "content_bytes": 224,
           "frontmatter": {
-            "summary": "Markdown docs connector acceptance fixture.",
+            "owner": {
+              "team": "memory"
+            },
+            "summary": "Markdown docs connector acceptance fixture.\n",
             "tags": [
               "connector",
               "acceptance"

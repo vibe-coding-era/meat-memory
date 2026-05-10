@@ -35,11 +35,14 @@
       ],
       "external_id": "file:///Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/docs/README.md",
       "metadata": {
-        "content_hash": "f48c6f86135070957c9cbe16166d5c39c7a24112b6c5ae302753075379339d56",
+        "content_hash": "5427167c7480bf5b611518b52b2efcd68451bb4efa516c8351d70285f7cc951d",
         "document_metadata": {
-          "content_bytes": 193,
+          "content_bytes": 224,
           "frontmatter": {
-            "summary": "Markdown docs connector acceptance fixture.",
+            "owner": {
+              "team": "memory"
+            },
+            "summary": "Markdown docs connector acceptance fixture.\n",
             "tags": [
               "connector",
               "acceptance"

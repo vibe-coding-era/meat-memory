@@ -455,8 +455,8 @@ impl LocalProjectDocumentSyncEngine {
                 Some(_) => DocumentSyncState::Changed,
                 None => DocumentSyncState::Changed,
             };
-            let title = document_title(&path, &content_text);
-            let metadata = document_metadata(&root, &path, &content_text);
+            let title = markdown_document_title(&path, &content_text);
+            let metadata = markdown_document_metadata(&root, &path, &content_text);
             documents.push(LocalProjectDocumentDraft {
                 title,
                 canonical_uri,
@@ -661,7 +661,7 @@ fn canonical_file_uri(path: &Path) -> String {
     format!("file://{}", path.to_string_lossy())
 }
 
-fn document_title(path: &Path, content_text: &str) -> String {
+pub fn markdown_document_title(path: &Path, content_text: &str) -> String {
     markdown_frontmatter(content_text)
         .and_then(|frontmatter| {
             frontmatter
@@ -685,7 +685,7 @@ fn document_title(path: &Path, content_text: &str) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-fn document_metadata(root: &Path, path: &Path, content_text: &str) -> Value {
+pub fn markdown_document_metadata(root: &Path, path: &Path, content_text: &str) -> Value {
     let frontmatter = markdown_frontmatter(content_text);
     let frontmatter_present = frontmatter.is_some();
     let visible_content = markdown_content_without_frontmatter(content_text);
@@ -718,58 +718,25 @@ fn metadata_path(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn markdown_frontmatter(content_text: &str) -> Option<Value> {
+pub fn markdown_frontmatter(content_text: &str) -> Option<Value> {
     let mut lines = content_text.lines();
     if lines.next()?.trim() != "---" {
         return None;
     }
 
-    let mut values = serde_json::Map::new();
+    let mut raw = Vec::new();
     for line in lines {
-        let line = line.trim();
-        if line == "---" {
-            return Some(Value::Object(values));
+        if line.trim() == "---" {
+            let value = serde_yaml::from_str::<serde_yaml::Value>(&raw.join("\n")).ok()?;
+            return serde_json::to_value(value).ok();
         }
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let key = key.trim();
-        if key.is_empty() {
-            continue;
-        }
-        values.insert(key.to_string(), markdown_frontmatter_value(value.trim()));
+        raw.push(line);
     }
 
     None
 }
 
-fn markdown_frontmatter_value(value: &str) -> Value {
-    if let Some(items) = value
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        return Value::Array(
-            items
-                .split(',')
-                .map(markdown_frontmatter_string)
-                .filter(|value| !value.is_empty())
-                .map(Value::String)
-                .collect(),
-        );
-    }
-
-    Value::String(markdown_frontmatter_string(value))
-}
-
-fn markdown_frontmatter_string(value: &str) -> String {
-    value
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .to_string()
-}
-
-fn markdown_content_without_frontmatter(content_text: &str) -> String {
+pub fn markdown_content_without_frontmatter(content_text: &str) -> String {
     let mut lines = content_text.lines();
     if lines.next().map(str::trim) != Some("---") {
         return content_text.to_string();
@@ -1330,7 +1297,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(
             docs.join("guide.md"),
-            "---\ntitle: Frontmatter Guide\ntags: [sync, docs]\nsummary: Metadata survives import.\n---\n# Hidden Heading\nbody",
+            "---\ntitle: Frontmatter Guide\ntags:\n  - sync\n  - docs\nsummary: |\n  Metadata survives import.\n  Nested YAML stays intact.\nowner:\n  team: memory\n---\n# Hidden Heading\nbody",
         )
         .unwrap();
 
@@ -1345,9 +1312,15 @@ mod tests {
         assert_eq!(document.metadata["relative_path"], "guide.md");
         assert_eq!(document.metadata["frontmatter_present"], true);
         assert_eq!(document.metadata["frontmatter"]["tags"][0], "sync");
+        assert_eq!(document.metadata["frontmatter"]["owner"]["team"], "memory");
         assert_eq!(
-            document.metadata["frontmatter"]["summary"],
-            "Metadata survives import."
+            document
+                .metadata
+                .pointer("/frontmatter/summary")
+                .and_then(serde_json::Value::as_str)
+                .unwrap()
+                .trim(),
+            "Metadata survives import.\nNested YAML stays intact."
         );
     }
 

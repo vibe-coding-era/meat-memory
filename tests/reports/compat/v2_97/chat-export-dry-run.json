@@ -5,6 +5,7 @@
     "covered_regions": [
       "local_git_dry_run",
       "markdown_docs_dry_run",
+      "yaml_frontmatter_compatibility",
       "chat_export_dry_run",
       "connector_report_projection",
       "cli_parser_and_command"

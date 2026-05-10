@@ -28,8 +28,13 @@ echo "[v2.97] fixture root: ${FIXTURE_DIR}"
 cat >"${FIXTURE_DIR}/docs/README.md" <<'EOF'
 ---
 title: V2.97 Connector Fixture
-tags: [connector, acceptance]
-summary: Markdown docs connector acceptance fixture.
+tags:
+  - connector
+  - acceptance
+summary: |
+  Markdown docs connector acceptance fixture.
+owner:
+  team: memory
 ---
 # V2.97 Connector Fixture
 
@@ -247,11 +252,15 @@ assert markdown_dry_run["candidate_count"] == 1, markdown_dry_run
 assert markdown_dry_run["items"][0]["title"] == "V2.97 Connector Fixture", markdown_dry_run
 assert markdown_dry_run["items"][0]["metadata"]["frontmatter_present"] is True, markdown_dry_run
 assert markdown_dry_run["items"][0]["metadata"]["frontmatter"]["tags"][0] == "connector", markdown_dry_run
+assert markdown_dry_run["items"][0]["metadata"]["frontmatter"]["owner"]["team"] == "memory", markdown_dry_run
+assert markdown_dry_run["incremental_checkpoint"]["frontmatter"] == "parse_yaml_frontmatter_when_present", markdown_dry_run
 assert markdown_sync_plan["connector"] == "markdown-docs", markdown_sync_plan
 assert markdown_sync_plan["planned_count"] == 1, markdown_sync_plan
 assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter_present"] is True, markdown_sync_plan
-assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter"]["summary"] == "Markdown docs connector acceptance fixture.", markdown_sync_plan
+assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter"]["summary"].strip() == "Markdown docs connector acceptance fixture.", markdown_sync_plan
+assert markdown_sync_plan["documents"][0]["metadata"]["frontmatter"]["owner"]["team"] == "memory", markdown_sync_plan
 assert "frontmatter_metadata_persistence" in markdown_sync_plan["coverage_gate"]["covered_regions"], markdown_sync_plan
+assert "yaml_frontmatter_compatibility" in markdown_sync_plan["coverage_gate"]["covered_regions"], markdown_sync_plan
 assert "conflicts" in markdown_sync_plan, markdown_sync_plan
 assert local_git_sync_plan["connector"] == "local-git", local_git_sync_plan
 assert local_git_sync_plan["planned_count"] == 1, local_git_sync_plan
@@ -333,6 +342,7 @@ Covered regions:
 - markdown-docs dry-run
 - markdown-docs sync-plan / conflict review projection
 - markdown-docs frontmatter metadata persistence
+- markdown-docs full YAML frontmatter compatibility
 - markdown-docs explicit apply path
 - source auto discovery for connector apply
 - chat-export JSON parser
