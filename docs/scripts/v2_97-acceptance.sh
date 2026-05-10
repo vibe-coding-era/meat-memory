@@ -176,6 +176,14 @@ echo "[v2.97] web-crawler dry-run report"
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/web-crawler-dry-run-cli.json"
 
+echo "[v2.97] web-crawler sync-plan report"
+"${MEMORY_CLI}" compat connector-sync-plan \
+    --connector web-crawler \
+    --root-path "${FIXTURE_DIR}/web" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/web-crawler-sync-plan-cli.json"
+
 echo "[v2.97] chat-export import-draft report"
 "${MEMORY_CLI}" compat connector-import-draft \
     --connector chat-export \
@@ -226,6 +234,7 @@ test -f "${REPORT_DIR}/local-git-sync-plan.json"
 test -f "${REPORT_DIR}/local-git-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-dry-run.json"
 test -f "${REPORT_DIR}/web-crawler-dry-run.json"
+test -f "${REPORT_DIR}/web-crawler-sync-plan.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
 test -f "${REPORT_DIR}/chat-export-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-proposal-apply-plan.json"
@@ -234,6 +243,7 @@ grep -q "Connector Proposal Queue" "${REPORT_DIR}/markdown-docs-proposal-queue.m
 grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "Proposal Drafts" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "V2.97 Web Fixture" "${REPORT_DIR}/web-crawler-dry-run.md"
+grep -q "V2.97 Web Fixture" "${REPORT_DIR}/web-crawler-sync-plan.md"
 grep -q "review queue only" "${REPORT_DIR}/chat-export-proposal-queue.md"
 grep -q "Connector Proposal Apply Plan" "${REPORT_DIR}/chat-export-proposal-apply-plan.md"
 
@@ -243,6 +253,7 @@ python3 - <<'PY' \
   "${REPORT_DIR}/local-git-sync-plan-cli.json" \
   "${REPORT_DIR}/chat-export-dry-run-cli.json" \
   "${REPORT_DIR}/web-crawler-dry-run-cli.json" \
+  "${REPORT_DIR}/web-crawler-sync-plan-cli.json" \
   "${REPORT_DIR}/chat-export-import-draft-cli.json" \
   "${REPORT_DIR}/markdown-docs-proposal-queue-cli.json" \
   "${REPORT_DIR}/local-git-proposal-queue-cli.json" \
@@ -256,11 +267,12 @@ markdown_sync_plan = json.load(open(sys.argv[2]))
 local_git_sync_plan = json.load(open(sys.argv[3]))
 chat_dry_run = json.load(open(sys.argv[4]))
 web_crawler_dry_run = json.load(open(sys.argv[5]))
-chat_import_draft = json.load(open(sys.argv[6]))
-markdown_proposal_queue = json.load(open(sys.argv[7]))
-local_git_proposal_queue = json.load(open(sys.argv[8]))
-chat_proposal_queue = json.load(open(sys.argv[9]))
-chat_apply_plan = json.load(open(sys.argv[10]))
+web_crawler_sync_plan = json.load(open(sys.argv[6]))
+chat_import_draft = json.load(open(sys.argv[7]))
+markdown_proposal_queue = json.load(open(sys.argv[8]))
+local_git_proposal_queue = json.load(open(sys.argv[9]))
+chat_proposal_queue = json.load(open(sys.argv[10]))
+chat_apply_plan = json.load(open(sys.argv[11]))
 
 for payload in (
     markdown_dry_run,
@@ -268,6 +280,7 @@ for payload in (
     local_git_sync_plan,
     chat_dry_run,
     web_crawler_dry_run,
+    web_crawler_sync_plan,
     chat_import_draft,
     markdown_proposal_queue,
     local_git_proposal_queue,
@@ -331,6 +344,16 @@ assert web_crawler_dry_run["items"][0]["metadata"]["link_count"] == 1, web_crawl
 assert web_crawler_dry_run["items"][0]["metadata"]["remote_network"] is False, web_crawler_dry_run
 assert web_crawler_dry_run["items"][0]["metadata"]["visible_text_bytes"] > 0, web_crawler_dry_run
 assert "web_crawler_dry_run" in web_crawler_dry_run["coverage_gate"]["covered_regions"], web_crawler_dry_run
+assert web_crawler_sync_plan["connector"] == "web-crawler", web_crawler_sync_plan
+assert web_crawler_sync_plan["planned_count"] == 1, web_crawler_sync_plan
+assert web_crawler_sync_plan["documents"][0]["title"] == "V2.97 Web Fixture", web_crawler_sync_plan
+assert web_crawler_sync_plan["documents"][0]["canonical_uri"] == "https://example.com/v2.97/web-fixture", web_crawler_sync_plan
+assert web_crawler_sync_plan["documents"][0]["metadata"]["allowlist_allowed"] is True, web_crawler_sync_plan
+assert web_crawler_sync_plan["documents"][0]["metadata"]["fetch_policy"] == "local_snapshot_only_no_remote_fetch", web_crawler_sync_plan
+assert web_crawler_sync_plan["documents"][0]["metadata"]["link_count"] == 1, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["blocked_count"] == 0, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["remote_network"] is False, web_crawler_sync_plan
+assert "web_crawler_sync_plan" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -389,6 +412,7 @@ Covered regions:
 - chat-export import-draft projection
 - chat-export explicit apply path
 - web-crawler dry-run / canonical URL / allowlist
+- web-crawler sync-plan / project document projection
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

@@ -1,0 +1,99 @@
+{
+  "apply": false,
+  "conflict_count": 0,
+  "conflicts": [],
+  "connector": "web-crawler",
+  "coverage_gate": {
+    "covered_regions": [
+      "markdown_docs_sync_plan",
+      "frontmatter_metadata_persistence",
+      "yaml_frontmatter_compatibility",
+      "sync_plan_conflict_review_projection",
+      "sync_plan_evidence_preview",
+      "web_crawler_sync_plan",
+      "connector_sync_plan_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "documents": [
+    {
+      "canonical_uri": "https://example.com/v2.97/web-fixture",
+      "content_hash": "cc1903f03de06b034731751cb397ec98ef84b3ce462a17e19f772be45c8339cd",
+      "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/web/index.html",
+      "metadata": {
+        "allowlist_allowed": true,
+        "allowlist_domains": [
+          "example.com"
+        ],
+        "canonical_url": "https://example.com/v2.97/web-fixture",
+        "fetch_policy": "local_snapshot_only_no_remote_fetch",
+        "html_content_hash": "dec0ab2ab4c5d503",
+        "link_count": 1,
+        "relative_path": "index.html",
+        "remote_network": false,
+        "source_kind": "web_page",
+        "visible_text_bytes": 84
+      },
+      "sync_state": "changed",
+      "title": "V2.97 Web Fixture"
+    }
+  ],
+  "evidence_preview": [
+    {
+      "artifact_id": null,
+      "content_hash": "cc1903f03de06b034731751cb397ec98ef84b3ce462a17e19f772be45c8339cd",
+      "created_at": [
+        1970,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "evd_v297_cc1903f03de06b034731751cb3",
+      "kind": "Text",
+      "location": {
+        "end": 19,
+        "end_ms": null,
+        "page": null,
+        "region": null,
+        "start": 0,
+        "start_ms": null
+      },
+      "memory_id": null,
+      "quote": "# V2.97 Web Fixture",
+      "scope_id": "scp_v297_acceptance",
+      "source_ref": "https://example.com/v2.97/web-fixture"
+    }
+  ],
+  "imported": [],
+  "incremental_checkpoint": {
+    "allowlist_domains": [
+      "example.com"
+    ],
+    "apply_target": "Kernel::apply_project_document_sync_plan",
+    "blocked_count": 0,
+    "blocked_urls": [],
+    "remote_network": false,
+    "safe_default": "local_snapshot_only_no_remote_fetch",
+    "source_kind": "web_page",
+    "strategy": "canonical_uri_content_hash",
+    "update_detection": [
+      "canonical_url",
+      "content_hash"
+    ]
+  },
+  "missing_count": 0,
+  "mode": "sync_plan",
+  "planned_count": 1,
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/web-crawler-sync-plan.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/web-crawler-sync-plan.md"
+  },
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/web",
+  "schema_version": "2.97-A"
+}

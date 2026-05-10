@@ -1,12 +1,14 @@
 use crate::{ApplyProjectDocumentSyncPlanRequest, Kernel, RememberTextRequest};
 use anyhow::{Context, Result, bail};
 use memory_domain::{
-    EvidenceId, EvidenceSpan, EvidenceSpanKind, EvidenceSpanLocation, Memory, MemoryKind,
-    MemorySource, ProjectDocument, RequestContext, ScopeId, Sensitivity, SourceId, Visibility,
+    DocumentSyncState, EvidenceId, EvidenceSpan, EvidenceSpanKind, EvidenceSpanLocation, Memory,
+    MemoryKind, MemorySource, ProjectDocument, RequestContext, ScopeId, Sensitivity, SourceId,
+    Visibility,
 };
 use memory_sync::{
-    LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan, ProjectDocumentConflictReport,
-    ProjectDocumentSnapshot,
+    LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, LocalProjectDocumentSyncPlan,
+    MissingProjectDocument, ProjectDocumentConflictInput, ProjectDocumentConflictReport,
+    ProjectDocumentSnapshot, classify_project_document_conflict,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -772,7 +774,7 @@ pub fn write_connector_import_draft_report(
 pub fn build_connector_sync_plan(
     request: ConnectorSyncPlanRequest,
 ) -> Result<ConnectorSyncPlanOutput> {
-    let root_path = request.root_path;
+    let root_path = request.root_path.clone();
     if !root_path.exists() {
         bail!(
             "connector root path does not exist: {}",
@@ -785,13 +787,20 @@ pub fn build_connector_sync_plan(
             root_path.display()
         );
     }
-    if !matches!(request.connector.as_str(), "markdown-docs" | "local-git") {
-        bail!(
-            "unsupported connector sync plan: {}; only markdown-docs and local-git are implemented",
-            request.connector
-        );
-    }
 
+    match request.connector.as_str() {
+        "markdown-docs" | "local-git" => build_file_connector_sync_plan(request),
+        "web-crawler" => build_web_crawler_sync_plan(request),
+        other => bail!(
+            "unsupported connector sync plan: {other}; supported connectors are markdown-docs, local-git, and web-crawler"
+        ),
+    }
+}
+
+fn build_file_connector_sync_plan(
+    request: ConnectorSyncPlanRequest,
+) -> Result<ConnectorSyncPlanOutput> {
+    let root_path = request.root_path.clone();
     let connector = request.connector.clone();
     let checkpoint = connector_sync_checkpoint(&connector, &root_path);
     let mut plan = LocalProjectDocumentSyncEngine::with_extensions(root_path, ["md", "markdown"])
@@ -840,6 +849,127 @@ pub fn build_connector_sync_plan(
     Ok(ConnectorSyncPlanOutput { plan, report })
 }
 
+fn build_web_crawler_sync_plan(
+    request: ConnectorSyncPlanRequest,
+) -> Result<ConnectorSyncPlanOutput> {
+    let root = request.root_path.canonicalize()?;
+    let allowlist_domains = web_allowlist_domains(&root)?;
+    let mut files = Vec::new();
+    let excluded_dir_names = request
+        .excluded_dir_names
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    collect_web_page_files_with_excluded(&root, &mut files, &excluded_dir_names)?;
+    files.sort();
+
+    let previous_by_uri = request
+        .previous_snapshots
+        .iter()
+        .map(|snapshot| {
+            (
+                snapshot.canonical_uri.clone(),
+                snapshot.content_hash.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut documents = Vec::new();
+    let mut blocked_urls = Vec::new();
+
+    for path in files {
+        if documents.len() >= request.max_items {
+            break;
+        }
+        let parsed = web_page_sync_candidate(&root, &path, &allowlist_domains)?;
+        seen.insert(parsed.canonical_uri.clone());
+        if !parsed.allowlist_allowed {
+            blocked_urls.push(json!({
+                "canonical_url": parsed.canonical_uri,
+                "relative_path": parsed.relative_path,
+            }));
+            continue;
+        }
+        let content_hash = memory_domain::Artifact::compute_content_hash(&parsed.content_text);
+        let sync_state = match previous_by_uri.get(&parsed.canonical_uri) {
+            Some(previous_hash) if previous_hash == &content_hash => DocumentSyncState::Clean,
+            Some(_) => DocumentSyncState::Changed,
+            None => DocumentSyncState::Changed,
+        };
+        documents.push(LocalProjectDocumentDraft {
+            canonical_uri: parsed.canonical_uri,
+            local_path: path,
+            title: parsed.title,
+            content_text: parsed.content_text,
+            content_hash,
+            sync_state,
+            metadata: parsed.metadata,
+        });
+    }
+
+    let missing = request
+        .previous_snapshots
+        .iter()
+        .filter(|snapshot| !seen.contains(&snapshot.canonical_uri))
+        .map(|snapshot| MissingProjectDocument {
+            canonical_uri: snapshot.canonical_uri.clone(),
+            sync_state: DocumentSyncState::Missing,
+        })
+        .collect::<Vec<_>>();
+    let conflicts =
+        connector_sync_conflict_reports(&request.previous_snapshots, &documents, &missing);
+
+    let documents_report = documents
+        .iter()
+        .map(|document| ConnectorSyncPlanDocument {
+            title: document.title.clone(),
+            canonical_uri: document.canonical_uri.clone(),
+            local_path: document.local_path.clone(),
+            content_hash: document.content_hash.clone(),
+            sync_state: document.sync_state.as_str().to_string(),
+            metadata: connector_sync_plan_document_metadata(document),
+        })
+        .collect::<Vec<_>>();
+    let evidence_preview = documents
+        .iter()
+        .map(|document| connector_document_evidence_span(&request.scope_id, document))
+        .collect::<Vec<_>>();
+
+    let checkpoint = json!({
+        "strategy": "canonical_uri_content_hash",
+        "apply_target": "Kernel::apply_project_document_sync_plan",
+        "source_kind": "web_page",
+        "allowlist_domains": allowlist_domains,
+        "blocked_count": blocked_urls.len(),
+        "blocked_urls": blocked_urls,
+        "remote_network": false,
+        "safe_default": "local_snapshot_only_no_remote_fetch",
+        "update_detection": ["canonical_url", "content_hash"],
+    });
+    let planned_count = documents.len();
+    let plan = LocalProjectDocumentSyncPlan {
+        root: root.clone(),
+        documents,
+        missing,
+        conflicts: conflicts.clone(),
+    };
+    let report = ConnectorSyncPlanReport {
+        schema_version: "2.97-A".to_string(),
+        connector: "web-crawler".to_string(),
+        root_path: root,
+        mode: "sync_plan".to_string(),
+        planned_count,
+        missing_count: plan.missing.len(),
+        conflict_count: plan.conflicts.len(),
+        documents: documents_report,
+        conflicts,
+        evidence_preview,
+        incremental_checkpoint: checkpoint,
+    };
+
+    Ok(ConnectorSyncPlanOutput { plan, report })
+}
+
 pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
     json!({
         "schema_version": report.schema_version,
@@ -861,6 +991,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "yaml_frontmatter_compatibility",
                 "sync_plan_conflict_review_projection",
                 "sync_plan_evidence_preview",
+                "web_crawler_sync_plan",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -1796,17 +1927,29 @@ fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 fn collect_web_page_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    let excluded_dir_names = ["target", "reports", ".playwright-cli"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+    collect_web_page_files_with_excluded(dir, files, &excluded_dir_names)
+}
+
+fn collect_web_page_files_with_excluded(
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+    excluded_dir_names: &BTreeSet<String>,
+) -> Result<()> {
     for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
         let entry =
             entry.with_context(|| format!("failed to read entry under {}", dir.display()))?;
         let path = entry.path();
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();
-        if file_name.starts_with('.') || matches!(file_name.as_ref(), "target" | "reports") {
+        if file_name.starts_with('.') || excluded_dir_names.contains(file_name.as_ref()) {
             continue;
         }
         if path.is_dir() {
-            collect_web_page_files(&path, files)?;
+            collect_web_page_files_with_excluded(&path, files, excluded_dir_names)?;
         } else if path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -2270,6 +2413,112 @@ fn web_page_item(
             "remote_network": false,
         }),
     })
+}
+
+#[derive(Debug)]
+struct WebPageSyncCandidate {
+    canonical_uri: String,
+    relative_path: String,
+    title: String,
+    content_text: String,
+    allowlist_allowed: bool,
+    metadata: Value,
+}
+
+fn web_page_sync_candidate(
+    root_path: &Path,
+    path: &Path,
+    allowlist_domains: &[String],
+) -> Result<WebPageSyncCandidate> {
+    let html =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let relative_path = path
+        .strip_prefix(root_path)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    let canonical_uri =
+        html_canonical_url(&html).unwrap_or_else(|| format!("file://{}", path.display()));
+    let title = html_title(&html).unwrap_or_else(|| {
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("web page")
+            .replace(['_', '-'], " ")
+    });
+    let visible_text = html_visible_text(&html);
+    let allowlist_allowed = web_url_allowed(&canonical_uri, allowlist_domains);
+    let content_text = web_page_document_content(&title, &canonical_uri, &visible_text);
+    let metadata = json!({
+        "source_kind": "web_page",
+        "relative_path": relative_path,
+        "canonical_url": canonical_uri,
+        "allowlist_allowed": allowlist_allowed,
+        "allowlist_domains": allowlist_domains,
+        "link_count": html_link_count(&html),
+        "visible_text_bytes": visible_text.len(),
+        "html_content_hash": stable_hex_hash(&html),
+        "remote_network": false,
+        "fetch_policy": "local_snapshot_only_no_remote_fetch",
+    });
+
+    Ok(WebPageSyncCandidate {
+        canonical_uri,
+        relative_path,
+        title,
+        content_text,
+        allowlist_allowed,
+        metadata,
+    })
+}
+
+fn web_page_document_content(title: &str, canonical_uri: &str, visible_text: &str) -> String {
+    let mut content = format!("# {title}\n\nSource: {canonical_uri}\n\n");
+    if visible_text.trim().is_empty() {
+        content.push_str("No visible text extracted.\n");
+    } else {
+        content.push_str(visible_text.trim());
+        content.push('\n');
+    }
+    content
+}
+
+fn connector_sync_conflict_reports(
+    previous: &[ProjectDocumentSnapshot],
+    documents: &[LocalProjectDocumentDraft],
+    missing: &[MissingProjectDocument],
+) -> Vec<ProjectDocumentConflictReport> {
+    let local_by_uri = documents
+        .iter()
+        .map(|document| {
+            (
+                document.canonical_uri.clone(),
+                document.content_hash.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let missing_uris = missing
+        .iter()
+        .map(|document| document.canonical_uri.as_str())
+        .collect::<BTreeSet<_>>();
+
+    previous
+        .iter()
+        .filter_map(|snapshot| {
+            let report = classify_project_document_conflict(ProjectDocumentConflictInput {
+                canonical_uri: snapshot.canonical_uri.clone(),
+                base_content_hash: Some(snapshot.content_hash.clone()),
+                indexed_content_hash: Some(snapshot.content_hash.clone()),
+                local_content_hash: local_by_uri.get(&snapshot.canonical_uri).cloned(),
+            });
+            if matches!(report.sync_state, DocumentSyncState::Clean)
+                && !missing_uris.contains(snapshot.canonical_uri.as_str())
+            {
+                None
+            } else {
+                Some(report)
+            }
+        })
+        .collect()
 }
 
 fn web_allowlist_domains(root_path: &Path) -> Result<Vec<String>> {
@@ -3669,6 +3918,109 @@ mod tests {
                 .failures
                 .iter()
                 .any(|failure| failure.contains("blocked by allowlist"))
+        );
+    }
+
+    #[test]
+    fn v297_web_crawler_sync_plan_builds_project_document_plan() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "example.com\n").unwrap();
+        fs::write(
+            tempdir.path().join("index.html"),
+            r#"<!doctype html>
+<html>
+  <head>
+    <link rel="canonical" href="https://example.com/docs/v297-sync" />
+    <title>V2.97 Web Sync</title>
+  </head>
+  <body>
+    <main>
+      <p>Visible web sync body for project documents.</p>
+      <a href="/next">Next</a>
+    </main>
+  </body>
+</html>"#,
+        )
+        .unwrap();
+
+        let output = build_connector_sync_plan(ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        ))
+        .unwrap();
+
+        assert_eq!(output.report.connector, "web-crawler");
+        assert_eq!(output.report.mode, "sync_plan");
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].title, "V2.97 Web Sync");
+        assert_eq!(
+            output.report.documents[0].canonical_uri,
+            "https://example.com/docs/v297-sync"
+        );
+        assert_eq!(output.report.documents[0].sync_state, "changed");
+        assert_eq!(
+            output.report.documents[0].metadata["fetch_policy"],
+            "local_snapshot_only_no_remote_fetch"
+        );
+        assert_eq!(
+            output.report.documents[0].metadata["allowlist_allowed"],
+            true
+        );
+        assert_eq!(output.report.documents[0].metadata["link_count"], 1);
+        assert_eq!(output.report.incremental_checkpoint["blocked_count"], 0);
+        assert_eq!(
+            output.report.incremental_checkpoint["remote_network"],
+            false
+        );
+        assert_eq!(output.report.evidence_preview[0].quote, "# V2.97 Web Sync");
+        assert!(
+            output.plan.documents[0]
+                .content_text
+                .contains("Visible web sync body")
+        );
+    }
+
+    #[test]
+    fn v297_web_crawler_sync_plan_blocks_disallowed_urls_and_records_conflict() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "example.com\n").unwrap();
+        fs::write(
+            tempdir.path().join("blocked.html"),
+            r#"<!doctype html>
+<html>
+  <head>
+    <meta name="og:url" content="https://blocked.example.net/private" />
+    <title>Blocked Web Sync</title>
+  </head>
+  <body>Blocked page body.</body>
+</html>"#,
+        )
+        .unwrap();
+
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.previous_snapshots = vec![ProjectDocumentSnapshot {
+            canonical_uri: "https://blocked.example.net/private".to_string(),
+            content_hash: "previous".to_string(),
+        }];
+        let output = build_connector_sync_plan(request).unwrap();
+
+        assert_eq!(output.report.connector, "web-crawler");
+        assert_eq!(output.report.planned_count, 0);
+        assert_eq!(output.report.missing_count, 0);
+        assert_eq!(output.report.conflict_count, 1);
+        assert_eq!(output.report.incremental_checkpoint["blocked_count"], 1);
+        assert_eq!(
+            output.report.incremental_checkpoint["blocked_urls"][0]["canonical_url"],
+            "https://blocked.example.net/private"
+        );
+        assert_eq!(
+            output.report.conflicts[0].canonical_uri,
+            "https://blocked.example.net/private"
         );
     }
 
