@@ -2393,11 +2393,16 @@ fn build_cli_router(
     kernel: Arc<Kernel>,
 ) -> axum::Router {
     let metadata = api_metadata(config, service_info);
-    let mut app = build_router(HttpAppState::new(
-        service_info.default_scope.clone(),
-        metadata,
-        Arc::clone(&kernel),
-    ));
+    let mut app = build_router(
+        HttpAppState::new(
+            service_info.default_scope.clone(),
+            metadata,
+            Arc::clone(&kernel),
+        )
+        .with_connector_proposal_store(
+            PathBuf::from(&config.assets.root).join("connector-proposals"),
+        ),
+    );
     if config.features.enable_mcp {
         let mcp = McpServer::new(
             service_info.default_scope.clone(),

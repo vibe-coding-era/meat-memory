@@ -116,6 +116,7 @@ fn test_state(tempdir: &std::path::Path) -> HttpAppState {
         },
         kernel,
     )
+    .with_connector_proposal_store(tempdir.join("proposal-store"))
 }
 
 async fn test_state_with_pg(tempdir: &std::path::Path) -> HttpAppState {
@@ -150,6 +151,7 @@ async fn test_state_with_pg(tempdir: &std::path::Path) -> HttpAppState {
         },
         kernel,
     )
+    .with_connector_proposal_store(tempdir.join("proposal-store"))
 }
 
 async fn create_http_key(app: axum::Router, owner_scope_id: &str) -> String {
@@ -232,6 +234,9 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/compat/connectors/sync-plan"));
     assert!(has_route("/api/v1/compat/connectors/import-draft"));
     assert!(has_route("/api/v1/compat/connectors/proposal-queue"));
+    assert!(has_route(
+        "/api/v1/compat/connectors/proposal-queue/{queue_id}"
+    ));
     assert!(has_route("/api/v1/compat/connectors/proposal-apply-plan"));
     assert!(has_route(
         "/api/v1/compat/connectors/proposal-apply-plan/apply"
@@ -298,6 +303,9 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("Connector Review Console"));
     assert!(text.contains("meat-memory.connector-debug.v1"));
     assert!(text.contains("connector-apply-confirm"));
+    assert!(text.contains("connector-persist-queue"));
+    assert!(text.contains("connector-load-queue"));
+    assert!(text.contains("/api/v1/compat/connectors/proposal-queue/"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-apply-plan/apply"));
 }
 
@@ -471,6 +479,94 @@ async fn v297_http_connector_proposal_queue_returns_report() {
     assert_eq!(
         payload["coverage_gate"]["new_feature_test_coverage_required"],
         "100%"
+    );
+}
+
+#[tokio::test]
+async fn v297_http_connector_proposal_store_persists_and_reuses_queue() {
+    let tempdir = tempdir().unwrap();
+    let chat_path = tempdir.path().join("chat.json");
+    fs::write(
+        &chat_path,
+        serde_json::json!({
+            "id": "http_queue_store",
+            "title": "HTTP stored queue import",
+            "messages": [
+                {"role": "user", "content": "Persist this connector queue."},
+                {"role": "assistant", "content": "Reuse the stored queue without rescanning."}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let app = build_router(test_state(tempdir.path()));
+    let queue_uri = format!(
+        "/api/v1/compat/connectors/proposal-queue?connector=chat-export&root_path={}&scope_id=scp_http_connector&max_items=5&persist=true",
+        tempdir.path().display()
+    );
+
+    let queue = app
+        .clone()
+        .oneshot(Request::get(queue_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(queue.status(), axum::http::StatusCode::OK);
+    let queue_payload = response_json(queue).await;
+    assert_eq!(queue_payload["proposal_store"]["persisted"], true);
+    assert_eq!(
+        queue_payload["proposal_store"]["load_url"],
+        format!(
+            "/api/v1/compat/connectors/proposal-queue/{}",
+            queue_payload["queue_id"].as_str().unwrap()
+        )
+    );
+    let store_path = queue_payload["proposal_store"]["path"].as_str().unwrap();
+    assert!(std::path::Path::new(store_path).exists());
+    let queue_id = queue_payload["queue_id"].as_str().unwrap();
+    let queue_item_id = queue_payload["queue_items"][0]["queue_item_id"]
+        .as_str()
+        .unwrap();
+    let confirmation_token = queue_payload["queue_items"][0]["review_token"]
+        .as_str()
+        .unwrap();
+
+    fs::remove_file(chat_path).unwrap();
+
+    let stored = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/compat/connectors/proposal-queue/{queue_id}"
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stored.status(), axum::http::StatusCode::OK);
+    let stored_payload = response_json(stored).await;
+    assert_eq!(stored_payload["queue_id"], queue_id);
+    assert_eq!(stored_payload["queue_item_count"], 1);
+
+    let apply_uri = format!(
+        "/api/v1/compat/connectors/proposal-apply-plan?queue_id={queue_id}&approved_queue_item_ids={queue_item_id}&confirmation_token={confirmation_token}"
+    );
+    let apply = app
+        .oneshot(Request::get(apply_uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(apply.status(), axum::http::StatusCode::OK);
+    let apply_payload = response_json(apply).await;
+    assert_eq!(apply_payload["mode"], "proposal_apply_plan");
+    assert_eq!(apply_payload["queue_id"], queue_id);
+    assert_eq!(apply_payload["applicable_count"], 1);
+    assert_eq!(apply_payload["proposal_store"]["persisted"], true);
+    assert!(
+        apply_payload["coverage_gate"]["covered_regions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|region| region == "service_side_proposal_store")
     );
 }
 

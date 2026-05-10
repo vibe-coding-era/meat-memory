@@ -5,9 +5,9 @@
 [v2.97] interface check
     Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
     Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.10s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.74s
 [v2.97] kernel V2.97 connector contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
      Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
 
 running 23 tests
@@ -35,12 +35,12 @@ test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_d
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
 test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
 
-test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.10s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 114 filtered out; finished in 0.08s
 
 [v2.97] CLI V2.97 connector contract
    Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
    Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.64s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.11s
      Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
 
 running 17 tests
@@ -62,32 +62,33 @@ test app::main_tests::connector_proposal_apply_plan_output_helpers_include_paths
 test app::main_tests::connector_proposal_queue_output_helpers_include_paths_policy_and_coverage_gate ... ok
 test app::main_tests::connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate ... ok
 
-test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.03s
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.02s
 
 [v2.97] CLI V2.97 confirmed connector executor contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
      Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
 
 running 1 test
 test app::main_tests::cli_command_functions_cover_pg_management_paths ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.68s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.50s
 
 [v2.97] HTTP V2.97 connector management contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
      Running unittests src/lib.rs (target/debug/deps/memory_http-a69fb5bc13441700)
 
-running 5 tests
+running 6 tests
 test app::lib_tests::v297_http_connector_dry_run_returns_report ... ok
 test app::lib_tests::v297_http_connector_proposal_apply_plan_confirmed_executor_writes_memory ... ok
 test app::lib_tests::v297_http_connector_proposal_apply_plan_returns_plan_only_report ... ok
 test app::lib_tests::v297_http_connector_proposal_queue_returns_report ... ok
+test app::lib_tests::v297_http_connector_proposal_store_persists_and_reuses_queue ... ok
 test app::lib_tests::v297_http_connector_sync_plan_and_import_draft_return_reports ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.10s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.09s
 
 [v2.97] MCP V2.97 connector management contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
      Running unittests src/lib.rs (target/debug/deps/memory_mcp-762b95db191e7ada)
 
 running 5 tests
@@ -97,12 +98,12 @@ test app::lib_tests::v297_mcp_connector_proposal_apply_plan_returns_plan_only_re
 test app::lib_tests::v297_mcp_connector_proposal_queue_returns_report ... ok
 test app::lib_tests::v297_mcp_connector_sync_plan_and_import_draft_return_reports ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.07s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.06s
 
 [v2.97] CLI binary build
    Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
    Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.54s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.52s
 [v2.97] markdown-docs dry-run report
 [v2.97] markdown-docs sync-plan report
 [v2.97] markdown-docs proposal-queue report

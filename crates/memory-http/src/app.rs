@@ -15,18 +15,18 @@ use memory_domain::{
 use memory_kernel::{
     ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
     ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorProposalApplyExecutorRequest,
-    ConnectorProposalApplyPlanRequest, ConnectorProposalQueueRequest, ConnectorSyncPlanRequest,
-    CreateAccessKeyRequest, ImportProjectDocumentRequest, InspectMemoryLifecycleRequest, Kernel,
-    ListAgentContextsRequest, ListProjectDocumentsRequest, PromoteAgentContextRequest,
-    PromoteMemoryRequest, RememberImageRequest, RememberTextRequest, RememberTextResult,
-    SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+    ConnectorProposalApplyPlanRequest, ConnectorProposalQueueReport, ConnectorProposalQueueRequest,
+    ConnectorSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
+    InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
+    PromoteAgentContextRequest, PromoteMemoryRequest, RememberImageRequest, RememberTextRequest,
+    RememberTextResult, SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
     apply_connector_proposal_apply_plan, build_competitor_compatibility_report,
     build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
-    build_connector_proposal_queue_report, build_connector_sync_plan, compatibility_report_json,
-    connector_dry_run_json, connector_import_draft_json,
-    connector_proposal_apply_plan_execution_json, connector_proposal_apply_plan_json,
-    connector_proposal_queue_json, connector_sync_plan_json, health_json, run_connector_dry_run,
-    verification_json, verify_memory_passport_bundle,
+    build_connector_proposal_apply_plan_report_from_queue, build_connector_proposal_queue_report,
+    build_connector_sync_plan, compatibility_report_json, connector_dry_run_json,
+    connector_import_draft_json, connector_proposal_apply_plan_execution_json,
+    connector_proposal_apply_plan_json, connector_proposal_queue_json, connector_sync_plan_json,
+    health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -34,7 +34,7 @@ use memory_sync::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, fs, io::ErrorKind, path::PathBuf, sync::Arc};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::error;
 
@@ -83,6 +83,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/compat/connectors/sync-plan",
     "/api/v1/compat/connectors/import-draft",
     "/api/v1/compat/connectors/proposal-queue",
+    "/api/v1/compat/connectors/proposal-queue/{queue_id}",
     "/api/v1/compat/connectors/proposal-apply-plan",
     "/api/v1/compat/connectors/proposal-apply-plan/apply",
     "/api/v1/images",
@@ -143,6 +144,7 @@ pub struct HttpAppState {
     metadata: ApiMetadata,
     kernel: Arc<Kernel>,
     require_key: bool,
+    connector_proposal_store: Option<ConnectorProposalStore>,
 }
 
 impl HttpAppState {
@@ -152,8 +154,19 @@ impl HttpAppState {
             require_key: metadata.features.require_key,
             metadata,
             kernel,
+            connector_proposal_store: None,
         }
     }
+
+    pub fn with_connector_proposal_store(mut self, root: impl Into<PathBuf>) -> Self {
+        self.connector_proposal_store = Some(ConnectorProposalStore { root: root.into() });
+        self
+    }
+}
+
+#[derive(Clone)]
+struct ConnectorProposalStore {
+    root: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -471,10 +484,12 @@ pub struct ConnectorProposalQueueQuery {
     pub root_path: Option<String>,
     pub scope_id: Option<String>,
     pub max_items: Option<usize>,
+    pub persist: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ConnectorProposalApplyPlanQuery {
+    pub queue_id: Option<String>,
     pub connector: Option<String>,
     pub root_path: Option<String>,
     pub scope_id: Option<String>,
@@ -485,8 +500,9 @@ pub struct ConnectorProposalApplyPlanQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ConnectorProposalApplyPlanApplyRequest {
-    pub connector: String,
-    pub root_path: String,
+    pub queue_id: Option<String>,
+    pub connector: Option<String>,
+    pub root_path: Option<String>,
     pub scope_id: Option<String>,
     pub source_id: Option<String>,
     pub approved_queue_item_ids: Vec<String>,
@@ -681,6 +697,136 @@ impl IntoResponse for ApiError {
     }
 }
 
+impl ConnectorProposalStore {
+    fn queue_path(&self, queue_id: &str) -> Result<PathBuf, ApiError> {
+        let queue_id = queue_id.trim();
+        if queue_id.is_empty() {
+            return Err(ApiError::bad_request("queue_id is required"));
+        }
+        if !queue_id
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || value == '_' || value == '-')
+        {
+            return Err(ApiError::bad_request(
+                "queue_id contains unsupported characters",
+            ));
+        }
+        Ok(self.root.join(format!("{queue_id}.json")))
+    }
+
+    fn save(&self, report: &ConnectorProposalQueueReport) -> Result<PathBuf, ApiError> {
+        fs::create_dir_all(&self.root).map_err(|error| {
+            ApiError::internal(format!(
+                "failed to create connector proposal store {}: {error}",
+                self.root.display()
+            ))
+        })?;
+        let path = self.queue_path(&report.queue_id)?;
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&connector_proposal_queue_json(report)).map_err(
+                |error| {
+                    ApiError::internal(format!(
+                        "failed to serialize connector proposal queue: {error}"
+                    ))
+                },
+            )?,
+        )
+        .map_err(|error| {
+            ApiError::internal(format!(
+                "failed to write connector proposal queue {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(path)
+    }
+
+    fn load(&self, queue_id: &str) -> Result<ConnectorProposalQueueReport, ApiError> {
+        let path = self.queue_path(queue_id)?;
+        let raw = fs::read_to_string(&path).map_err(|error| {
+            if error.kind() == ErrorKind::NotFound {
+                return ApiError::not_found(format!(
+                    "connector proposal queue not found: {queue_id}"
+                ));
+            }
+            ApiError::internal(format!(
+                "failed to read connector proposal queue {}: {error}",
+                path.display()
+            ))
+        })?;
+        serde_json::from_str(&raw).map_err(|error| {
+            ApiError::internal(format!(
+                "failed to parse connector proposal queue {}: {error}",
+                path.display()
+            ))
+        })
+    }
+}
+
+fn connector_proposal_store_required(
+    state: &HttpAppState,
+) -> Result<&ConnectorProposalStore, ApiError> {
+    state
+        .connector_proposal_store
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("connector proposal store is not configured"))
+}
+
+fn connector_proposal_queue_http_json(
+    report: &ConnectorProposalQueueReport,
+    store_path: Option<PathBuf>,
+    store_enabled: bool,
+) -> serde_json::Value {
+    let mut payload = connector_proposal_queue_json(report);
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "proposal_store".to_string(),
+            json!({
+                "enabled": store_enabled,
+                "persisted": store_path.is_some(),
+                "queue_id": report.queue_id,
+                "path": store_path.map(|path| path.display().to_string()),
+                "load_url": format!("/api/v1/compat/connectors/proposal-queue/{}", report.queue_id),
+                "apply_plan_param": format!("queue_id={}", report.queue_id),
+            }),
+        );
+        if let Some(regions) = object
+            .get_mut("coverage_gate")
+            .and_then(|value| value.get_mut("covered_regions"))
+            .and_then(|value| value.as_array_mut())
+        {
+            regions.push(json!("service_side_proposal_store"));
+        }
+    }
+    payload
+}
+
+fn attach_connector_proposal_store_metadata(
+    mut payload: serde_json::Value,
+    queue_id: &str,
+) -> serde_json::Value {
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "proposal_store".to_string(),
+            json!({
+                "enabled": true,
+                "persisted": true,
+                "queue_id": queue_id,
+                "load_url": format!("/api/v1/compat/connectors/proposal-queue/{queue_id}"),
+                "apply_plan_param": format!("queue_id={queue_id}"),
+            }),
+        );
+        if let Some(regions) = object
+            .get_mut("coverage_gate")
+            .and_then(|value| value.get_mut("covered_regions"))
+            .and_then(|value| value.as_array_mut())
+        {
+            regions.push(json!("service_side_proposal_store"));
+        }
+    }
+    payload
+}
+
 pub fn has_route(path: &str) -> bool {
     HTTP_ROUTES.contains(&path)
 }
@@ -733,6 +879,10 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route(
             "/api/v1/compat/connectors/proposal-queue",
             get(compat_connector_proposal_queue),
+        )
+        .route(
+            "/api/v1/compat/connectors/proposal-queue/{queue_id}",
+            get(compat_connector_proposal_queue_get),
         )
         .route(
             "/api/v1/compat/connectors/proposal-apply-plan",
@@ -1967,40 +2117,87 @@ async fn compat_connector_proposal_queue(
         request.max_items = max_items;
     }
     let report = build_connector_proposal_queue_report(request).map_err(api_error_from_anyhow)?;
+    let store_path = if query.persist.unwrap_or(false) {
+        Some(connector_proposal_store_required(&state)?.save(&report)?)
+    } else {
+        None
+    };
 
-    Ok(Json(connector_proposal_queue_json(&report)))
+    Ok(Json(connector_proposal_queue_http_json(
+        &report,
+        store_path,
+        state.connector_proposal_store.is_some(),
+    )))
+}
+
+async fn compat_connector_proposal_queue_get(
+    State(state): State<HttpAppState>,
+    Path(queue_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let report = connector_proposal_store_required(&state)?.load(&queue_id)?;
+
+    Ok(Json(connector_proposal_queue_http_json(
+        &report, None, true,
+    )))
 }
 
 async fn compat_connector_proposal_apply_plan(
     State(state): State<HttpAppState>,
     Query(query): Query<ConnectorProposalApplyPlanQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let connector = required_connector(query.connector)?;
-    let root_path = required_connector_root_path(query.root_path)?;
-    let scope_id = query
-        .scope_id
-        .map(ScopeId::from_string)
-        .unwrap_or_else(|| state.default_scope_id.clone());
     let approved_queue_item_ids =
         required_csv_values(query.approved_queue_item_ids, "approved_queue_item_ids")?;
     let confirmation_token = query
         .confirmation_token
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ApiError::bad_request("confirmation_token is required"))?;
-    let mut request = ConnectorProposalApplyPlanRequest::new(
-        connector,
-        PathBuf::from(root_path),
-        scope_id,
-        approved_queue_item_ids,
-        confirmation_token,
-    );
-    if let Some(max_items) = query.max_items {
-        request.max_items = max_items;
-    }
-    let report =
-        build_connector_proposal_apply_plan_report(request).map_err(api_error_from_anyhow)?;
+    let stored_queue_id = query.queue_id.filter(|value| !value.trim().is_empty());
+    let report = if let Some(queue_id) = stored_queue_id.as_deref() {
+        let queue = connector_proposal_store_required(&state)?.load(queue_id)?;
+        if let Some(connector) = query.connector.filter(|value| !value.trim().is_empty()) {
+            if connector != queue.connector {
+                return Err(ApiError::bad_request(format!(
+                    "queue_id {queue_id} belongs to connector {}, not {connector}",
+                    queue.connector
+                )));
+            }
+        }
+        build_connector_proposal_apply_plan_report_from_queue(
+            queue,
+            approved_queue_item_ids,
+            confirmation_token,
+        )
+        .map_err(api_error_from_anyhow)?
+    } else {
+        let connector = required_connector(query.connector)?;
+        let root_path = required_connector_root_path(query.root_path)?;
+        let scope_id = query
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| state.default_scope_id.clone());
+        let mut request = ConnectorProposalApplyPlanRequest::new(
+            connector,
+            PathBuf::from(root_path),
+            scope_id,
+            approved_queue_item_ids,
+            confirmation_token,
+        );
+        if let Some(max_items) = query.max_items {
+            request.max_items = max_items;
+        }
+        build_connector_proposal_apply_plan_report(request).map_err(api_error_from_anyhow)?
+    };
 
-    Ok(Json(connector_proposal_apply_plan_json(&report)))
+    let payload = if let Some(queue_id) = stored_queue_id.as_deref() {
+        attach_connector_proposal_store_metadata(
+            connector_proposal_apply_plan_json(&report),
+            queue_id,
+        )
+    } else {
+        connector_proposal_apply_plan_json(&report)
+    };
+
+    Ok(Json(payload))
 }
 
 async fn compat_connector_proposal_apply_plan_apply(
@@ -2009,13 +2206,6 @@ async fn compat_connector_proposal_apply_plan_apply(
     Json(payload): Json<ConnectorProposalApplyPlanApplyRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let context = resolve_required_http_context(&state, &headers).await?;
-    let connector = required_connector(Some(payload.connector))?;
-    let root_path = required_connector_root_path(Some(payload.root_path))?;
-    let scope_id = payload
-        .scope_id
-        .map(ScopeId::from_string)
-        .unwrap_or_else(|| context.owner_scope_id.clone());
-    ensure_context_scope_access(&context, &scope_id)?;
     if payload.approved_queue_item_ids.is_empty() {
         return Err(ApiError::bad_request("approved_queue_item_ids is required"));
     }
@@ -2025,16 +2215,50 @@ async fn compat_connector_proposal_apply_plan_apply(
         payload.confirmation_token
     };
     let max_items = payload.max_items.unwrap_or(100);
-    let mut plan_request = ConnectorProposalApplyPlanRequest::new(
-        connector,
-        PathBuf::from(root_path),
-        scope_id.clone(),
-        payload.approved_queue_item_ids,
-        confirmation_token,
-    );
-    plan_request.max_items = max_items;
-    let report =
-        build_connector_proposal_apply_plan_report(plan_request).map_err(api_error_from_anyhow)?;
+    let stored_queue_id = payload.queue_id.filter(|value| !value.trim().is_empty());
+    let (report, scope_id) = if let Some(queue_id) = stored_queue_id.as_deref() {
+        let queue = connector_proposal_store_required(&state)?.load(queue_id)?;
+        if let Some(connector) = payload.connector.filter(|value| !value.trim().is_empty()) {
+            if connector != queue.connector {
+                return Err(ApiError::bad_request(format!(
+                    "queue_id {queue_id} belongs to connector {}, not {connector}",
+                    queue.connector
+                )));
+            }
+        }
+        let scope_id = if let Some(scope_id) = payload.scope_id {
+            ScopeId::from_string(scope_id)
+        } else {
+            connector_queue_selected_scope(&queue, &payload.approved_queue_item_ids)?
+        };
+        ensure_context_scope_access(&context, &scope_id)?;
+        let report = build_connector_proposal_apply_plan_report_from_queue(
+            queue,
+            payload.approved_queue_item_ids,
+            confirmation_token,
+        )
+        .map_err(api_error_from_anyhow)?;
+        (report, scope_id)
+    } else {
+        let connector = required_connector(payload.connector)?;
+        let root_path = required_connector_root_path(payload.root_path)?;
+        let scope_id = payload
+            .scope_id
+            .map(ScopeId::from_string)
+            .unwrap_or_else(|| context.owner_scope_id.clone());
+        ensure_context_scope_access(&context, &scope_id)?;
+        let mut plan_request = ConnectorProposalApplyPlanRequest::new(
+            connector,
+            PathBuf::from(root_path),
+            scope_id.clone(),
+            payload.approved_queue_item_ids,
+            confirmation_token,
+        );
+        plan_request.max_items = max_items;
+        let report = build_connector_proposal_apply_plan_report(plan_request)
+            .map_err(api_error_from_anyhow)?;
+        (report, scope_id)
+    };
     let mut apply_request =
         ConnectorProposalApplyExecutorRequest::new(report.clone(), scope_id, context);
     apply_request.source_id = payload.source_id.map(SourceId::from_string);
@@ -2043,9 +2267,14 @@ async fn compat_connector_proposal_apply_plan_apply(
         .await
         .map_err(api_error_from_anyhow)?;
 
-    Ok(Json(connector_proposal_apply_plan_execution_json(
-        &report, &execution,
-    )))
+    let payload = connector_proposal_apply_plan_execution_json(&report, &execution);
+    let payload = if let Some(queue_id) = stored_queue_id.as_deref() {
+        attach_connector_proposal_store_metadata(payload, queue_id)
+    } else {
+        payload
+    };
+
+    Ok(Json(payload))
 }
 
 fn required_connector(raw: Option<String>) -> Result<String, ApiError> {
@@ -2071,6 +2300,34 @@ fn required_csv_values(raw: Option<String>, field: &'static str) -> Result<Vec<S
         return Err(ApiError::bad_request(format!("{field} is required")));
     }
     Ok(values)
+}
+
+fn connector_queue_selected_scope(
+    queue: &ConnectorProposalQueueReport,
+    approved_queue_item_ids: &[String],
+) -> Result<ScopeId, ApiError> {
+    let mut selected_scope_id: Option<ScopeId> = None;
+    for queue_item_id in approved_queue_item_ids {
+        let item = queue
+            .queue_items
+            .iter()
+            .find(|item| item.queue_item_id == *queue_item_id)
+            .ok_or_else(|| {
+                ApiError::bad_request(format!(
+                    "unknown connector proposal queue item in store: {queue_item_id}"
+                ))
+            })?;
+        match &selected_scope_id {
+            Some(scope_id) if *scope_id != item.scope_id => {
+                return Err(ApiError::bad_request(
+                    "approved connector queue items span multiple scopes",
+                ));
+            }
+            Some(_) => {}
+            None => selected_scope_id = Some(item.scope_id.clone()),
+        }
+    }
+    selected_scope_id.ok_or_else(|| ApiError::bad_request("approved_queue_item_ids is required"))
 }
 
 fn report_input_dir(input_dir: Option<String>, default_dir: &str) -> PathBuf {
@@ -3532,10 +3789,13 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             <div class="chat-composer" style="margin-top: 10px;">
               <input id="connector-queue-item-ids" class="chat-input" placeholder="approved_queue_item_ids, comma separated" />
               <input id="connector-confirmation-token" class="chat-input" placeholder="confirmation_token" />
+              <input id="connector-queue-id" class="chat-input" placeholder="queue_id (optional persisted proposal queue)" />
             </div>
             <div class="chip-row" style="margin-top: 10px;">
               <button type="button" class="toolbar-button" id="connector-dry-run">Dry Run</button>
               <button type="button" class="toolbar-button" id="connector-proposal-queue">Proposal Queue</button>
+              <button type="button" class="toolbar-button" id="connector-persist-queue">Persist Queue</button>
+              <button type="button" class="toolbar-button" id="connector-load-queue">Load Queue</button>
               <button type="button" class="toolbar-button" id="connector-apply-plan">Apply Plan</button>
               <button type="button" class="send-button" id="connector-apply-confirm">Confirmed Apply</button>
             </div>
@@ -3643,8 +3903,11 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const connectorMaxItemsEl = document.getElementById("connector-max-items");
     const connectorQueueItemIdsEl = document.getElementById("connector-queue-item-ids");
     const connectorConfirmationTokenEl = document.getElementById("connector-confirmation-token");
+    const connectorQueueIdEl = document.getElementById("connector-queue-id");
     const connectorDryRunEl = document.getElementById("connector-dry-run");
     const connectorProposalQueueEl = document.getElementById("connector-proposal-queue");
+    const connectorPersistQueueEl = document.getElementById("connector-persist-queue");
+    const connectorLoadQueueEl = document.getElementById("connector-load-queue");
     const connectorApplyPlanEl = document.getElementById("connector-apply-plan");
     const connectorApplyConfirmEl = document.getElementById("connector-apply-confirm");
     const connectorStatusEl = document.getElementById("connector-status");
@@ -3766,6 +4029,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
         connectorMaxItemsEl.value = String(persisted.maxItems || "20");
         connectorQueueItemIdsEl.value = String(persisted.queueItemIds || "");
         connectorConfirmationTokenEl.value = String(persisted.confirmationToken || "");
+        connectorQueueIdEl.value = String(persisted.queueId || "");
       } catch (_error) {
       }
     }
@@ -3783,6 +4047,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             maxItems: connectorMaxItemsEl.value.trim(),
             queueItemIds: connectorQueueItemIdsEl.value.trim(),
             confirmationToken: connectorConfirmationTokenEl.value.trim(),
+            queueId: connectorQueueIdEl.value.trim(),
           })
         );
       } catch (_error) {
@@ -4388,13 +4653,23 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     }
 
     function connectorQueryUrl(path, options) {
-      const rootPath = requireConnectorRootPath();
+      const queueId = connectorQueueIdEl.value.trim();
+      const allowQueueIdOnly = options && options.allowQueueIdOnly && queueId;
+      const rootPath = allowQueueIdOnly ? connectorRootPathEl.value.trim() : requireConnectorRootPath();
       const maxItems = connectorMaxItems();
       const params = new URLSearchParams();
-      params.set("connector", connectorNameEl.value || "chat-export");
-      params.set("root_path", rootPath);
+      if (options && options.includeQueueId && queueId) {
+        params.set("queue_id", queueId);
+      }
+      if (rootPath) {
+        params.set("connector", connectorNameEl.value || "chat-export");
+        params.set("root_path", rootPath);
+      }
       if (options && options.includeScope) {
         params.set("scope_id", connectorScopeId());
+      }
+      if (options && options.persist) {
+        params.set("persist", "true");
       }
       if (options && options.includeReview) {
         const queueItemIds = connectorQueueItemIds();
@@ -4413,6 +4688,10 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
     function renderConnectorReport(payload) {
       state.connectorReport = payload;
+      if (payload.queue_id) {
+        connectorQueueIdEl.value = String(payload.queue_id);
+        saveConnectorDebugState();
+      }
 
       const queueItems = Array.isArray(payload.queue_items) ? payload.queue_items : [];
       if (queueItems.length) {
@@ -4470,6 +4749,29 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       }
     }
 
+    async function loadStoredConnectorQueue() {
+      saveConnectorDebugState();
+      setConnectorStatus("正在加载 Persisted Queue...");
+      connectorMetaEl.classList.add("hidden");
+      connectorMetaEl.innerHTML = "";
+      connectorOutputEl.classList.add("hidden");
+      connectorOutputEl.textContent = "";
+
+      try {
+        const queueId = connectorQueueIdEl.value.trim();
+        if (!queueId) {
+          throw new Error("请先填写 queue_id。");
+        }
+        const payload = await fetchJson(
+          "/api/v1/compat/connectors/proposal-queue/" + encodeURIComponent(queueId)
+        );
+        renderConnectorReport(payload);
+        setConnectorStatus("Persisted Queue 已加载。");
+      } catch (error) {
+        setConnectorStatus("Persisted Queue 加载失败：" + String(error));
+      }
+    }
+
     async function applyConnectorReport() {
       saveConnectorDebugState();
       setConnectorStatus("正在执行 Confirmed Apply...");
@@ -4480,7 +4782,8 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
       try {
         const rawKey = connectorKeyEl.value.trim();
-        const rootPath = requireConnectorRootPath();
+        const queueId = connectorQueueIdEl.value.trim();
+        const rootPath = queueId ? connectorRootPathEl.value.trim() : requireConnectorRootPath();
         const maxItems = connectorMaxItems();
         const queueItemIds = connectorQueueItemIds();
         const confirmationToken = connectorConfirmationTokenEl.value.trim();
@@ -4492,12 +4795,19 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
         }
 
         const body = {
-          connector: connectorNameEl.value || "chat-export",
-          root_path: rootPath,
-          scope_id: connectorScopeId(),
           approved_queue_item_ids: queueItemIds,
           confirmation_token: confirmationToken,
         };
+        if (queueId) {
+          body.queue_id = queueId;
+        }
+        if (rootPath) {
+          body.connector = connectorNameEl.value || "chat-export";
+          body.root_path = rootPath;
+        }
+        if (!queueId || connectorScopeIdEl.value.trim()) {
+          body.scope_id = connectorScopeId();
+        }
         const sourceId = connectorSourceIdEl.value.trim();
         if (sourceId) {
           body.source_id = sourceId;
@@ -4560,6 +4870,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       connectorMaxItemsEl,
       connectorQueueItemIdsEl,
       connectorConfirmationTokenEl,
+      connectorQueueIdEl,
     ].forEach((element) => {
       element.addEventListener("input", saveConnectorDebugState);
       element.addEventListener("change", saveConnectorDebugState);
@@ -4604,8 +4915,12 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     connectorProposalQueueEl.addEventListener("click", () => {
       loadConnectorReport("Proposal Queue", "/api/v1/compat/connectors/proposal-queue", { includeScope: true, includeReview: false });
     });
+    connectorPersistQueueEl.addEventListener("click", () => {
+      loadConnectorReport("Persist Queue", "/api/v1/compat/connectors/proposal-queue", { includeScope: true, includeReview: false, persist: true });
+    });
+    connectorLoadQueueEl.addEventListener("click", loadStoredConnectorQueue);
     connectorApplyPlanEl.addEventListener("click", () => {
-      loadConnectorReport("Apply Plan", "/api/v1/compat/connectors/proposal-apply-plan", { includeScope: true, includeReview: true });
+      loadConnectorReport("Apply Plan", "/api/v1/compat/connectors/proposal-apply-plan", { includeScope: true, includeReview: true, includeQueueId: true, allowQueueIdOnly: true });
     });
     connectorApplyConfirmEl.addEventListener("click", applyConnectorReport);
 
