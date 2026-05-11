@@ -882,7 +882,10 @@ fn build_web_crawler_sync_plan(
     let mut documents = Vec::new();
     let mut blocked_urls = Vec::new();
     let mut fetch_failures = Vec::new();
+    let mut not_modified_urls = Vec::new();
+    let mut redirect_chains = Vec::new();
     let url_manifest = web_url_manifest(&root)?;
+    let url_validators = web_url_validators(&root)?;
 
     for path in files {
         if documents.len() >= request.max_items {
@@ -919,8 +922,8 @@ fn build_web_crawler_sync_plan(
             if documents.len() >= request.max_items {
                 break;
             }
-            match web_page_remote_sync_candidate(&root, url, &allowlist_domains) {
-                Ok(parsed) => {
+            match web_page_remote_sync_candidate(&root, url, &allowlist_domains, &url_validators) {
+                Ok(WebRemoteFetchOutcome::Candidate(parsed)) => {
                     seen.insert(parsed.canonical_uri.clone());
                     if !parsed.allowlist_allowed {
                         blocked_urls.push(json!({
@@ -928,6 +931,12 @@ fn build_web_crawler_sync_plan(
                             "relative_path": parsed.relative_path,
                         }));
                         continue;
+                    }
+                    if parsed.metadata["redirect_count"].as_u64().unwrap_or(0) > 0 {
+                        redirect_chains.push(json!({
+                            "canonical_url": parsed.canonical_uri,
+                            "redirects": parsed.metadata["redirects"].clone(),
+                        }));
                     }
                     let content_hash =
                         memory_domain::Artifact::compute_content_hash(&parsed.content_text);
@@ -947,6 +956,19 @@ fn build_web_crawler_sync_plan(
                         sync_state,
                         metadata: parsed.metadata,
                     });
+                }
+                Ok(WebRemoteFetchOutcome::NotModified {
+                    canonical_uri,
+                    metadata,
+                }) => {
+                    if metadata["redirect_count"].as_u64().unwrap_or(0) > 0 {
+                        redirect_chains.push(json!({
+                            "canonical_url": canonical_uri,
+                            "redirects": metadata["redirects"].clone(),
+                        }));
+                    }
+                    seen.insert(canonical_uri);
+                    not_modified_urls.push(metadata);
                 }
                 Err(error) => fetch_failures.push(json!({
                     "url": url,
@@ -992,11 +1014,17 @@ fn build_web_crawler_sync_plan(
         "blocked_count": blocked_urls.len(),
         "blocked_urls": blocked_urls,
         "fetch_failures": fetch_failures,
+        "not_modified_count": not_modified_urls.len(),
+        "not_modified_urls": not_modified_urls,
+        "redirect_count": redirect_chains.len(),
+        "redirects": redirect_chains,
         "remote_fetch_allowed": request.allow_remote_fetch,
         "remote_network": request.allow_remote_fetch,
         "safe_default": "local_snapshot_only_no_remote_fetch",
         "url_manifest": "urls.txt",
         "url_manifest_count": url_manifest.len(),
+        "validator_manifest": "url-validators.json",
+        "validator_manifest_count": url_validators.len(),
         "update_detection": ["canonical_url", "content_hash", "etag", "last_modified"],
     });
     let planned_count = documents.len();
@@ -1046,6 +1074,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "sync_plan_evidence_preview",
                 "web_crawler_sync_plan",
                 "web_crawler_remote_fetch_policy",
+                "web_crawler_redirect_conditional_request",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -2479,6 +2508,14 @@ struct WebPageSyncCandidate {
     metadata: Value,
 }
 
+enum WebRemoteFetchOutcome {
+    Candidate(WebPageSyncCandidate),
+    NotModified {
+        canonical_uri: String,
+        metadata: Value,
+    },
+}
+
 fn web_page_sync_candidate(
     root_path: &Path,
     path: &Path,
@@ -2529,52 +2566,75 @@ fn web_page_remote_sync_candidate(
     _root_path: &Path,
     url: &str,
     allowlist_domains: &[String],
-) -> Result<WebPageSyncCandidate> {
+    url_validators: &BTreeMap<String, WebUrlValidator>,
+) -> Result<WebRemoteFetchOutcome> {
     let requested = parse_http_url(url)?;
     if !web_url_allowed(url, allowlist_domains) {
-        return Ok(web_blocked_sync_candidate(
-            url,
-            url,
-            "allowlist",
-            json!({
-                "requested_url": url,
-                "remote_network": false,
-            }),
+        return Ok(WebRemoteFetchOutcome::Candidate(
+            web_blocked_sync_candidate(
+                url,
+                url,
+                "allowlist",
+                json!({
+                    "requested_url": url,
+                    "remote_network": false,
+                }),
+            ),
         ));
     }
 
-    let robots_url = requested.robots_url();
-    let robots_response = web_fetch_url(&robots_url)?;
-    let robots_body = if (200..300).contains(&robots_response.status_code) {
-        robots_response.body.as_str()
-    } else {
-        ""
-    };
-    let robots_path = requested.path_without_query();
-    let robots_allowed = web_robots_allows(robots_body, &robots_path);
-    if !robots_allowed {
-        return Ok(web_blocked_sync_candidate(
-            url,
-            url,
-            "robots",
-            json!({
+    let fetch = web_fetch_remote_url(url, allowlist_domains, url_validators)?;
+    let Some(response) = fetch.response else {
+        let final_url = fetch.final_url;
+        let redirects = fetch.redirects;
+        if !fetch.robots_allowed {
+            return Ok(WebRemoteFetchOutcome::Candidate(
+                web_blocked_sync_candidate(
+                    url,
+                    &final_url,
+                    "robots",
+                    json!({
+                        "requested_url": url,
+                        "canonical_url": final_url,
+                        "remote_network": true,
+                        "fetch_policy": "remote_fetch_opt_in",
+                        "redirect_count": redirects.len(),
+                        "redirects": redirects,
+                        "robots_allowed": false,
+                        "robots_status": fetch.robots_status,
+                        "robots_url": fetch.robots_url,
+                    }),
+                ),
+            ));
+        }
+        return Ok(WebRemoteFetchOutcome::NotModified {
+            canonical_uri: final_url.clone(),
+            metadata: json!({
                 "requested_url": url,
-                "robots_url": robots_url,
-                "robots_status": robots_response.status_code,
-                "robots_allowed": false,
+                "canonical_url": final_url,
+                "http_status": 304,
                 "remote_network": true,
+                "fetch_policy": "remote_fetch_opt_in",
+                "conditional_request": true,
+                "etag": fetch.validator.as_ref().and_then(|validator| validator.etag.as_ref()),
+                "last_modified": fetch.validator.as_ref().and_then(|validator| validator.last_modified.as_ref()),
+                "redirect_count": redirects.len(),
+                "redirects": redirects,
+                "robots_allowed": fetch.robots_allowed,
+                "robots_status": fetch.robots_status,
+                "robots_url": fetch.robots_url,
             }),
-        ));
-    }
-
-    let response = web_fetch_url(url)?;
+        });
+    };
     if !(200..300).contains(&response.status_code) {
         bail!("remote fetch returned HTTP {}", response.status_code);
     }
 
-    let canonical_uri = html_canonical_url(&response.body).unwrap_or_else(|| url.to_string());
+    let canonical_uri =
+        html_canonical_url(&response.body).unwrap_or_else(|| fetch.final_url.clone());
     let title = html_title(&response.body).unwrap_or_else(|| {
-        requested
+        parse_http_url(&fetch.final_url)
+            .unwrap_or_else(|_| requested.clone())
             .path_without_query()
             .rsplit('/')
             .find(|segment| !segment.is_empty())
@@ -2599,19 +2659,23 @@ fn web_page_remote_sync_candidate(
         "http_status": response.status_code,
         "etag": response.headers.get("etag"),
         "last_modified": response.headers.get("last-modified"),
-        "robots_allowed": true,
-        "robots_status": robots_response.status_code,
-        "robots_url": robots_url,
+        "conditional_request": fetch.validator.is_some(),
+        "redirect_count": fetch.redirects.len(),
+        "redirects": fetch.redirects,
+        "final_url": fetch.final_url,
+        "robots_allowed": fetch.robots_allowed,
+        "robots_status": fetch.robots_status,
+        "robots_url": fetch.robots_url,
     });
 
-    Ok(WebPageSyncCandidate {
+    Ok(WebRemoteFetchOutcome::Candidate(WebPageSyncCandidate {
         canonical_uri,
         relative_path: url.to_string(),
         title,
         content_text,
         allowlist_allowed,
         metadata,
-    })
+    }))
 }
 
 fn web_blocked_sync_candidate(
@@ -2728,6 +2792,48 @@ fn web_url_manifest(root_path: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebUrlValidator {
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+fn web_url_validators(root_path: &Path) -> Result<BTreeMap<String, WebUrlValidator>> {
+    let path = root_path.join("url-validators.json");
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", path.display()));
+        }
+    };
+    let value: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let Some(object) = value.as_object() else {
+        bail!("url validators manifest must be a JSON object");
+    };
+    Ok(object
+        .iter()
+        .filter_map(|(url, entry)| {
+            let entry = entry.as_object()?;
+            Some((
+                url.to_string(),
+                WebUrlValidator {
+                    etag: entry
+                        .get("etag")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    last_modified: entry
+                        .get("last_modified")
+                        .or_else(|| entry.get("last-modified"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                },
+            ))
+        })
+        .collect())
+}
+
 fn web_url_allowed(url: &str, allowlist_domains: &[String]) -> bool {
     if allowlist_domains.is_empty() || url.starts_with("file://") {
         return true;
@@ -2793,6 +2899,16 @@ struct WebHttpResponse {
     body: String,
 }
 
+struct WebRemoteFetch {
+    final_url: String,
+    response: Option<WebHttpResponse>,
+    redirects: Vec<Value>,
+    validator: Option<WebUrlValidator>,
+    robots_allowed: bool,
+    robots_status: u16,
+    robots_url: String,
+}
+
 fn parse_http_url(url: &str) -> Result<ParsedHttpUrl> {
     let tail = url
         .strip_prefix("http://")
@@ -2816,7 +2932,84 @@ fn parse_http_url(url: &str) -> Result<ParsedHttpUrl> {
     })
 }
 
-fn web_fetch_url(url: &str) -> Result<WebHttpResponse> {
+fn web_fetch_remote_url(
+    url: &str,
+    allowlist_domains: &[String],
+    url_validators: &BTreeMap<String, WebUrlValidator>,
+) -> Result<WebRemoteFetch> {
+    let mut current_url = url.to_string();
+    let mut redirects = Vec::new();
+
+    for _ in 0..5 {
+        if !web_url_allowed(&current_url, allowlist_domains) {
+            bail!("redirect target is blocked by allowlist: {current_url}");
+        }
+        let parsed = parse_http_url(&current_url)?;
+        let robots_url = parsed.robots_url();
+        let robots_response = web_fetch_url(&robots_url, None)?;
+        let robots_body = if (200..300).contains(&robots_response.status_code) {
+            robots_response.body.as_str()
+        } else {
+            ""
+        };
+        let robots_path = parsed.path_without_query();
+        let robots_allowed = web_robots_allows(robots_body, &robots_path);
+        if !robots_allowed {
+            return Ok(WebRemoteFetch {
+                final_url: current_url,
+                response: None,
+                redirects,
+                validator: None,
+                robots_allowed: false,
+                robots_status: robots_response.status_code,
+                robots_url,
+            });
+        }
+
+        let validator = url_validators
+            .get(&current_url)
+            .or_else(|| url_validators.get(url))
+            .cloned();
+        let response = web_fetch_url(&current_url, validator.as_ref())?;
+        if response.status_code == 304 {
+            return Ok(WebRemoteFetch {
+                final_url: current_url,
+                response: None,
+                redirects,
+                validator,
+                robots_allowed: true,
+                robots_status: robots_response.status_code,
+                robots_url,
+            });
+        }
+        if web_is_redirect_status(response.status_code) {
+            let Some(location) = response.headers.get("location") else {
+                bail!("remote redirect response missing Location header");
+            };
+            let next_url = resolve_http_redirect_url(&current_url, location)?;
+            redirects.push(json!({
+                "from": current_url,
+                "to": next_url,
+                "http_status": response.status_code,
+            }));
+            current_url = next_url;
+            continue;
+        }
+        return Ok(WebRemoteFetch {
+            final_url: current_url,
+            response: Some(response),
+            redirects,
+            validator,
+            robots_allowed: true,
+            robots_status: robots_response.status_code,
+            robots_url,
+        });
+    }
+
+    bail!("remote fetch exceeded redirect limit")
+}
+
+fn web_fetch_url(url: &str, validator: Option<&WebUrlValidator>) -> Result<WebHttpResponse> {
     let parsed = parse_http_url(url)?;
     let mut stream = TcpStream::connect((parsed.host.as_str(), parsed.port))
         .with_context(|| format!("failed to connect to {}", parsed.host_header()))?;
@@ -2826,10 +3019,20 @@ fn web_fetch_url(url: &str) -> Result<WebHttpResponse> {
     stream
         .set_write_timeout(Some(Duration::from_secs(5)))
         .context("failed to configure remote fetch write timeout")?;
+    let mut conditional_headers = String::new();
+    if let Some(validator) = validator {
+        if let Some(etag) = &validator.etag {
+            conditional_headers.push_str(&format!("If-None-Match: {etag}\r\n"));
+        }
+        if let Some(last_modified) = &validator.last_modified {
+            conditional_headers.push_str(&format!("If-Modified-Since: {last_modified}\r\n"));
+        }
+    }
     let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: meat-memory-web-crawler/2.97\r\nAccept: text/html,text/plain;q=0.9,*/*;q=0.1\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: meat-memory-web-crawler/2.97\r\nAccept: text/html,text/plain;q=0.9,*/*;q=0.1\r\n{}Connection: close\r\n\r\n",
         parsed.path_and_query,
-        parsed.host_header()
+        parsed.host_header(),
+        conditional_headers
     );
     stream
         .write_all(request.as_bytes())
@@ -2865,6 +3068,36 @@ fn web_fetch_url(url: &str) -> Result<WebHttpResponse> {
         headers,
         body: body.to_string(),
     })
+}
+
+fn web_is_redirect_status(status_code: u16) -> bool {
+    matches!(status_code, 301 | 302 | 303 | 307 | 308)
+}
+
+fn resolve_http_redirect_url(current_url: &str, location: &str) -> Result<String> {
+    let location = location.trim();
+    if location.starts_with("http://") {
+        return Ok(location.to_string());
+    }
+    if location.starts_with("https://") {
+        bail!("remote fetch currently supports http:// redirects only");
+    }
+    let parsed = parse_http_url(current_url)?;
+    if location.starts_with('/') {
+        return Ok(format!("http://{}{}", parsed.host_header(), location));
+    }
+    let current_path = parsed.path_without_query();
+    let current_dir = current_path
+        .rsplit_once('/')
+        .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
+        .unwrap_or("/");
+    Ok(format!(
+        "http://{}{}{}{}",
+        parsed.host_header(),
+        current_dir,
+        if current_dir.ends_with('/') { "" } else { "/" },
+        location
+    ))
 }
 
 fn web_robots_allows(robots_text: &str, path: &str) -> bool {
@@ -4438,6 +4671,132 @@ mod tests {
         );
     }
 
+    #[test]
+    fn v297_web_crawler_remote_fetch_follows_redirects() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "127.0.0.1\n").unwrap();
+        let (base_url, handle) = spawn_web_fixture_server_with_responder(
+            4,
+            |request, server_base_url| {
+                let first_line = request.lines().next().unwrap_or("");
+                if first_line.contains("GET /robots.txt ") {
+                    return http_response("text/plain", "User-agent: *\nAllow: /\n", &[]);
+                }
+                if first_line.contains("GET /start ") {
+                    return http_status_response(
+                        "302 Found",
+                        "text/plain",
+                        "",
+                        &[("Location", "/final")],
+                    );
+                }
+                if first_line.contains("GET /final ") {
+                    return http_response(
+                        "text/html",
+                        &format!(
+                            "<!doctype html><html><head><link rel=\"canonical\" href=\"{server_base_url}/final\" /><title>Redirected Page</title></head><body><p>Redirected body.</p></body></html>"
+                        ),
+                        &[("ETag", "\"redirected\"")],
+                    );
+                }
+                panic!("unexpected fixture request: {first_line}");
+            },
+        );
+        let start_url = format!("{base_url}/start");
+        let final_url = format!("{base_url}/final");
+        fs::write(tempdir.path().join("urls.txt"), format!("{start_url}\n")).unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.allow_remote_fetch = true;
+        let output = build_connector_sync_plan(request).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].canonical_uri, final_url);
+        assert_eq!(output.report.documents[0].metadata["redirect_count"], 1);
+        assert_eq!(output.report.documents[0].metadata["final_url"], final_url);
+        assert_eq!(
+            output.report.documents[0].metadata["redirects"][0]["from"],
+            start_url
+        );
+        assert_eq!(
+            output.report.documents[0].metadata["redirects"][0]["to"],
+            final_url
+        );
+        assert_eq!(output.report.incremental_checkpoint["redirect_count"], 1);
+    }
+
+    #[test]
+    fn v297_web_crawler_remote_fetch_sends_conditional_validators() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "127.0.0.1\n").unwrap();
+        let (base_url, handle) =
+            spawn_web_fixture_server_with_responder(2, |request, _server_base_url| {
+                let first_line = request.lines().next().unwrap_or("");
+                if first_line.contains("GET /robots.txt ") {
+                    return http_response("text/plain", "User-agent: *\nAllow: /\n", &[]);
+                }
+                assert!(first_line.contains("GET /docs/page "));
+                assert!(
+                    request.contains("If-None-Match: \"cached\""),
+                    "expected conditional ETag header in request: {request}"
+                );
+                assert!(
+                    request.contains("If-Modified-Since: Sun, 10 May 2026 00:00:00 GMT"),
+                    "expected conditional Last-Modified header in request: {request}"
+                );
+                http_status_response("304 Not Modified", "text/plain", "", &[])
+            });
+        let page_url = format!("{base_url}/docs/page");
+        fs::write(tempdir.path().join("urls.txt"), format!("{page_url}\n")).unwrap();
+        let mut validators = serde_json::Map::new();
+        validators.insert(
+            page_url.clone(),
+            json!({
+                "etag": "\"cached\"",
+                "last_modified": "Sun, 10 May 2026 00:00:00 GMT",
+            }),
+        );
+        fs::write(
+            tempdir.path().join("url-validators.json"),
+            Value::Object(validators).to_string(),
+        )
+        .unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.allow_remote_fetch = true;
+        let output = build_connector_sync_plan(request).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(output.report.planned_count, 0);
+        assert_eq!(
+            output.report.incremental_checkpoint["validator_manifest_count"],
+            1
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["not_modified_count"],
+            1
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["not_modified_urls"][0]["canonical_url"],
+            page_url
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["not_modified_urls"][0]["conditional_request"],
+            true
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["not_modified_urls"][0]["etag"],
+            "\"cached\""
+        );
+    }
+
     fn spawn_web_fixture_server<F>(
         robots_body: &'static str,
         page_body: F,
@@ -4445,6 +4804,36 @@ mod tests {
     ) -> (String, thread::JoinHandle<()>)
     where
         F: Fn(&str) -> String + Send + 'static,
+    {
+        spawn_web_fixture_server_with_responder(
+            expected_requests,
+            move |request, server_base_url| {
+                let first_line = request.lines().next().unwrap_or("");
+                if first_line.contains("GET /robots.txt ") {
+                    http_response("text/plain", robots_body, &[])
+                } else {
+                    let path = first_line.split_whitespace().nth(1).unwrap_or("/");
+                    let url = format!("{server_base_url}{path}");
+                    let body = page_body(&url);
+                    http_response(
+                        "text/html",
+                        &body,
+                        &[
+                            ("ETag", "\"v297\""),
+                            ("Last-Modified", "Sun, 10 May 2026 00:00:00 GMT"),
+                        ],
+                    )
+                }
+            },
+        )
+    }
+
+    fn spawn_web_fixture_server_with_responder<F>(
+        expected_requests: usize,
+        responder: F,
+    ) -> (String, thread::JoinHandle<()>)
+    where
+        F: Fn(&str, &str) -> String + Send + 'static,
     {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
@@ -4458,25 +4847,10 @@ mod tests {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         use std::io::{Read as _, Write as _};
-                        let mut buffer = [0_u8; 1024];
+                        let mut buffer = [0_u8; 4096];
                         let bytes_read = stream.read(&mut buffer).unwrap_or(0);
-                        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-                        let first_line = request.lines().next().unwrap_or("");
-                        let response = if first_line.contains("GET /robots.txt ") {
-                            http_response("text/plain", robots_body, &[])
-                        } else {
-                            let path = first_line.split_whitespace().nth(1).unwrap_or("/");
-                            let url = format!("{server_base_url}{path}");
-                            let body = page_body(&url);
-                            http_response(
-                                "text/html",
-                                &body,
-                                &[
-                                    ("ETag", "\"v297\""),
-                                    ("Last-Modified", "Sun, 10 May 2026 00:00:00 GMT"),
-                                ],
-                            )
-                        };
+                        let request = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
+                        let response = responder(&request, &server_base_url);
                         stream.write_all(response.as_bytes()).unwrap();
                         served += 1;
                     }
@@ -4494,8 +4868,17 @@ mod tests {
     }
 
     fn http_response(content_type: &str, body: &str, headers: &[(&str, &str)]) -> String {
+        http_status_response("200 OK", content_type, body, headers)
+    }
+
+    fn http_status_response(
+        status: &str,
+        content_type: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+    ) -> String {
         let mut response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n",
             body.len()
         );
         for (name, value) in headers {

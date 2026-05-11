@@ -12,6 +12,7 @@
       "sync_plan_evidence_preview",
       "web_crawler_sync_plan",
       "web_crawler_remote_fetch_policy",
+      "web_crawler_redirect_conditional_request",
       "connector_sync_plan_projection",
       "cli_parser_and_command"
     ],
@@ -80,6 +81,10 @@
     "blocked_count": 0,
     "blocked_urls": [],
     "fetch_failures": [],
+    "not_modified_count": 0,
+    "not_modified_urls": [],
+    "redirect_count": 0,
+    "redirects": [],
     "remote_fetch_allowed": false,
     "remote_network": false,
     "safe_default": "local_snapshot_only_no_remote_fetch",
@@ -92,7 +97,9 @@
       "last_modified"
     ],
     "url_manifest": "urls.txt",
-    "url_manifest_count": 0
+    "url_manifest_count": 0,
+    "validator_manifest": "url-validators.json",
+    "validator_manifest_count": 0
   },
   "missing_count": 0,
   "mode": "sync_plan",
