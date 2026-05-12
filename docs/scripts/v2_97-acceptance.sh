@@ -363,6 +363,7 @@ assert web_crawler_sync_plan["incremental_checkpoint"]["update_detection"][3] ==
 assert "web_crawler_sync_plan" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_remote_fetch_policy" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_redirect_conditional_request" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert "web_crawler_robots_rule_precedence" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -424,6 +425,7 @@ Covered regions:
 - web-crawler sync-plan / project document projection
 - web-crawler remote fetch policy / robots / validators
 - web-crawler HTTP redirect / conditional request / 304 not-modified checkpoint
+- web-crawler robots exact user-agent / Allow / Disallow precedence
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

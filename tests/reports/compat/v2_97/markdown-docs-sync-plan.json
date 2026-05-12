@@ -12,6 +12,7 @@
       "web_crawler_sync_plan",
       "web_crawler_remote_fetch_policy",
       "web_crawler_redirect_conditional_request",
+      "web_crawler_robots_rule_precedence",
       "connector_sync_plan_projection",
       "cli_parser_and_command"
     ],

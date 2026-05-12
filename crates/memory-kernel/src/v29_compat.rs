@@ -1075,6 +1075,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "web_crawler_sync_plan",
                 "web_crawler_remote_fetch_policy",
                 "web_crawler_redirect_conditional_request",
+                "web_crawler_robots_rule_precedence",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -3101,14 +3102,87 @@ fn resolve_http_redirect_url(current_url: &str, location: &str) -> Result<String
 }
 
 fn web_robots_allows(robots_text: &str, path: &str) -> bool {
-    let mut current_group_matches = false;
-    let mut has_matching_group = false;
-    let mut disallow_rules = Vec::new();
+    let rules = web_robots_rules_for_crawler(robots_text);
+    let mut best_rule = None;
+
+    for rule in rules {
+        if !web_robots_rule_matches(&rule.pattern, path) {
+            continue;
+        }
+        let specificity = web_robots_rule_specificity(&rule.pattern);
+        let allow = matches!(rule.directive, WebRobotsDirective::Allow);
+        match best_rule {
+            Some((best_specificity, best_allow))
+                if best_specificity > specificity
+                    || (best_specificity == specificity && best_allow) => {}
+            _ => best_rule = Some((specificity, allow)),
+        }
+    }
+
+    best_rule.map(|(_, allow)| allow).unwrap_or(true)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum WebRobotsAgentMatch {
+    Wildcard,
+    Exact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WebRobotsDirective {
+    Allow,
+    Disallow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WebRobotsRule {
+    directive: WebRobotsDirective,
+    pattern: String,
+}
+
+fn web_robots_rules_for_crawler(robots_text: &str) -> Vec<WebRobotsRule> {
+    let mut exact_rules = Vec::new();
+    let mut wildcard_rules = Vec::new();
+    let mut group_agent_match = None::<WebRobotsAgentMatch>;
+    let mut group_rules = Vec::new();
+    let mut group_has_user_agent = false;
+    let mut group_has_rules = false;
+    let mut saw_exact_group = false;
+    let mut saw_wildcard_group = false;
+
+    let flush_group = |agent_match: &mut Option<WebRobotsAgentMatch>,
+                       rules: &mut Vec<WebRobotsRule>,
+                       exact_rules: &mut Vec<WebRobotsRule>,
+                       wildcard_rules: &mut Vec<WebRobotsRule>,
+                       saw_exact_group: &mut bool,
+                       saw_wildcard_group: &mut bool| {
+        match agent_match {
+            Some(WebRobotsAgentMatch::Exact) => {
+                *saw_exact_group = true;
+                exact_rules.append(rules);
+            }
+            Some(WebRobotsAgentMatch::Wildcard) => {
+                *saw_wildcard_group = true;
+                wildcard_rules.append(rules);
+            }
+            None => rules.clear(),
+        }
+        *agent_match = None;
+    };
 
     for raw_line in robots_text.lines() {
         let line = raw_line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
-            current_group_matches = false;
+            flush_group(
+                &mut group_agent_match,
+                &mut group_rules,
+                &mut exact_rules,
+                &mut wildcard_rules,
+                &mut saw_exact_group,
+                &mut saw_wildcard_group,
+            );
+            group_has_user_agent = false;
+            group_has_rules = false;
             continue;
         }
         let Some((field, value)) = line.split_once(':') else {
@@ -3117,21 +3191,111 @@ fn web_robots_allows(robots_text: &str, path: &str) -> bool {
         let field = field.trim().to_ascii_lowercase();
         let value = value.trim();
         if field == "user-agent" {
-            current_group_matches =
-                value == "*" || value.eq_ignore_ascii_case("meat-memory-web-crawler");
-            has_matching_group |= current_group_matches;
-        } else if field == "disallow" && current_group_matches {
-            disallow_rules.push(value.to_string());
+            if group_has_rules {
+                flush_group(
+                    &mut group_agent_match,
+                    &mut group_rules,
+                    &mut exact_rules,
+                    &mut wildcard_rules,
+                    &mut saw_exact_group,
+                    &mut saw_wildcard_group,
+                );
+                group_has_rules = false;
+            }
+            group_has_user_agent = true;
+            if let Some(agent_match) = web_robots_agent_match(value) {
+                group_agent_match =
+                    Some(group_agent_match.map_or(agent_match, |current| current.max(agent_match)));
+            }
+        } else if group_has_user_agent && matches!(field.as_str(), "allow" | "disallow") {
+            group_has_rules = true;
+            if value.is_empty() {
+                continue;
+            }
+            group_rules.push(WebRobotsRule {
+                directive: if field == "allow" {
+                    WebRobotsDirective::Allow
+                } else {
+                    WebRobotsDirective::Disallow
+                },
+                pattern: value.to_string(),
+            });
         }
     }
 
-    if !has_matching_group {
-        return true;
+    flush_group(
+        &mut group_agent_match,
+        &mut group_rules,
+        &mut exact_rules,
+        &mut wildcard_rules,
+        &mut saw_exact_group,
+        &mut saw_wildcard_group,
+    );
+
+    if saw_exact_group {
+        exact_rules
+    } else if saw_wildcard_group {
+        wildcard_rules
+    } else {
+        Vec::new()
+    }
+}
+
+fn web_robots_agent_match(value: &str) -> Option<WebRobotsAgentMatch> {
+    if value == "*" {
+        Some(WebRobotsAgentMatch::Wildcard)
+    } else if value.eq_ignore_ascii_case("meat-memory-web-crawler") {
+        Some(WebRobotsAgentMatch::Exact)
+    } else {
+        None
+    }
+}
+
+fn web_robots_rule_specificity(pattern: &str) -> usize {
+    pattern
+        .trim_end_matches('$')
+        .chars()
+        .filter(|character| *character != '*')
+        .count()
+}
+
+fn web_robots_rule_matches(pattern: &str, path: &str) -> bool {
+    let anchored = pattern.ends_with('$');
+    let pattern = pattern.trim_end_matches('$');
+    if !pattern.contains('*') {
+        return if anchored {
+            path == pattern
+        } else {
+            path.starts_with(pattern)
+        };
     }
 
-    disallow_rules
-        .iter()
-        .all(|rule| rule.is_empty() || !path.starts_with(rule))
+    let starts_with_wildcard = pattern.starts_with('*');
+    let ends_with_wildcard = pattern.ends_with('*');
+    let mut remainder = path;
+    let mut first_part = true;
+    let mut matched_any_part = false;
+
+    for part in pattern.split('*').filter(|part| !part.is_empty()) {
+        matched_any_part = true;
+        if first_part && !starts_with_wildcard {
+            let Some(next_remainder) = remainder.strip_prefix(part) else {
+                return false;
+            };
+            remainder = next_remainder;
+        } else {
+            let Some(position) = remainder.find(part) else {
+                return false;
+            };
+            remainder = &remainder[position + part.len()..];
+        }
+        first_part = false;
+    }
+
+    if !matched_any_part {
+        return true;
+    }
+    !anchored || ends_with_wildcard || remainder.is_empty()
 }
 
 fn html_canonical_url(html: &str) -> Option<String> {
@@ -4669,6 +4833,56 @@ mod tests {
             output.report.incremental_checkpoint["remote_fetch_allowed"],
             true
         );
+    }
+
+    #[test]
+    fn v297_web_crawler_robots_rules_prefer_exact_user_agent() {
+        let robots = "\
+User-agent: *
+Disallow: /
+
+User-agent: meat-memory-web-crawler
+Allow: /
+";
+
+        assert!(web_robots_allows(robots, "/docs/page"));
+    }
+
+    #[test]
+    fn v297_web_crawler_robots_rules_keep_empty_exact_group() {
+        let robots = "\
+User-agent: *
+Disallow: /
+
+User-agent: meat-memory-web-crawler
+Disallow:
+";
+
+        assert!(web_robots_allows(robots, "/docs/page"));
+    }
+
+    #[test]
+    fn v297_web_crawler_robots_rules_use_allow_longest_match() {
+        let robots = "\
+User-agent: *
+User-agent: other-crawler
+Disallow: /docs
+Allow: /docs/public
+";
+
+        assert!(web_robots_allows(robots, "/docs/public/page"));
+        assert!(!web_robots_allows(robots, "/docs/private/page"));
+    }
+
+    #[test]
+    fn v297_web_crawler_robots_rules_match_wildcard_and_end_anchor() {
+        let robots = "\
+User-agent: *
+Disallow: /*.pdf$
+";
+
+        assert!(!web_robots_allows(robots, "/files/report.pdf"));
+        assert!(web_robots_allows(robots, "/files/report.pdf/preview"));
     }
 
     #[test]
