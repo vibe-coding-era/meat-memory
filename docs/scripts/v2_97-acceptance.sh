@@ -341,6 +341,7 @@ assert web_crawler_dry_run["items"][0]["metadata"]["canonical_url"] == "https://
 assert web_crawler_dry_run["items"][0]["metadata"]["allowlist_allowed"] is True, web_crawler_dry_run
 assert web_crawler_dry_run["items"][0]["metadata"]["allowlist_domains"][0] == "example.com", web_crawler_dry_run
 assert web_crawler_dry_run["items"][0]["metadata"]["link_count"] == 1, web_crawler_dry_run
+assert web_crawler_dry_run["items"][0]["metadata"]["link_boundary"]["in_scope_count"] == 1, web_crawler_dry_run
 assert web_crawler_dry_run["items"][0]["metadata"]["remote_network"] is False, web_crawler_dry_run
 assert web_crawler_dry_run["items"][0]["metadata"]["visible_text_bytes"] > 0, web_crawler_dry_run
 assert "web_crawler_dry_run" in web_crawler_dry_run["coverage_gate"]["covered_regions"], web_crawler_dry_run
@@ -364,6 +365,7 @@ assert "web_crawler_sync_plan" in web_crawler_sync_plan["coverage_gate"]["covere
 assert "web_crawler_remote_fetch_policy" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_redirect_conditional_request" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_robots_rule_precedence" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert "web_crawler_link_boundary" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -426,6 +428,7 @@ Covered regions:
 - web-crawler remote fetch policy / robots / validators
 - web-crawler HTTP redirect / conditional request / 304 not-modified checkpoint
 - web-crawler robots exact user-agent / Allow / Disallow precedence
+- web-crawler link boundary / in-scope / out-of-scope / blocked / unsupported links
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

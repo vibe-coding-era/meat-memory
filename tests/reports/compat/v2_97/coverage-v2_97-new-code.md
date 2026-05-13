@@ -23,6 +23,7 @@ Covered regions:
 - web-crawler remote fetch policy / robots / validators
 - web-crawler HTTP redirect / conditional request / 304 not-modified checkpoint
 - web-crawler robots exact user-agent / Allow / Disallow precedence
+- web-crawler link boundary / in-scope / out-of-scope / blocked / unsupported links
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

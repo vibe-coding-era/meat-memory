@@ -13,6 +13,7 @@
       "web_crawler_remote_fetch_policy",
       "web_crawler_redirect_conditional_request",
       "web_crawler_robots_rule_precedence",
+      "web_crawler_link_boundary",
       "connector_sync_plan_projection",
       "cli_parser_and_command"
     ],
@@ -31,6 +32,22 @@
         "canonical_url": "https://example.com/v2.97/web-fixture",
         "fetch_policy": "local_snapshot_only_no_remote_fetch",
         "html_content_hash": "dec0ab2ab4c5d503",
+        "link_boundary": {
+          "base_url": "https://example.com/v2.97/web-fixture",
+          "blocked_count": 0,
+          "ignored_count": 0,
+          "in_scope_count": 1,
+          "out_of_scope_count": 0,
+          "resolved_count": 1,
+          "sample_blocked": [],
+          "sample_in_scope": [
+            "https://example.com/docs"
+          ],
+          "sample_out_of_scope": [],
+          "sample_unsupported": [],
+          "total_count": 1,
+          "unsupported_count": 0
+        },
         "link_count": 1,
         "relative_path": "index.html",
         "remote_network": false,

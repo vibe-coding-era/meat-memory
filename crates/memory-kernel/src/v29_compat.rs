@@ -1076,6 +1076,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "web_crawler_remote_fetch_policy",
                 "web_crawler_redirect_conditional_request",
                 "web_crawler_robots_rule_precedence",
+                "web_crawler_link_boundary",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -2492,6 +2493,7 @@ fn web_page_item(
             "allowlist_allowed": allowlist_allowed,
             "allowlist_domains": allowlist_domains,
             "link_count": html_link_count(&html),
+            "link_boundary": web_link_boundary(&html, &canonical_url, allowlist_domains),
             "visible_text_bytes": visible_text.len(),
             "content_hash": stable_hex_hash(&html),
             "remote_network": false,
@@ -2547,6 +2549,7 @@ fn web_page_sync_candidate(
         "allowlist_allowed": allowlist_allowed,
         "allowlist_domains": allowlist_domains,
         "link_count": html_link_count(&html),
+        "link_boundary": web_link_boundary(&html, &canonical_uri, allowlist_domains),
         "visible_text_bytes": visible_text.len(),
         "html_content_hash": stable_hex_hash(&html),
         "remote_network": false,
@@ -2653,6 +2656,7 @@ fn web_page_remote_sync_candidate(
         "allowlist_allowed": allowlist_allowed,
         "allowlist_domains": allowlist_domains,
         "link_count": html_link_count(&response.body),
+        "link_boundary": web_link_boundary(&response.body, &fetch.final_url, allowlist_domains),
         "visible_text_bytes": visible_text.len(),
         "html_content_hash": stable_hex_hash(&response.body),
         "remote_network": true,
@@ -2860,6 +2864,14 @@ fn web_url_host(url: &str) -> Option<String> {
                 .unwrap_or(host)
                 .to_ascii_lowercase(),
         )
+    }
+}
+
+fn web_url_scheme(url: &str) -> Option<&str> {
+    let (scheme, _) = url.split_once("://")?;
+    match scheme {
+        "http" | "https" => Some(scheme),
+        _ => None,
     }
 }
 
@@ -3345,6 +3357,164 @@ fn html_tag_text(html: &str, tag_name: &str) -> Option<String> {
 
 fn html_link_count(html: &str) -> usize {
     html_tags(html, "a").len()
+}
+
+fn web_link_boundary(html: &str, base_url: &str, allowlist_domains: &[String]) -> Value {
+    let base_host = web_url_host(base_url);
+    let mut in_scope = Vec::new();
+    let mut out_of_scope = Vec::new();
+    let mut blocked = Vec::new();
+    let mut unsupported = Vec::new();
+    let mut ignored_count = 0usize;
+
+    for href in html_link_hrefs(html) {
+        let href = href.trim();
+        if href.is_empty() || href.starts_with('#') {
+            ignored_count += 1;
+            continue;
+        }
+        let Some(resolved_url) = resolve_web_link_url(base_url, href) else {
+            unsupported.push(href.to_string());
+            continue;
+        };
+        if !web_url_allowed(&resolved_url, allowlist_domains) {
+            blocked.push(resolved_url);
+        } else if base_host.is_some() && web_url_host(&resolved_url) == base_host {
+            in_scope.push(resolved_url);
+        } else {
+            out_of_scope.push(resolved_url);
+        }
+    }
+
+    json!({
+        "base_url": base_url,
+        "total_count": html_link_count(html),
+        "resolved_count": in_scope.len() + out_of_scope.len() + blocked.len(),
+        "in_scope_count": in_scope.len(),
+        "out_of_scope_count": out_of_scope.len(),
+        "blocked_count": blocked.len(),
+        "unsupported_count": unsupported.len(),
+        "ignored_count": ignored_count,
+        "sample_in_scope": sample_strings(&in_scope, 5),
+        "sample_out_of_scope": sample_strings(&out_of_scope, 5),
+        "sample_blocked": sample_strings(&blocked, 5),
+        "sample_unsupported": sample_strings(&unsupported, 5),
+    })
+}
+
+fn html_link_hrefs(html: &str) -> Vec<String> {
+    html_tags(html, "a")
+        .into_iter()
+        .filter_map(|tag| html_attribute(tag, "href"))
+        .collect()
+}
+
+fn sample_strings(values: &[String], max_items: usize) -> Vec<String> {
+    values.iter().take(max_items).cloned().collect()
+}
+
+fn resolve_web_link_url(base_url: &str, href: &str) -> Option<String> {
+    let href = href.split('#').next().unwrap_or(href).trim();
+    if href.is_empty() {
+        return None;
+    }
+    if href.starts_with("http://") || href.starts_with("https://") {
+        return Some(href.to_string());
+    }
+    if href.starts_with("//") {
+        let scheme = web_url_scheme(base_url).unwrap_or("http");
+        return Some(format!("{scheme}:{href}"));
+    }
+    if href.contains(':') && !href.starts_with("./") && !href.starts_with("../") {
+        return None;
+    }
+
+    let parts = parse_web_url_parts(base_url)?;
+    let joined = if href.starts_with('/') {
+        href.to_string()
+    } else if href.starts_with('?') {
+        format!("{}{}", parts.path_without_query(), href)
+    } else {
+        let current_dir = parts
+            .path_without_query()
+            .rsplit_once('/')
+            .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
+            .unwrap_or("/");
+        format!(
+            "{}{}{}",
+            current_dir,
+            if current_dir.ends_with('/') { "" } else { "/" },
+            href
+        )
+    };
+    Some(format!(
+        "{}://{}{}",
+        parts.scheme,
+        parts.authority,
+        normalize_web_path_and_query(&joined)
+    ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedWebUrlParts {
+    scheme: String,
+    authority: String,
+    path_and_query: String,
+}
+
+impl ParsedWebUrlParts {
+    fn path_without_query(&self) -> &str {
+        self.path_and_query.split('?').next().unwrap_or("/")
+    }
+}
+
+fn parse_web_url_parts(url: &str) -> Option<ParsedWebUrlParts> {
+    let (scheme, tail) = url.split_once("://")?;
+    if !matches!(scheme, "http" | "https") {
+        return None;
+    }
+    let authority_end = tail.find(['/', '?', '#']).unwrap_or(tail.len());
+    let authority = tail[..authority_end].trim();
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let rest = &tail[authority_end..];
+    let rest = rest.split('#').next().unwrap_or(rest);
+    let path_and_query = if rest.is_empty() {
+        "/".to_string()
+    } else if rest.starts_with('/') {
+        rest.to_string()
+    } else {
+        format!("/{rest}")
+    };
+    Some(ParsedWebUrlParts {
+        scheme: scheme.to_string(),
+        authority: authority.to_ascii_lowercase(),
+        path_and_query,
+    })
+}
+
+fn normalize_web_path_and_query(path_and_query: &str) -> String {
+    let (path, query) = path_and_query
+        .split_once('?')
+        .map(|(path, query)| (path, Some(query)))
+        .unwrap_or((path_and_query, None));
+    let mut segments = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            value => segments.push(value),
+        }
+    }
+    let normalized = format!("/{}", segments.join("/"));
+    match query {
+        Some(query) if !query.is_empty() => format!("{normalized}?{query}"),
+        Some(_) => format!("{normalized}?"),
+        None => normalized,
+    }
 }
 
 fn html_tags<'a>(html: &'a str, tag_name: &str) -> Vec<&'a str> {
@@ -4576,7 +4746,10 @@ mod tests {
   <body>
     <h1>Fallback Heading</h1>
     <p>Visible crawler body.</p>
-    <a href="/next">Next</a>
+    <a href="/docs/next">Next</a>
+    <a href="https://other.example.com/offsite">Other subdomain</a>
+    <a href="https://blocked.example.net/private">Blocked</a>
+    <a href="mailto:team@example.com">Email</a>
   </body>
 </html>"#,
         )
@@ -4603,7 +4776,27 @@ mod tests {
             report.items[0].metadata["allowlist_domains"][0],
             "example.com"
         );
-        assert_eq!(report.items[0].metadata["link_count"], 1);
+        assert_eq!(report.items[0].metadata["link_count"], 4);
+        assert_eq!(
+            report.items[0].metadata["link_boundary"]["in_scope_count"],
+            1
+        );
+        assert_eq!(
+            report.items[0].metadata["link_boundary"]["sample_in_scope"][0],
+            "https://example.com/docs/next"
+        );
+        assert_eq!(
+            report.items[0].metadata["link_boundary"]["out_of_scope_count"],
+            1
+        );
+        assert_eq!(
+            report.items[0].metadata["link_boundary"]["blocked_count"],
+            1
+        );
+        assert_eq!(
+            report.items[0].metadata["link_boundary"]["unsupported_count"],
+            1
+        );
         assert_eq!(report.items[0].metadata["remote_network"], false);
         assert!(
             report.items[0].metadata["visible_text_bytes"]
@@ -4787,6 +4980,10 @@ mod tests {
         );
         assert_eq!(output.report.documents[0].metadata["remote_network"], true);
         assert_eq!(output.report.documents[0].metadata["robots_allowed"], true);
+        assert_eq!(
+            output.report.documents[0].metadata["link_boundary"]["in_scope_count"],
+            1
+        );
         assert_eq!(output.report.documents[0].metadata["etag"], "\"v297\"");
         assert_eq!(
             output.report.documents[0].metadata["last_modified"],
@@ -4883,6 +5080,38 @@ Disallow: /*.pdf$
 
         assert!(!web_robots_allows(robots, "/files/report.pdf"));
         assert!(web_robots_allows(robots, "/files/report.pdf/preview"));
+    }
+
+    #[test]
+    fn v297_web_crawler_link_boundary_normalizes_relative_urls() {
+        let html = r#"
+<a href="guide">Guide</a>
+<a href="?page=2">Page</a>
+<a href="//cdn.example.com/asset">CDN</a>
+<a href="javascript:void(0)">JS</a>
+"#;
+
+        let boundary = web_link_boundary(
+            html,
+            "https://example.com/docs/start/index.html",
+            &["example.com".to_string()],
+        );
+
+        assert_eq!(boundary["in_scope_count"], 2);
+        assert_eq!(
+            boundary["sample_in_scope"][0],
+            "https://example.com/docs/start/guide"
+        );
+        assert_eq!(
+            boundary["sample_in_scope"][1],
+            "https://example.com/docs/start/index.html?page=2"
+        );
+        assert_eq!(boundary["out_of_scope_count"], 1);
+        assert_eq!(
+            boundary["sample_out_of_scope"][0],
+            "https://cdn.example.com/asset"
+        );
+        assert_eq!(boundary["unsupported_count"], 1);
     }
 
     #[test]
