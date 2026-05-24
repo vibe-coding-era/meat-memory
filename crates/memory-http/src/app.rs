@@ -13,8 +13,9 @@ use memory_domain::{
     ScopeId, ScopeType, Sensitivity, SourceId, SourceSyncMode, StorageMode, Visibility,
 };
 use memory_kernel::{
-    ApplyProjectDocumentSyncPlanRequest, ChangeMemoryLifecycleStatusRequest,
-    ConnectorDryRunRequest, ConnectorImportDraftRequest, ConnectorProposalApplyExecutorRequest,
+    ApplyProjectDocumentSyncPlanRequest, BenchmarkRunOutput, BenchmarkRunRequest,
+    BenchmarkSuiteKind, ChangeMemoryLifecycleStatusRequest, ConnectorDryRunRequest,
+    ConnectorImportDraftRequest, ConnectorProposalApplyExecutorRequest,
     ConnectorProposalApplyPlanRequest, ConnectorProposalQueueReport, ConnectorProposalQueueRequest,
     ConnectorSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
     InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
@@ -34,7 +35,13 @@ use memory_sync::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, fs, io::ErrorKind, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::ErrorKind,
+    path::{Path as FsPath, PathBuf},
+    sync::Arc,
+};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::error;
 
@@ -74,6 +81,8 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/lifecycle/memories/{scope_id}/{memory_id}/restore",
     "/api/v1/lifecycle/audit",
     "/api/v1/lifecycle/report",
+    "/api/v1/benchmark/run",
+    "/api/v1/benchmark/runs",
     "/api/v1/benchmark/report",
     "/api/v1/benchmark/failures",
     "/api/v1/recall/traces/inspect",
@@ -445,6 +454,13 @@ pub struct LifecycleReportQuery {
 #[derive(Debug, Deserialize, Default)]
 pub struct ReportInputQuery {
     pub input_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct BenchmarkRunHttpRequest {
+    pub suite: Option<String>,
+    pub scope_id: Option<String>,
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -864,6 +880,8 @@ pub fn build_router(state: HttpAppState) -> Router {
         )
         .route("/api/v1/lifecycle/audit", get(list_lifecycle_audit))
         .route("/api/v1/lifecycle/report", get(lifecycle_report))
+        .route("/api/v1/benchmark/run", post(benchmark_run))
+        .route("/api/v1/benchmark/runs", get(benchmark_runs))
         .route("/api/v1/benchmark/report", get(benchmark_report))
         .route("/api/v1/benchmark/failures", get(benchmark_failures))
         .route("/api/v1/recall/traces/inspect", get(trace_inspect))
@@ -1989,6 +2007,68 @@ async fn benchmark_report(
     })))
 }
 
+async fn benchmark_run(
+    State(state): State<HttpAppState>,
+    Json(payload): Json<BenchmarkRunHttpRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let suite_name = payload.suite.unwrap_or_else(|| "meat-code-zh".to_string());
+    let suite = BenchmarkSuiteKind::from_name(&suite_name)
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    let scope_id = ScopeId::from_string(
+        payload
+            .scope_id
+            .unwrap_or_else(|| state.default_scope_id.as_str().to_string()),
+    );
+    let output_dir = payload
+        .output_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "tests/reports/benchmark/latest".into());
+    let output = state
+        .kernel
+        .run_benchmark(BenchmarkRunRequest::new(suite, scope_id, output_dir))
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    Ok(Json(benchmark_run_output_json(&output)))
+}
+
+async fn benchmark_runs(
+    Query(query): Query<ReportInputQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let input_dir = report_input_dir(query.input_dir, "tests/reports/benchmark");
+    let mut runs = Vec::new();
+    if input_dir.join("metrics.json").exists() {
+        runs.push(benchmark_run_summary_from_dir(&input_dir)?);
+    }
+    let entries = fs::read_dir(&input_dir).map_err(|error| {
+        ApiError::bad_request(format!("failed to read {}: {error}", input_dir.display()))
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            ApiError::bad_request(format!(
+                "failed to read {} entry: {error}",
+                input_dir.display()
+            ))
+        })?;
+        let path = entry.path();
+        if path.is_dir() && path.join("metrics.json").exists() {
+            runs.push(benchmark_run_summary_from_dir(&path)?);
+        }
+    }
+    runs.sort_by(|left, right| {
+        left["input_dir"]
+            .as_str()
+            .unwrap_or_default()
+            .cmp(right["input_dir"].as_str().unwrap_or_default())
+    });
+
+    Ok(Json(json!({
+        "input_dir": input_dir.display().to_string(),
+        "run_count": runs.len(),
+        "runs": runs,
+    })))
+}
+
 async fn benchmark_failures(
     Query(query): Query<ReportInputQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2381,6 +2461,38 @@ fn read_report_json(path: &PathBuf) -> Result<serde_json::Value, ApiError> {
     serde_json::from_str(&raw).map_err(|error| {
         ApiError::bad_request(format!("failed to parse {}: {error}", path.display()))
     })
+}
+
+fn benchmark_run_output_json(output: &BenchmarkRunOutput) -> serde_json::Value {
+    json!({
+        "suite": output.suite,
+        "run": output.run,
+        "metrics": output.run.metrics,
+        "cases": output.cases,
+        "report_paths": {
+            "summary": output.report_paths.summary.display().to_string(),
+            "metrics": output.report_paths.metrics.display().to_string(),
+            "failures": output.report_paths.failures.display().to_string(),
+            "latency": output.report_paths.latency.display().to_string(),
+            "leakage": output.report_paths.leakage.display().to_string(),
+        }
+    })
+}
+
+fn benchmark_run_summary_from_dir(input_dir: &FsPath) -> Result<serde_json::Value, ApiError> {
+    let metrics_path = input_dir.join("metrics.json");
+    let metrics = read_report_json(&metrics_path)?;
+    Ok(json!({
+        "name": input_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("."),
+        "input_dir": input_dir.display().to_string(),
+        "summary_exists": input_dir.join("summary.md").exists(),
+        "failure_detail_exists": input_dir.join("failures.jsonl").exists(),
+        "run": metrics.get("run").cloned().unwrap_or_else(|| json!({})),
+        "metrics": metrics.get("metrics").cloned().unwrap_or_else(|| metrics.clone()),
+    }))
 }
 
 async fn search_context(

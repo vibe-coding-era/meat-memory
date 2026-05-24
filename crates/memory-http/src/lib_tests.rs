@@ -225,7 +225,10 @@ async fn exposes_http_routes() {
     ));
     assert!(has_route("/api/v1/lifecycle/audit"));
     assert!(has_route("/api/v1/lifecycle/report"));
+    assert!(has_route("/api/v1/benchmark/run"));
+    assert!(has_route("/api/v1/benchmark/runs"));
     assert!(has_route("/api/v1/benchmark/report"));
+    assert!(has_route("/api/v1/benchmark/failures"));
     assert!(has_route("/api/v1/recall/traces/inspect"));
     assert!(has_route("/api/v1/health/report"));
     assert!(has_route("/api/v1/passports/manifest"));
@@ -780,6 +783,46 @@ async fn v29_surface_http_reads_benchmark_and_trace_reports() {
         failures_payload["failures"][0]["failure_reason"],
         "expected memory not found"
     );
+    let runs = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/benchmark/runs?input_dir={}",
+                tempdir.path().display()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(runs.status(), axum::http::StatusCode::OK);
+    let runs_payload = response_json(runs).await;
+    assert_eq!(runs_payload["run_count"], 1);
+    assert_eq!(runs_payload["runs"][0]["name"], "benchmark");
+
+    let http_run_dir = tempdir.path().join("http-benchmark-run");
+    let run = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/benchmark/run")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "suite": "meat-code-zh",
+                        "scope_id": "scp_http_benchmark",
+                        "output_dir": http_run_dir.display().to_string(),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(run.status(), axum::http::StatusCode::OK);
+    let run_payload = response_json(run).await;
+    assert_eq!(run_payload["suite"]["name"], "meat-code-zh");
+    assert_eq!(run_payload["metrics"]["case_count"], 4);
+    assert!(http_run_dir.join("metrics.json").exists());
 
     let trace = app
         .oneshot(
