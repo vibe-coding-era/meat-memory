@@ -19,15 +19,18 @@ use memory_kernel::{
     ConnectorProposalApplyPlanRequest, ConnectorProposalQueueReport, ConnectorProposalQueueRequest,
     ConnectorSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
     InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
-    PromoteAgentContextRequest, PromoteMemoryRequest, RememberImageRequest, RememberTextRequest,
-    RememberTextResult, SearchContextRequest, UpdateAccessKeyRequest, UpsertAgentContextRequest,
-    apply_connector_proposal_apply_plan, build_competitor_compatibility_report,
-    build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
+    PromoteAgentContextRequest, PromoteMemoryRequest, RecallTraceBudget, RecallTraceReportPaths,
+    RememberImageRequest, RememberTextRequest, RememberTextResult, SearchContextRequest,
+    TraceSearchContextRequest, TraceSearchContextResult, UpdateAccessKeyRequest,
+    UpsertAgentContextRequest, apply_connector_proposal_apply_plan,
+    build_competitor_compatibility_report, build_connector_import_draft_report,
+    build_connector_proposal_apply_plan_report,
     build_connector_proposal_apply_plan_report_from_queue, build_connector_proposal_queue_report,
     build_connector_sync_plan, compatibility_report_json, connector_dry_run_json,
     connector_import_draft_json, connector_proposal_apply_plan_execution_json,
     connector_proposal_apply_plan_json, connector_proposal_queue_json, connector_sync_plan_json,
     health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
+    write_recall_trace_report,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -85,6 +88,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/benchmark/runs",
     "/api/v1/benchmark/report",
     "/api/v1/benchmark/failures",
+    "/api/v1/recall/traces/latest",
     "/api/v1/recall/traces/inspect",
     "/api/v1/health/report",
     "/api/v1/passports/manifest",
@@ -467,6 +471,17 @@ pub struct BenchmarkRunHttpRequest {
 pub struct TraceInspectQuery {
     pub input_dir: Option<String>,
     pub trace_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TraceLatestHttpRequest {
+    pub scope_id: Option<String>,
+    pub query: String,
+    pub limit: Option<usize>,
+    pub max_records: Option<usize>,
+    pub max_chars: Option<usize>,
+    pub debug_candidates: Option<bool>,
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -884,6 +899,7 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/benchmark/runs", get(benchmark_runs))
         .route("/api/v1/benchmark/report", get(benchmark_report))
         .route("/api/v1/benchmark/failures", get(benchmark_failures))
+        .route("/api/v1/recall/traces/latest", post(trace_latest))
         .route("/api/v1/recall/traces/inspect", get(trace_inspect))
         .route("/api/v1/health/report", get(health_report))
         .route("/api/v1/passports/manifest", get(passport_manifest))
@@ -2095,6 +2111,41 @@ async fn benchmark_failures(
     })))
 }
 
+async fn trace_latest(
+    State(state): State<HttpAppState>,
+    Json(payload): Json<TraceLatestHttpRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    validate_text_field_len("query", &payload.query, MAX_QUERY_CHARS)?;
+    let mut search = SearchContextRequest::new(
+        ScopeId::from_string(
+            payload
+                .scope_id
+                .unwrap_or_else(|| state.default_scope_id.as_str().to_string()),
+        ),
+        payload.query,
+    );
+    search.limit = payload.limit.unwrap_or(10);
+    let mut trace_request = TraceSearchContextRequest::new(search);
+    trace_request.budget = RecallTraceBudget {
+        max_records: payload.max_records.unwrap_or(5),
+        max_chars: payload.max_chars.unwrap_or(2_000),
+    };
+    trace_request.include_debug_candidates = payload.debug_candidates.unwrap_or(false);
+    let output_dir = payload
+        .output_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "tests/reports/trace/latest".into());
+    let result = state
+        .kernel
+        .search_context_with_trace(trace_request)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    let paths = write_recall_trace_report(&output_dir, &result)
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    Ok(Json(trace_result_json(&result, &paths)))
+}
+
 async fn trace_inspect(
     Query(query): Query<TraceInspectQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2493,6 +2544,21 @@ fn benchmark_run_summary_from_dir(input_dir: &FsPath) -> Result<serde_json::Valu
         "run": metrics.get("run").cloned().unwrap_or_else(|| json!({})),
         "metrics": metrics.get("metrics").cloned().unwrap_or_else(|| metrics.clone()),
     }))
+}
+
+fn trace_result_json(
+    result: &TraceSearchContextResult,
+    paths: &RecallTraceReportPaths,
+) -> serde_json::Value {
+    json!({
+        "trace": result.trace,
+        "budget_pack": result.budget_pack,
+        "explanation": result.explanation,
+        "report_paths": {
+            "trace": paths.trace.display().to_string(),
+            "explanation": paths.explanation.display().to_string(),
+        }
+    })
 }
 
 async fn search_context(

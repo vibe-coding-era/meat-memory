@@ -229,6 +229,7 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/benchmark/runs"));
     assert!(has_route("/api/v1/benchmark/report"));
     assert!(has_route("/api/v1/benchmark/failures"));
+    assert!(has_route("/api/v1/recall/traces/latest"));
     assert!(has_route("/api/v1/recall/traces/inspect"));
     assert!(has_route("/api/v1/health/report"));
     assert!(has_route("/api/v1/passports/manifest"));
@@ -823,6 +824,30 @@ async fn v29_surface_http_reads_benchmark_and_trace_reports() {
     assert_eq!(run_payload["suite"]["name"], "meat-code-zh");
     assert_eq!(run_payload["metrics"]["case_count"], 4);
     assert!(http_run_dir.join("metrics.json").exists());
+    let http_trace_dir = tempdir.path().join("http-trace-run");
+    let latest_trace = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/recall/traces/latest")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "scope_id": "scp_http_trace",
+                        "query": "trace this request",
+                        "max_records": 3,
+                        "max_chars": 1200,
+                        "output_dir": http_trace_dir.display().to_string(),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(latest_trace.status(), axum::http::StatusCode::OK);
+    let latest_trace_payload = response_json(latest_trace).await;
+    assert_eq!(latest_trace_payload["trace"]["query"], "trace this request");
+    assert!(http_trace_dir.join("trace.json").exists());
 
     let trace = app
         .oneshot(
