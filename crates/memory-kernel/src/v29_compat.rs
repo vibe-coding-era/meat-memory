@@ -13,7 +13,7 @@ use memory_sync::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
     io::{Read, Write},
     net::TcpStream,
@@ -917,12 +917,21 @@ fn build_web_crawler_sync_plan(
         });
     }
 
+    let mut discovered_remote_urls = Vec::new();
+    let mut remote_queue = VecDeque::new();
+    let mut queued_remote_urls = BTreeSet::new();
+    for url in &url_manifest {
+        if queued_remote_urls.insert(url.clone()) {
+            remote_queue.push_back(url.clone());
+        }
+    }
+
     if request.allow_remote_fetch {
-        for url in &url_manifest {
+        while let Some(url) = remote_queue.pop_front() {
             if documents.len() >= request.max_items {
                 break;
             }
-            match web_page_remote_sync_candidate(&root, url, &allowlist_domains, &url_validators) {
+            match web_page_remote_sync_candidate(&root, &url, &allowlist_domains, &url_validators) {
                 Ok(WebRemoteFetchOutcome::Candidate(parsed)) => {
                     seen.insert(parsed.canonical_uri.clone());
                     if !parsed.allowlist_allowed {
@@ -932,6 +941,7 @@ fn build_web_crawler_sync_plan(
                         }));
                         continue;
                     }
+                    let links_to_queue = web_metadata_in_scope_links(&parsed.metadata);
                     if parsed.metadata["redirect_count"].as_u64().unwrap_or(0) > 0 {
                         redirect_chains.push(json!({
                             "canonical_url": parsed.canonical_uri,
@@ -956,6 +966,15 @@ fn build_web_crawler_sync_plan(
                         sync_state,
                         metadata: parsed.metadata,
                     });
+                    for discovered_url in links_to_queue {
+                        if seen.contains(&discovered_url)
+                            || !queued_remote_urls.insert(discovered_url.clone())
+                        {
+                            continue;
+                        }
+                        remote_queue.push_back(discovered_url.clone());
+                        discovered_remote_urls.push(discovered_url);
+                    }
                 }
                 Ok(WebRemoteFetchOutcome::NotModified {
                     canonical_uri,
@@ -1021,6 +1040,11 @@ fn build_web_crawler_sync_plan(
         "remote_fetch_allowed": request.allow_remote_fetch,
         "remote_network": request.allow_remote_fetch,
         "safe_default": "local_snapshot_only_no_remote_fetch",
+        "crawl_policy": "urls_txt_seed_plus_in_scope_links",
+        "crawl_seed_count": url_manifest.len(),
+        "crawl_discovered_count": discovered_remote_urls.len(),
+        "crawl_discovered_urls": discovered_remote_urls,
+        "crawl_queue_remaining": remote_queue.len(),
         "url_manifest": "urls.txt",
         "url_manifest_count": url_manifest.len(),
         "validator_manifest": "url-validators.json",
@@ -1077,6 +1101,7 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "web_crawler_redirect_conditional_request",
                 "web_crawler_robots_rule_precedence",
                 "web_crawler_link_boundary",
+                "web_crawler_multi_page_crawl",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -3402,6 +3427,21 @@ fn web_link_boundary(html: &str, base_url: &str, allowlist_domains: &[String]) -
     })
 }
 
+fn web_metadata_in_scope_links(metadata: &Value) -> Vec<String> {
+    metadata
+        .get("link_boundary")
+        .and_then(|boundary| boundary.get("sample_in_scope"))
+        .and_then(Value::as_array)
+        .map(|links| {
+            links
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn html_link_hrefs(html: &str) -> Vec<String> {
     html_tags(html, "a")
         .into_iter()
@@ -4967,6 +5007,7 @@ mod tests {
             ScopeId::from_string("scp_connector_sync"),
         );
         request.allow_remote_fetch = true;
+        request.max_items = 1;
         let output = build_connector_sync_plan(request).unwrap();
         handle.join().unwrap();
 
@@ -5112,6 +5153,81 @@ Disallow: /*.pdf$
             "https://cdn.example.com/asset"
         );
         assert_eq!(boundary["unsupported_count"], 1);
+    }
+
+    #[test]
+    fn v297_web_crawler_multi_page_crawl_follows_in_scope_links() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "127.0.0.1\n").unwrap();
+        let (base_url, handle) = spawn_web_fixture_server_with_responder(
+            4,
+            |request, server_base_url| {
+                let first_line = request.lines().next().unwrap_or("");
+                if first_line.contains("GET /robots.txt ") {
+                    return http_response("text/plain", "User-agent: *\nAllow: /\n", &[]);
+                }
+                if first_line.contains("GET /start ") {
+                    return http_response(
+                        "text/html",
+                        &format!(
+                            "<!doctype html><html><head><link rel=\"canonical\" href=\"{server_base_url}/start\" /><title>Start Page</title></head><body><p>Start body.</p><a href=\"/second\">Second</a><a href=\"https://blocked.example.net/private\">Blocked</a></body></html>"
+                        ),
+                        &[("ETag", "\"start\"")],
+                    );
+                }
+                if first_line.contains("GET /second ") {
+                    return http_response(
+                        "text/html",
+                        &format!(
+                            "<!doctype html><html><head><link rel=\"canonical\" href=\"{server_base_url}/second\" /><title>Second Page</title></head><body><p>Second body.</p></body></html>"
+                        ),
+                        &[("ETag", "\"second\"")],
+                    );
+                }
+                panic!("unexpected fixture request: {first_line}");
+            },
+        );
+        let start_url = format!("{base_url}/start");
+        let second_url = format!("{base_url}/second");
+        fs::write(tempdir.path().join("urls.txt"), format!("{start_url}\n")).unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.allow_remote_fetch = true;
+        let output = build_connector_sync_plan(request).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(output.report.planned_count, 2);
+        assert_eq!(output.report.documents[0].canonical_uri, start_url);
+        assert_eq!(output.report.documents[1].canonical_uri, second_url);
+        assert_eq!(output.report.documents[1].title, "Second Page");
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_policy"],
+            "urls_txt_seed_plus_in_scope_links"
+        );
+        assert_eq!(output.report.incremental_checkpoint["crawl_seed_count"], 1);
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_discovered_count"],
+            1
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_discovered_urls"][0],
+            second_url
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_queue_remaining"],
+            0
+        );
+        let payload = connector_sync_plan_json(&output.report);
+        assert!(
+            payload["coverage_gate"]["covered_regions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|region| region == "web_crawler_multi_page_crawl")
+        );
     }
 
     #[test]

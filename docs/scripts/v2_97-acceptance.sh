@@ -357,6 +357,9 @@ assert web_crawler_sync_plan["incremental_checkpoint"]["not_modified_count"] == 
 assert web_crawler_sync_plan["incremental_checkpoint"]["redirect_count"] == 0, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["remote_fetch_allowed"] is False, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["remote_network"] is False, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_policy"] == "urls_txt_seed_plus_in_scope_links", web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_seed_count"] == 0, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_discovered_count"] == 0, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["validator_manifest"] == "url-validators.json", web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["validator_manifest_count"] == 0, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["update_detection"][2] == "etag", web_crawler_sync_plan
@@ -366,6 +369,7 @@ assert "web_crawler_remote_fetch_policy" in web_crawler_sync_plan["coverage_gate
 assert "web_crawler_redirect_conditional_request" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_robots_rule_precedence" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_link_boundary" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert "web_crawler_multi_page_crawl" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -429,6 +433,7 @@ Covered regions:
 - web-crawler HTTP redirect / conditional request / 304 not-modified checkpoint
 - web-crawler robots exact user-agent / Allow / Disallow precedence
 - web-crawler link boundary / in-scope / out-of-scope / blocked / unsupported links
+- web-crawler multi-page crawl frontier
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

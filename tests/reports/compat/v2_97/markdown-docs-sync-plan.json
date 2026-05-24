@@ -14,6 +14,7 @@
       "web_crawler_redirect_conditional_request",
       "web_crawler_robots_rule_precedence",
       "web_crawler_link_boundary",
+      "web_crawler_multi_page_crawl",
       "connector_sync_plan_projection",
       "cli_parser_and_command"
     ],
