@@ -313,6 +313,10 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("connector-load-queue"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-queue/"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-apply-plan/apply"));
+    assert!(text.contains("Health Console"));
+    assert!(text.contains("meat-memory.health-debug.v1"));
+    assert!(text.contains("/api/v1/health/report"));
+    assert!(text.contains("health-load"));
     assert!(text.contains("Passport Console"));
     assert!(text.contains("meat-memory.passport-debug.v1"));
     assert!(text.contains("/api/v1/passports/export"));
@@ -2443,6 +2447,9 @@ fn builds_console_page_and_escapes_metadata() {
     assert!(page.contains("Memory Workspace"));
     assert!(page.contains("/api/v1/explorer/memories"));
     assert!(page.contains("/api/v1/assistant/chat"));
+    assert!(page.contains("Health Console"));
+    assert!(page.contains("health-scope-id"));
+    assert!(page.contains("health-output"));
     assert!(page.contains("Passport Console"));
     assert!(page.contains("passport-output-dir"));
     assert!(page.contains("passport-dry-run"));

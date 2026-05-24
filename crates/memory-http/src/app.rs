@@ -4031,6 +4031,21 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
         <section class="card">
           <div class="card-header">
+            <h2 class="card-title">Health Console</h2>
+            <span class="memory-meta-tag">/api/v1/health/report</span>
+          </div>
+          <div class="chat-composer">
+            <input id="health-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />
+            <input id="health-limit" class="chat-input" placeholder="limit" value="500" />
+            <button type="button" class="send-button" id="health-load">Load Health</button>
+          </div>
+          <div id="health-status" class="status-box hidden" style="margin-top: 12px;"></div>
+          <div id="health-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
+          <pre id="health-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
             <h2 class="card-title">Passport Console</h2>
             <span class="memory-meta-tag">/api/v1/passports/export · import · manifest</span>
           </div>
@@ -4174,6 +4189,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const metadata = __METADATA__;
     const PROJECTION_DEBUG_STORAGE_KEY = "meat-memory.projection-debug.v1";
     const CONNECTOR_DEBUG_STORAGE_KEY = "meat-memory.connector-debug.v1";
+    const HEALTH_DEBUG_STORAGE_KEY = "meat-memory.health-debug.v1";
     const PASSPORT_DEBUG_STORAGE_KEY = "meat-memory.passport-debug.v1";
     async function fetchJson(url, options) {
       const response = await fetch(url, options);
@@ -4203,6 +4219,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       projectionSourceSearch: "",
       projectionDocumentSearch: "",
       connectorReport: null,
+      healthReport: null,
       passportReport: null,
       chatLoading: false,
       messages: [
@@ -4279,6 +4296,12 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const connectorStatusEl = document.getElementById("connector-status");
     const connectorMetaEl = document.getElementById("connector-meta");
     const connectorOutputEl = document.getElementById("connector-output");
+    const healthScopeIdEl = document.getElementById("health-scope-id");
+    const healthLimitEl = document.getElementById("health-limit");
+    const healthLoadEl = document.getElementById("health-load");
+    const healthStatusEl = document.getElementById("health-status");
+    const healthMetaEl = document.getElementById("health-meta");
+    const healthOutputEl = document.getElementById("health-output");
     const passportScopeIdEl = document.getElementById("passport-scope-id");
     const passportOutputDirEl = document.getElementById("passport-output-dir");
     const passportLimitEl = document.getElementById("passport-limit");
@@ -4429,6 +4452,32 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             queueItemIds: connectorQueueItemIdsEl.value.trim(),
             confirmationToken: connectorConfirmationTokenEl.value.trim(),
             queueId: connectorQueueIdEl.value.trim(),
+          })
+        );
+      } catch (_error) {
+      }
+    }
+
+    function loadHealthDebugState() {
+      try {
+        const raw = localStorage.getItem(HEALTH_DEBUG_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        const persisted = JSON.parse(raw);
+        healthScopeIdEl.value = String(persisted.scopeId || metadata.default_scope || "");
+        healthLimitEl.value = String(persisted.limit || "500");
+      } catch (_error) {
+      }
+    }
+
+    function saveHealthDebugState() {
+      try {
+        localStorage.setItem(
+          HEALTH_DEBUG_STORAGE_KEY,
+          JSON.stringify({
+            scopeId: healthScopeIdEl.value.trim(),
+            limit: healthLimitEl.value.trim(),
           })
         );
       } catch (_error) {
@@ -5252,6 +5301,78 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       }
     }
 
+    function setHealthStatus(message) {
+      healthStatusEl.textContent = message;
+      healthStatusEl.classList.remove("hidden");
+    }
+
+    function healthLimit() {
+      const raw = healthLimitEl.value.trim();
+      if (!raw) {
+        return null;
+      }
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("limit 必须是正整数。");
+      }
+      return parsed;
+    }
+
+    function renderHealthReport(payload) {
+      state.healthReport = payload;
+      const tags = [
+        ["scope", payload.scope_id],
+        ["total", payload.total],
+        ["active", payload.active],
+        ["risks", Array.isArray(payload.risks) ? payload.risks.length : undefined],
+        ["secret", payload.secret_findings],
+        ["high-risk", payload.high_risk_secret_findings],
+        ["review", payload.needs_review],
+      ].filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== "");
+
+      healthMetaEl.innerHTML =
+        '<div class="memory-expanded-title">Health Report</div>' +
+        '<div class="memory-meta">' +
+        tags
+          .map((item) => {
+            return '<span class="memory-meta-tag">' +
+              escapeHtml(item[0] + " " + String(item[1])) +
+              "</span>";
+          })
+          .join("") +
+        "</div>";
+      healthMetaEl.classList.remove("hidden");
+      healthOutputEl.textContent = JSON.stringify(payload, null, 2);
+      healthOutputEl.classList.remove("hidden");
+    }
+
+    async function loadHealthReport() {
+      saveHealthDebugState();
+      setHealthStatus("正在加载 Health Report...");
+      healthMetaEl.classList.add("hidden");
+      healthMetaEl.innerHTML = "";
+      healthOutputEl.classList.add("hidden");
+      healthOutputEl.textContent = "";
+
+      try {
+        const params = new URLSearchParams();
+        const scopeId = healthScopeIdEl.value.trim();
+        if (scopeId) {
+          params.set("scope_id", scopeId);
+        }
+        const limit = healthLimit();
+        if (limit) {
+          params.set("limit", String(limit));
+        }
+        const payload = await fetchJson("/api/v1/health/report?" + params.toString());
+        renderHealthReport(payload);
+        const riskCount = Array.isArray(payload.risks) ? payload.risks.length : 0;
+        setHealthStatus("Health Report 已加载，风险项 " + riskCount + " 个。");
+      } catch (error) {
+        setHealthStatus("Health Report 加载失败：" + String(error));
+      }
+    }
+
     function setPassportStatus(message) {
       passportStatusEl.textContent = message;
       passportStatusEl.classList.remove("hidden");
@@ -5437,6 +5558,13 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       element.addEventListener("change", saveConnectorDebugState);
     });
     [
+      healthScopeIdEl,
+      healthLimitEl,
+    ].forEach((element) => {
+      element.addEventListener("input", saveHealthDebugState);
+      element.addEventListener("change", saveHealthDebugState);
+    });
+    [
       passportScopeIdEl,
       passportOutputDirEl,
       passportLimitEl,
@@ -5499,12 +5627,14 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       loadConnectorReport("Apply Plan", "/api/v1/compat/connectors/proposal-apply-plan", { includeScope: true, includeReview: true, includeQueueId: true, allowQueueIdOnly: true });
     });
     connectorApplyConfirmEl.addEventListener("click", applyConnectorReport);
+    healthLoadEl.addEventListener("click", loadHealthReport);
     passportExportEl.addEventListener("click", exportPassport);
     passportVerifyEl.addEventListener("click", verifyPassport);
     passportImportEl.addEventListener("click", importPassport);
 
     loadProjectionDebugState();
     loadConnectorDebugState();
+    loadHealthDebugState();
     loadPassportDebugState();
     render();
     loadWorkspace();
