@@ -4031,6 +4031,35 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
         <section class="card">
           <div class="card-header">
+            <h2 class="card-title">Benchmark Console</h2>
+            <span class="memory-meta-tag">/api/v1/benchmark/run · report · failures</span>
+          </div>
+          <div class="chat-composer">
+            <select id="benchmark-suite" class="chat-input">
+              <option value="meat-code-zh">meat-code-zh</option>
+              <option value="locomo">locomo</option>
+              <option value="longmemeval">longmemeval</option>
+              <option value="beam">beam</option>
+            </select>
+            <input id="benchmark-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />
+            <input id="benchmark-output-dir" class="chat-input" placeholder="output_dir" value="tests/reports/benchmark/latest" />
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="benchmark-input-dir" class="chat-input" placeholder="input_dir" value="tests/reports/benchmark/latest" />
+          </div>
+          <div class="chip-row" style="margin-top: 10px;">
+            <button type="button" class="send-button" id="benchmark-run">Run</button>
+            <button type="button" class="toolbar-button" id="benchmark-report">Load Report</button>
+            <button type="button" class="toolbar-button" id="benchmark-failures">Failures</button>
+            <button type="button" class="toolbar-button" id="benchmark-runs">Runs</button>
+          </div>
+          <div id="benchmark-status" class="status-box hidden" style="margin-top: 12px;"></div>
+          <div id="benchmark-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
+          <pre id="benchmark-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
             <h2 class="card-title">Health Console</h2>
             <span class="memory-meta-tag">/api/v1/health/report</span>
           </div>
@@ -4189,6 +4218,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const metadata = __METADATA__;
     const PROJECTION_DEBUG_STORAGE_KEY = "meat-memory.projection-debug.v1";
     const CONNECTOR_DEBUG_STORAGE_KEY = "meat-memory.connector-debug.v1";
+    const BENCHMARK_DEBUG_STORAGE_KEY = "meat-memory.benchmark-debug.v1";
     const HEALTH_DEBUG_STORAGE_KEY = "meat-memory.health-debug.v1";
     const PASSPORT_DEBUG_STORAGE_KEY = "meat-memory.passport-debug.v1";
     async function fetchJson(url, options) {
@@ -4219,6 +4249,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       projectionSourceSearch: "",
       projectionDocumentSearch: "",
       connectorReport: null,
+      benchmarkReport: null,
       healthReport: null,
       passportReport: null,
       chatLoading: false,
@@ -4296,6 +4327,17 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const connectorStatusEl = document.getElementById("connector-status");
     const connectorMetaEl = document.getElementById("connector-meta");
     const connectorOutputEl = document.getElementById("connector-output");
+    const benchmarkSuiteEl = document.getElementById("benchmark-suite");
+    const benchmarkScopeIdEl = document.getElementById("benchmark-scope-id");
+    const benchmarkOutputDirEl = document.getElementById("benchmark-output-dir");
+    const benchmarkInputDirEl = document.getElementById("benchmark-input-dir");
+    const benchmarkRunEl = document.getElementById("benchmark-run");
+    const benchmarkReportEl = document.getElementById("benchmark-report");
+    const benchmarkFailuresEl = document.getElementById("benchmark-failures");
+    const benchmarkRunsEl = document.getElementById("benchmark-runs");
+    const benchmarkStatusEl = document.getElementById("benchmark-status");
+    const benchmarkMetaEl = document.getElementById("benchmark-meta");
+    const benchmarkOutputEl = document.getElementById("benchmark-output");
     const healthScopeIdEl = document.getElementById("health-scope-id");
     const healthLimitEl = document.getElementById("health-limit");
     const healthLoadEl = document.getElementById("health-load");
@@ -4452,6 +4494,36 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             queueItemIds: connectorQueueItemIdsEl.value.trim(),
             confirmationToken: connectorConfirmationTokenEl.value.trim(),
             queueId: connectorQueueIdEl.value.trim(),
+          })
+        );
+      } catch (_error) {
+      }
+    }
+
+    function loadBenchmarkDebugState() {
+      try {
+        const raw = localStorage.getItem(BENCHMARK_DEBUG_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        const persisted = JSON.parse(raw);
+        benchmarkSuiteEl.value = String(persisted.suite || "meat-code-zh");
+        benchmarkScopeIdEl.value = String(persisted.scopeId || metadata.default_scope || "");
+        benchmarkOutputDirEl.value = String(persisted.outputDir || "tests/reports/benchmark/latest");
+        benchmarkInputDirEl.value = String(persisted.inputDir || "tests/reports/benchmark/latest");
+      } catch (_error) {
+      }
+    }
+
+    function saveBenchmarkDebugState() {
+      try {
+        localStorage.setItem(
+          BENCHMARK_DEBUG_STORAGE_KEY,
+          JSON.stringify({
+            suite: benchmarkSuiteEl.value || "meat-code-zh",
+            scopeId: benchmarkScopeIdEl.value.trim(),
+            outputDir: benchmarkOutputDirEl.value.trim(),
+            inputDir: benchmarkInputDirEl.value.trim(),
           })
         );
       } catch (_error) {
@@ -5301,6 +5373,137 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       }
     }
 
+    function setBenchmarkStatus(message) {
+      benchmarkStatusEl.textContent = message;
+      benchmarkStatusEl.classList.remove("hidden");
+    }
+
+    function renderBenchmarkReport(label, payload) {
+      state.benchmarkReport = payload;
+      const metrics = payload.metrics || {};
+      const run = payload.run || {};
+      const suite = payload.suite || (metrics && metrics.suite) || {};
+      const tags = [
+        ["operation", label],
+        ["suite", suite.name],
+        ["run", run.run_id || run.id],
+        ["cases", metrics.case_count],
+        ["recall@1", metrics.recall_at_1],
+        ["recall@5", metrics.recall_at_5],
+        ["failures", payload.failure_count || metrics.failure_count],
+        ["runs", payload.run_count],
+      ].filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== "");
+
+      benchmarkMetaEl.innerHTML =
+        '<div class="memory-expanded-title">Benchmark Report</div>' +
+        '<div class="memory-meta">' +
+        tags
+          .map((item) => {
+            return '<span class="memory-meta-tag">' +
+              escapeHtml(item[0] + " " + String(item[1])) +
+              "</span>";
+          })
+          .join("") +
+        "</div>";
+      benchmarkMetaEl.classList.remove("hidden");
+      benchmarkOutputEl.textContent = JSON.stringify(payload, null, 2);
+      benchmarkOutputEl.classList.remove("hidden");
+    }
+
+    async function runBenchmark() {
+      saveBenchmarkDebugState();
+      setBenchmarkStatus("正在运行 Benchmark...");
+      benchmarkMetaEl.classList.add("hidden");
+      benchmarkMetaEl.innerHTML = "";
+      benchmarkOutputEl.classList.add("hidden");
+      benchmarkOutputEl.textContent = "";
+
+      try {
+        const outputDir = benchmarkOutputDirEl.value.trim() || "tests/reports/benchmark/latest";
+        const payload = await fetchJson("/api/v1/benchmark/run", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            suite: benchmarkSuiteEl.value || "meat-code-zh",
+            scope_id: benchmarkScopeIdEl.value.trim() || metadata.default_scope,
+            output_dir: outputDir,
+          }),
+        });
+        benchmarkInputDirEl.value = outputDir;
+        saveBenchmarkDebugState();
+        renderBenchmarkReport("run", payload);
+        setBenchmarkStatus("Benchmark run 已完成。");
+      } catch (error) {
+        setBenchmarkStatus("Benchmark run 失败：" + String(error));
+      }
+    }
+
+    async function loadBenchmarkReport() {
+      saveBenchmarkDebugState();
+      setBenchmarkStatus("正在加载 Benchmark Report...");
+      benchmarkMetaEl.classList.add("hidden");
+      benchmarkMetaEl.innerHTML = "";
+      benchmarkOutputEl.classList.add("hidden");
+      benchmarkOutputEl.textContent = "";
+
+      try {
+        const inputDir = benchmarkInputDirEl.value.trim();
+        if (!inputDir) {
+          throw new Error("请先填写 input_dir。");
+        }
+        const params = new URLSearchParams();
+        params.set("input_dir", inputDir);
+        const payload = await fetchJson("/api/v1/benchmark/report?" + params.toString());
+        renderBenchmarkReport("report", payload);
+        setBenchmarkStatus("Benchmark report 已加载。");
+      } catch (error) {
+        setBenchmarkStatus("Benchmark report 加载失败：" + String(error));
+      }
+    }
+
+    async function loadBenchmarkFailures() {
+      saveBenchmarkDebugState();
+      setBenchmarkStatus("正在加载 Benchmark Failures...");
+      benchmarkMetaEl.classList.add("hidden");
+      benchmarkMetaEl.innerHTML = "";
+      benchmarkOutputEl.classList.add("hidden");
+      benchmarkOutputEl.textContent = "";
+
+      try {
+        const inputDir = benchmarkInputDirEl.value.trim();
+        if (!inputDir) {
+          throw new Error("请先填写 input_dir。");
+        }
+        const params = new URLSearchParams();
+        params.set("input_dir", inputDir);
+        const payload = await fetchJson("/api/v1/benchmark/failures?" + params.toString());
+        renderBenchmarkReport("failures", payload);
+        setBenchmarkStatus("Benchmark failures 已加载。");
+      } catch (error) {
+        setBenchmarkStatus("Benchmark failures 加载失败：" + String(error));
+      }
+    }
+
+    async function loadBenchmarkRuns() {
+      saveBenchmarkDebugState();
+      setBenchmarkStatus("正在加载 Benchmark Runs...");
+      benchmarkMetaEl.classList.add("hidden");
+      benchmarkMetaEl.innerHTML = "";
+      benchmarkOutputEl.classList.add("hidden");
+      benchmarkOutputEl.textContent = "";
+
+      try {
+        const inputDir = benchmarkInputDirEl.value.trim() || "tests/reports/benchmark";
+        const params = new URLSearchParams();
+        params.set("input_dir", inputDir);
+        const payload = await fetchJson("/api/v1/benchmark/runs?" + params.toString());
+        renderBenchmarkReport("runs", payload);
+        setBenchmarkStatus("Benchmark runs 已加载。");
+      } catch (error) {
+        setBenchmarkStatus("Benchmark runs 加载失败：" + String(error));
+      }
+    }
+
     function setHealthStatus(message) {
       healthStatusEl.textContent = message;
       healthStatusEl.classList.remove("hidden");
@@ -5558,6 +5761,15 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       element.addEventListener("change", saveConnectorDebugState);
     });
     [
+      benchmarkSuiteEl,
+      benchmarkScopeIdEl,
+      benchmarkOutputDirEl,
+      benchmarkInputDirEl,
+    ].forEach((element) => {
+      element.addEventListener("input", saveBenchmarkDebugState);
+      element.addEventListener("change", saveBenchmarkDebugState);
+    });
+    [
       healthScopeIdEl,
       healthLimitEl,
     ].forEach((element) => {
@@ -5627,6 +5839,10 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       loadConnectorReport("Apply Plan", "/api/v1/compat/connectors/proposal-apply-plan", { includeScope: true, includeReview: true, includeQueueId: true, allowQueueIdOnly: true });
     });
     connectorApplyConfirmEl.addEventListener("click", applyConnectorReport);
+    benchmarkRunEl.addEventListener("click", runBenchmark);
+    benchmarkReportEl.addEventListener("click", loadBenchmarkReport);
+    benchmarkFailuresEl.addEventListener("click", loadBenchmarkFailures);
+    benchmarkRunsEl.addEventListener("click", loadBenchmarkRuns);
     healthLoadEl.addEventListener("click", loadHealthReport);
     passportExportEl.addEventListener("click", exportPassport);
     passportVerifyEl.addEventListener("click", verifyPassport);
@@ -5634,6 +5850,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
     loadProjectionDebugState();
     loadConnectorDebugState();
+    loadBenchmarkDebugState();
     loadHealthDebugState();
     loadPassportDebugState();
     render();

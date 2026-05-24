@@ -313,6 +313,11 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("connector-load-queue"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-queue/"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-apply-plan/apply"));
+    assert!(text.contains("Benchmark Console"));
+    assert!(text.contains("meat-memory.benchmark-debug.v1"));
+    assert!(text.contains("/api/v1/benchmark/run"));
+    assert!(text.contains("/api/v1/benchmark/failures"));
+    assert!(text.contains("benchmark-report"));
     assert!(text.contains("Health Console"));
     assert!(text.contains("meat-memory.health-debug.v1"));
     assert!(text.contains("/api/v1/health/report"));
@@ -2447,6 +2452,9 @@ fn builds_console_page_and_escapes_metadata() {
     assert!(page.contains("Memory Workspace"));
     assert!(page.contains("/api/v1/explorer/memories"));
     assert!(page.contains("/api/v1/assistant/chat"));
+    assert!(page.contains("Benchmark Console"));
+    assert!(page.contains("benchmark-suite"));
+    assert!(page.contains("benchmark-output"));
     assert!(page.contains("Health Console"));
     assert!(page.contains("health-scope-id"));
     assert!(page.contains("health-output"));
