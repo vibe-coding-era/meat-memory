@@ -2,7 +2,7 @@
   "cases": [
     {
       "actual_memory_ids": [
-        "mem_01KSCJ76WX6FQS9PEM6KPZWD5Z"
+        "mem_01KSCJCE2SXFZA03CJS1GKHGPR"
       ],
       "actual_memory_titles": [
         "V2.91 兼容契约 remember search fetch_context"
@@ -17,11 +17,11 @@
       "query": "V2.91 兼容契约 remember search fetch_context",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJ76WZNYYC57BTFC3WCRT9"
+      "trace_id": "rtr_01KSCJCE2VMNKYSEE0PA6FW1CF"
     },
     {
       "actual_memory_ids": [
-        "mem_01KSCJ76WZ3P48GMWVT2K602MB"
+        "mem_01KSCJCE2VG5DRVH7E73RQWPWW"
       ],
       "actual_memory_titles": [
         "评审输出 风险优先 摘要靠后"
@@ -36,11 +36,11 @@
       "query": "评审输出 风险优先 摘要靠后",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJ76X0RB3HEGXP3VNXVZGD"
+      "trace_id": "rtr_01KSCJCE2WS3BQ15VMWC50S61V"
     },
     {
       "actual_memory_ids": [
-        "mem_01KSCJ76X0D9074DM7W31NJ026"
+        "mem_01KSCJCE2WP6VDDTG0YX3MCKQJ"
       ],
       "actual_memory_titles": [
         "Secret Guard token API key 默认脱敏"
@@ -55,11 +55,11 @@
       "query": "Secret Guard token API key 默认脱敏",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJ76X1177PKYGR6Z27111N"
+      "trace_id": "rtr_01KSCJCE2XQD0QBRD30A646ZWP"
     },
     {
       "actual_memory_ids": [
-        "mem_01KSCJ76X1FSYF7TJ3VBA25EX6"
+        "mem_01KSCJCE2XHYBN27VWSRBX3F0T"
       ],
       "actual_memory_titles": [
         "Benchmark 报告 recall@1 recall@5 latency leakage failure reason"
@@ -74,11 +74,15 @@
       "query": "Benchmark 报告 recall@1 recall@5 latency leakage failure reason",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJ76X1NH284102H0GEW7YQ"
+      "trace_id": "rtr_01KSCJCE2XBH6EWKBK9SCYYAS3"
     }
   ],
   "metrics": {
     "case_count": 4,
+    "estimated_cost_microusd": 76,
+    "estimated_input_tokens": 38,
+    "estimated_output_tokens": 38,
+    "estimated_total_tokens": 76,
     "failure_count": 0,
     "leakage_count": 0,
     "p50_latency_ms": 0,
@@ -99,16 +103,20 @@
       2026,
       144,
       8,
-      39,
-      26,
-      369862000,
+      42,
+      17,
+      566054000,
       0,
       0,
       0
     ],
-    "id": "bmr_01KSCJ76X190WBWBSN6899W8QJ",
+    "id": "bmr_01KSCJCE2Y9QF4TS69YMA63TF1",
     "metrics": {
       "case_count": 4,
+      "estimated_cost_microusd": 76,
+      "estimated_input_tokens": 38,
+      "estimated_output_tokens": 38,
+      "estimated_total_tokens": 76,
       "failure_count": 0,
       "leakage_count": 0,
       "p50_latency_ms": 0,
@@ -121,9 +129,9 @@
       2026,
       144,
       8,
-      39,
-      26,
-      364480000,
+      42,
+      17,
+      560014000,
       0,
       0,
       0

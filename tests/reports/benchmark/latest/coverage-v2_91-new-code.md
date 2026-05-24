@@ -5,7 +5,7 @@ Coverage target: 100% line / function / region coverage for V2.91 new production
 Covered production areas:
 
 - memory-domain benchmark model and benchmark IDs
-- memory-kernel V2.91 benchmark runner, fixture, metrics, report writer
+- memory-kernel V2.91 benchmark runner, fixture, recall / latency / leakage / cost metrics, report writer
 - memory-cli benchmark run/report/compare parser and output helpers
 - memory-store-pg 0009 benchmark migration wiring
 

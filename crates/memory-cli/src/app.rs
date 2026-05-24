@@ -1374,12 +1374,17 @@ fn benchmark_compare_json(baseline_dir: &Path, candidate_dir: &Path) -> Result<s
         - benchmark_metric_i64(&baseline, "leakage_count");
     let failure_delta = benchmark_metric_i64(&candidate, "failure_count")
         - benchmark_metric_i64(&baseline, "failure_count");
+    let total_token_delta = benchmark_metric_i64(&candidate, "estimated_total_tokens")
+        - benchmark_metric_i64(&baseline, "estimated_total_tokens");
+    let cost_delta = benchmark_metric_i64(&candidate, "estimated_cost_microusd")
+        - benchmark_metric_i64(&baseline, "estimated_cost_microusd");
 
     let regressed = recall_at_1_delta < 0.0
         || recall_at_5_delta < 0.0
         || p95_latency_delta > 0
         || leakage_delta > 0
-        || failure_delta > 0;
+        || failure_delta > 0
+        || cost_delta > 0;
 
     Ok(json!({
         "schema_version": "2.91",
@@ -1396,11 +1401,14 @@ fn benchmark_compare_json(baseline_dir: &Path, candidate_dir: &Path) -> Result<s
             "p95_latency_ms": p95_latency_delta,
             "leakage_count": leakage_delta,
             "failure_count": failure_delta,
+            "estimated_total_tokens": total_token_delta,
+            "estimated_cost_microusd": cost_delta,
         },
         "regression_policy": {
             "recall": "candidate recall@1 and recall@5 must not decrease",
             "latency": "candidate p95 latency must not increase",
             "safety": "candidate leakage_count and failure_count must not increase",
+            "cost": "candidate estimated_cost_microusd must not increase",
         },
     }))
 }
@@ -1474,6 +1482,12 @@ fn benchmark_compare_lines(payload: &serde_json::Value) -> Vec<String> {
             "delta failure count: {}",
             payload["delta"]["failure_count"].as_i64().unwrap_or(0)
         ),
+        format!(
+            "delta estimated cost microusd: {}",
+            payload["delta"]["estimated_cost_microusd"]
+                .as_i64()
+                .unwrap_or(0)
+        ),
     ]
 }
 
@@ -1505,6 +1519,14 @@ fn benchmark_run_output_lines(output: &BenchmarkRunOutput) -> Vec<String> {
         format!("p95 latency ms: {}", output.run.metrics.p95_latency_ms),
         format!("leakage count: {}", output.run.metrics.leakage_count),
         format!("failure count: {}", output.run.metrics.failure_count),
+        format!(
+            "estimated total tokens: {}",
+            output.run.metrics.estimated_total_tokens
+        ),
+        format!(
+            "estimated cost microusd: {}",
+            output.run.metrics.estimated_cost_microusd
+        ),
         format!("Report: {}", output.report_paths.summary.display()),
     ]
 }

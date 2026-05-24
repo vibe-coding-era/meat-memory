@@ -206,6 +206,10 @@ fn sample_benchmark_output(report_dir: &Path) -> BenchmarkRunOutput {
         p50_latency_ms: 3,
         p95_latency_ms: 3,
         failure_count: 0,
+        estimated_input_tokens: 4,
+        estimated_output_tokens: 5,
+        estimated_total_tokens: 9,
+        estimated_cost_microusd: 9,
     };
     let run = BenchmarkRun {
         id: BenchmarkRunId::from_string("bmr_cli"),
@@ -860,6 +864,11 @@ fn benchmark_output_helpers_include_required_metrics_and_paths() {
     assert!(
         lines
             .iter()
+            .any(|line| line == "estimated cost microusd: 9")
+    );
+    assert!(
+        lines
+            .iter()
             .any(|line| line.starts_with("Report: ") && line.ends_with("summary.md"))
     );
 }
@@ -900,12 +909,12 @@ fn benchmark_compare_reports_metric_deltas_and_regressions() {
     fs::create_dir_all(&candidate_dir).unwrap();
     fs::write(
         baseline_dir.join("metrics.json"),
-        r#"{"metrics":{"recall_at_1":0.75,"recall_at_5":1.0,"p50_latency_ms":20,"p95_latency_ms":40,"leakage_count":0,"failure_count":0}}"#,
+        r#"{"metrics":{"recall_at_1":0.75,"recall_at_5":1.0,"p50_latency_ms":20,"p95_latency_ms":40,"leakage_count":0,"failure_count":0,"estimated_total_tokens":100,"estimated_cost_microusd":100}}"#,
     )
     .unwrap();
     fs::write(
         candidate_dir.join("metrics.json"),
-        r#"{"metrics":{"recall_at_1":1.0,"recall_at_5":1.0,"p50_latency_ms":18,"p95_latency_ms":35,"leakage_count":0,"failure_count":0}}"#,
+        r#"{"metrics":{"recall_at_1":1.0,"recall_at_5":1.0,"p50_latency_ms":18,"p95_latency_ms":35,"leakage_count":0,"failure_count":0,"estimated_total_tokens":90,"estimated_cost_microusd":90}}"#,
     )
     .unwrap();
 
@@ -915,11 +924,12 @@ fn benchmark_compare_reports_metric_deltas_and_regressions() {
     assert_eq!(payload["mode"], "benchmark_compare");
     assert_eq!(payload["status"], "passed");
     assert_eq!(payload["delta"]["p95_latency_ms"], -5);
+    assert_eq!(payload["delta"]["estimated_cost_microusd"], -10);
     assert!(lines.iter().any(|line| line == "Benchmark compare: passed"));
 
     fs::write(
         candidate_dir.join("metrics.json"),
-        r#"{"metrics":{"recall_at_1":0.5,"recall_at_5":1.0,"p50_latency_ms":18,"p95_latency_ms":45,"leakage_count":1,"failure_count":0}}"#,
+        r#"{"metrics":{"recall_at_1":0.5,"recall_at_5":1.0,"p50_latency_ms":18,"p95_latency_ms":45,"leakage_count":1,"failure_count":0,"estimated_total_tokens":120,"estimated_cost_microusd":120}}"#,
     )
     .unwrap();
     let regressed = benchmark_compare_json(&baseline_dir, &candidate_dir).unwrap();

@@ -66,6 +66,14 @@ pub struct BenchmarkMetrics {
     pub p50_latency_ms: u64,
     pub p95_latency_ms: u64,
     pub failure_count: usize,
+    #[serde(default)]
+    pub estimated_input_tokens: usize,
+    #[serde(default)]
+    pub estimated_output_tokens: usize,
+    #[serde(default)]
+    pub estimated_total_tokens: usize,
+    #[serde(default)]
+    pub estimated_cost_microusd: u64,
 }
 
 impl Default for BenchmarkMetrics {
@@ -78,6 +86,10 @@ impl Default for BenchmarkMetrics {
             p50_latency_ms: 0,
             p95_latency_ms: 0,
             failure_count: 0,
+            estimated_input_tokens: 0,
+            estimated_output_tokens: 0,
+            estimated_total_tokens: 0,
+            estimated_cost_microusd: 0,
         }
     }
 }
@@ -98,6 +110,16 @@ impl BenchmarkMetrics {
             .count();
         let mut latencies = cases.iter().map(|case| case.latency_ms).collect::<Vec<_>>();
         latencies.sort_unstable();
+        let estimated_input_tokens = cases
+            .iter()
+            .map(|case| estimate_benchmark_tokens(&case.query))
+            .sum::<usize>();
+        let estimated_output_tokens = cases
+            .iter()
+            .flat_map(|case| case.actual_memory_titles.iter())
+            .map(|title| estimate_benchmark_tokens(title))
+            .sum::<usize>();
+        let estimated_total_tokens = estimated_input_tokens + estimated_output_tokens;
 
         Self {
             case_count,
@@ -107,8 +129,17 @@ impl BenchmarkMetrics {
             p50_latency_ms: percentile(&latencies, 0.50),
             p95_latency_ms: percentile(&latencies, 0.95),
             failure_count,
+            estimated_input_tokens,
+            estimated_output_tokens,
+            estimated_total_tokens,
+            estimated_cost_microusd: estimated_total_tokens as u64,
         }
     }
+}
+
+fn estimate_benchmark_tokens(text: &str) -> usize {
+    let chars = text.chars().count();
+    if chars == 0 { 0 } else { chars.div_ceil(4) }
 }
 
 fn percentile(sorted: &[u64], pct: f64) -> u64 {
@@ -179,6 +210,16 @@ mod tests {
         assert_eq!(metrics.failure_count, 1);
         assert_eq!(metrics.p50_latency_ms, 20);
         assert_eq!(metrics.p95_latency_ms, 30);
+        assert!(metrics.estimated_input_tokens > 0);
+        assert!(metrics.estimated_output_tokens > 0);
+        assert_eq!(
+            metrics.estimated_total_tokens,
+            metrics.estimated_input_tokens + metrics.estimated_output_tokens
+        );
+        assert_eq!(
+            metrics.estimated_cost_microusd,
+            metrics.estimated_total_tokens as u64
+        );
     }
 
     #[test]

@@ -334,7 +334,7 @@ fn render_summary(
     cases: &[BenchmarkCaseResult],
 ) -> String {
     let mut summary = format!(
-        "# Benchmark Summary\n\nsuite: {}\nversion: {}\nrun_id: {}\nstatus: {}\ncase_count: {}\nrecall@1: {:.3}\nrecall@5: {:.3}\np50_latency_ms: {}\np95_latency_ms: {}\nleakage_count: {}\nfailure_count: {}\n\n## Cases\n",
+        "# Benchmark Summary\n\nsuite: {}\nversion: {}\nrun_id: {}\nstatus: {}\ncase_count: {}\nrecall@1: {:.3}\nrecall@5: {:.3}\np50_latency_ms: {}\np95_latency_ms: {}\nleakage_count: {}\nfailure_count: {}\nestimated_input_tokens: {}\nestimated_output_tokens: {}\nestimated_total_tokens: {}\nestimated_cost_microusd: {}\n\n## Cases\n",
         suite.name,
         suite.version,
         run.id.as_str(),
@@ -345,7 +345,11 @@ fn render_summary(
         run.metrics.p50_latency_ms,
         run.metrics.p95_latency_ms,
         run.metrics.leakage_count,
-        run.metrics.failure_count
+        run.metrics.failure_count,
+        run.metrics.estimated_input_tokens,
+        run.metrics.estimated_output_tokens,
+        run.metrics.estimated_total_tokens,
+        run.metrics.estimated_cost_microusd
     );
 
     for case in cases {
@@ -492,6 +496,8 @@ mod tests {
         assert!(summary.contains("latency"));
         assert!(summary.contains("leakage_count"));
         assert!(summary.contains("failure_count"));
+        assert!(summary.contains("estimated_total_tokens"));
+        assert!(summary.contains("estimated_cost_microusd"));
     }
 
     #[test]
