@@ -4031,6 +4031,40 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
         <section class="card">
           <div class="card-header">
+            <h2 class="card-title">Passport Console</h2>
+            <span class="memory-meta-tag">/api/v1/passports/export · import · manifest</span>
+          </div>
+          <div class="chat-composer">
+            <input id="passport-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />
+            <input id="passport-output-dir" class="chat-input" placeholder="output_dir" value="tests/reports/passport/latest" />
+            <input id="passport-limit" class="chat-input" placeholder="limit" value="100" />
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="passport-input-dir" class="chat-input" placeholder="input_dir" value="tests/reports/passport/latest" />
+            <input id="passport-target-scope-id" class="chat-input" placeholder="target_scope_id for import" />
+          </div>
+          <div class="chip-row" style="margin-top: 10px;">
+            <label class="memory-meta-tag">
+              <input id="passport-redact-sensitive" type="checkbox" checked />
+              redact sensitive
+            </label>
+            <label class="memory-meta-tag">
+              <input id="passport-dry-run" type="checkbox" checked />
+              dry run import
+            </label>
+          </div>
+          <div class="chip-row" style="margin-top: 10px;">
+            <button type="button" class="toolbar-button" id="passport-export">Export</button>
+            <button type="button" class="toolbar-button" id="passport-verify">Verify Manifest</button>
+            <button type="button" class="send-button" id="passport-import">Import</button>
+          </div>
+          <div id="passport-status" class="status-box hidden" style="margin-top: 12px;"></div>
+          <div id="passport-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
+          <pre id="passport-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
             <h2 class="card-title">AI 对话区</h2>
           </div>
           <div id="chat-note" class="chat-note muted">
@@ -4140,6 +4174,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const metadata = __METADATA__;
     const PROJECTION_DEBUG_STORAGE_KEY = "meat-memory.projection-debug.v1";
     const CONNECTOR_DEBUG_STORAGE_KEY = "meat-memory.connector-debug.v1";
+    const PASSPORT_DEBUG_STORAGE_KEY = "meat-memory.passport-debug.v1";
     async function fetchJson(url, options) {
       const response = await fetch(url, options);
       const text = await response.text();
@@ -4168,6 +4203,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       projectionSourceSearch: "",
       projectionDocumentSearch: "",
       connectorReport: null,
+      passportReport: null,
       chatLoading: false,
       messages: [
         {
@@ -4243,6 +4279,19 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const connectorStatusEl = document.getElementById("connector-status");
     const connectorMetaEl = document.getElementById("connector-meta");
     const connectorOutputEl = document.getElementById("connector-output");
+    const passportScopeIdEl = document.getElementById("passport-scope-id");
+    const passportOutputDirEl = document.getElementById("passport-output-dir");
+    const passportLimitEl = document.getElementById("passport-limit");
+    const passportInputDirEl = document.getElementById("passport-input-dir");
+    const passportTargetScopeIdEl = document.getElementById("passport-target-scope-id");
+    const passportRedactSensitiveEl = document.getElementById("passport-redact-sensitive");
+    const passportDryRunEl = document.getElementById("passport-dry-run");
+    const passportExportEl = document.getElementById("passport-export");
+    const passportVerifyEl = document.getElementById("passport-verify");
+    const passportImportEl = document.getElementById("passport-import");
+    const passportStatusEl = document.getElementById("passport-status");
+    const passportMetaEl = document.getElementById("passport-meta");
+    const passportOutputEl = document.getElementById("passport-output");
 
     function escapeHtml(value) {
       return String(value)
@@ -4380,6 +4429,42 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             queueItemIds: connectorQueueItemIdsEl.value.trim(),
             confirmationToken: connectorConfirmationTokenEl.value.trim(),
             queueId: connectorQueueIdEl.value.trim(),
+          })
+        );
+      } catch (_error) {
+      }
+    }
+
+    function loadPassportDebugState() {
+      try {
+        const raw = localStorage.getItem(PASSPORT_DEBUG_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        const persisted = JSON.parse(raw);
+        passportScopeIdEl.value = String(persisted.scopeId || metadata.default_scope || "");
+        passportOutputDirEl.value = String(persisted.outputDir || "tests/reports/passport/latest");
+        passportLimitEl.value = String(persisted.limit || "100");
+        passportInputDirEl.value = String(persisted.inputDir || "tests/reports/passport/latest");
+        passportTargetScopeIdEl.value = String(persisted.targetScopeId || "");
+        passportRedactSensitiveEl.checked = persisted.redactSensitive !== false;
+        passportDryRunEl.checked = persisted.dryRun !== false;
+      } catch (_error) {
+      }
+    }
+
+    function savePassportDebugState() {
+      try {
+        localStorage.setItem(
+          PASSPORT_DEBUG_STORAGE_KEY,
+          JSON.stringify({
+            scopeId: passportScopeIdEl.value.trim(),
+            outputDir: passportOutputDirEl.value.trim(),
+            limit: passportLimitEl.value.trim(),
+            inputDir: passportInputDirEl.value.trim(),
+            targetScopeId: passportTargetScopeIdEl.value.trim(),
+            redactSensitive: passportRedactSensitiveEl.checked,
+            dryRun: passportDryRunEl.checked,
           })
         );
       } catch (_error) {
@@ -5167,6 +5252,146 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       }
     }
 
+    function setPassportStatus(message) {
+      passportStatusEl.textContent = message;
+      passportStatusEl.classList.remove("hidden");
+    }
+
+    function passportLimit() {
+      const raw = passportLimitEl.value.trim();
+      if (!raw) {
+        return null;
+      }
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("limit 必须是正整数。");
+      }
+      return parsed;
+    }
+
+    function renderPassportReport(label, payload) {
+      state.passportReport = payload;
+      const manifest = payload.manifest || {};
+      const tags = [
+        ["operation", label],
+        ["scope", manifest.source_scope_id],
+        ["target", payload.target_scope_id],
+        ["valid", payload.valid],
+        ["verified", payload.verified],
+        ["objects", manifest.object_count],
+        ["memories", Array.isArray(payload.memories) ? payload.memories.length : undefined],
+        ["imported", payload.imported_count],
+        ["skipped", payload.skipped_count],
+      ].filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== "");
+
+      passportMetaEl.innerHTML =
+        '<div class="memory-expanded-title">Passport Report</div>' +
+        '<div class="memory-meta">' +
+        tags
+          .map((item) => {
+            return '<span class="memory-meta-tag">' +
+              escapeHtml(item[0] + " " + String(item[1])) +
+              "</span>";
+          })
+          .join("") +
+        "</div>";
+      passportMetaEl.classList.remove("hidden");
+      passportOutputEl.textContent = JSON.stringify(payload, null, 2);
+      passportOutputEl.classList.remove("hidden");
+    }
+
+    async function exportPassport() {
+      savePassportDebugState();
+      setPassportStatus("正在导出 Passport...");
+      passportMetaEl.classList.add("hidden");
+      passportMetaEl.innerHTML = "";
+      passportOutputEl.classList.add("hidden");
+      passportOutputEl.textContent = "";
+
+      try {
+        const outputDir = passportOutputDirEl.value.trim() || "tests/reports/passport/latest";
+        const body = {
+          scope_id: passportScopeIdEl.value.trim() || metadata.default_scope,
+          output_dir: outputDir,
+          redact_sensitive: passportRedactSensitiveEl.checked,
+        };
+        const limit = passportLimit();
+        if (limit) {
+          body.limit = limit;
+        }
+        const payload = await fetchJson("/api/v1/passports/export", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        passportInputDirEl.value = outputDir;
+        savePassportDebugState();
+        renderPassportReport("export", payload);
+        setPassportStatus("Passport export 已完成。");
+      } catch (error) {
+        setPassportStatus("Passport export 失败：" + String(error));
+      }
+    }
+
+    async function verifyPassport() {
+      savePassportDebugState();
+      setPassportStatus("正在校验 Passport manifest...");
+      passportMetaEl.classList.add("hidden");
+      passportMetaEl.innerHTML = "";
+      passportOutputEl.classList.add("hidden");
+      passportOutputEl.textContent = "";
+
+      try {
+        const inputDir = passportInputDirEl.value.trim();
+        if (!inputDir) {
+          throw new Error("请先填写 input_dir。");
+        }
+        const params = new URLSearchParams();
+        params.set("input_dir", inputDir);
+        const payload = await fetchJson("/api/v1/passports/manifest?" + params.toString());
+        renderPassportReport("manifest", payload);
+        setPassportStatus(payload.valid ? "Passport manifest 校验通过。" : "Passport manifest 校验未通过。");
+      } catch (error) {
+        setPassportStatus("Passport manifest 校验失败：" + String(error));
+      }
+    }
+
+    async function importPassport() {
+      savePassportDebugState();
+      setPassportStatus("正在导入 Passport...");
+      passportMetaEl.classList.add("hidden");
+      passportMetaEl.innerHTML = "";
+      passportOutputEl.classList.add("hidden");
+      passportOutputEl.textContent = "";
+
+      try {
+        const inputDir = passportInputDirEl.value.trim();
+        if (!inputDir) {
+          throw new Error("请先填写 input_dir。");
+        }
+        const body = {
+          input_dir: inputDir,
+          dry_run: passportDryRunEl.checked,
+        };
+        const targetScopeId = passportTargetScopeIdEl.value.trim();
+        if (targetScopeId) {
+          body.target_scope_id = targetScopeId;
+        }
+        const payload = await fetchJson("/api/v1/passports/import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        renderPassportReport("import", payload);
+        setPassportStatus(passportDryRunEl.checked ? "Passport import dry-run 已完成。" : "Passport import 已完成。");
+        if (!passportDryRunEl.checked) {
+          loadWorkspace();
+        }
+      } catch (error) {
+        setPassportStatus("Passport import 失败：" + String(error));
+      }
+    }
+
     document.querySelectorAll("#ownership-filter button").forEach((button) => {
       button.addEventListener("click", () => {
         state.ownershipFilter = button.dataset.value || "all";
@@ -5210,6 +5435,18 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     ].forEach((element) => {
       element.addEventListener("input", saveConnectorDebugState);
       element.addEventListener("change", saveConnectorDebugState);
+    });
+    [
+      passportScopeIdEl,
+      passportOutputDirEl,
+      passportLimitEl,
+      passportInputDirEl,
+      passportTargetScopeIdEl,
+      passportRedactSensitiveEl,
+      passportDryRunEl,
+    ].forEach((element) => {
+      element.addEventListener("input", savePassportDebugState);
+      element.addEventListener("change", savePassportDebugState);
     });
 
     refreshButtonEl.addEventListener("click", loadWorkspace);
@@ -5262,9 +5499,13 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       loadConnectorReport("Apply Plan", "/api/v1/compat/connectors/proposal-apply-plan", { includeScope: true, includeReview: true, includeQueueId: true, allowQueueIdOnly: true });
     });
     connectorApplyConfirmEl.addEventListener("click", applyConnectorReport);
+    passportExportEl.addEventListener("click", exportPassport);
+    passportVerifyEl.addEventListener("click", verifyPassport);
+    passportImportEl.addEventListener("click", importPassport);
 
     loadProjectionDebugState();
     loadConnectorDebugState();
+    loadPassportDebugState();
     render();
     loadWorkspace();
     restoreProjectionDebugSession();
