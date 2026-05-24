@@ -725,6 +725,12 @@ async fn v29_surface_http_reads_benchmark_and_trace_reports() {
     )
     .unwrap();
     fs::write(
+        benchmark_dir.join("failures.jsonl"),
+        serde_json::json!({"case_id":"case-1","failure_reason":"expected memory not found"})
+            .to_string(),
+    )
+    .unwrap();
+    fs::write(
         trace_dir.join("trace.json"),
         serde_json::json!({"trace":{"id":"rtr_http"},"budget_pack":{"used_chars":42}}).to_string(),
     )
@@ -754,6 +760,25 @@ async fn v29_surface_http_reads_benchmark_and_trace_reports() {
             .as_str()
             .unwrap()
             .contains("Benchmark Summary")
+    );
+    let failures = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/benchmark/failures?input_dir={}",
+                benchmark_dir.display()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures.status(), axum::http::StatusCode::OK);
+    let failures_payload = response_json(failures).await;
+    assert_eq!(failures_payload["failure_count"], 1);
+    assert_eq!(
+        failures_payload["failures"][0]["failure_reason"],
+        "expected memory not found"
     );
 
     let trace = app

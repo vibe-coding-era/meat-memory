@@ -75,6 +75,7 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/lifecycle/audit",
     "/api/v1/lifecycle/report",
     "/api/v1/benchmark/report",
+    "/api/v1/benchmark/failures",
     "/api/v1/recall/traces/inspect",
     "/api/v1/health/report",
     "/api/v1/passports/manifest",
@@ -864,6 +865,7 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/lifecycle/audit", get(list_lifecycle_audit))
         .route("/api/v1/lifecycle/report", get(lifecycle_report))
         .route("/api/v1/benchmark/report", get(benchmark_report))
+        .route("/api/v1/benchmark/failures", get(benchmark_failures))
         .route("/api/v1/recall/traces/inspect", get(trace_inspect))
         .route("/api/v1/health/report", get(health_report))
         .route("/api/v1/passports/manifest", get(passport_manifest))
@@ -1984,6 +1986,32 @@ async fn benchmark_report(
         "input_dir": input_dir.display().to_string(),
         "summary": summary,
         "metrics": metrics,
+    })))
+}
+
+async fn benchmark_failures(
+    Query(query): Query<ReportInputQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let input_dir = report_input_dir(query.input_dir, "tests/reports/benchmark/latest");
+    let failures_path = input_dir.join("failures.jsonl");
+    let raw = read_report_text(&failures_path)?;
+    let failures = raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).map_err(|error| {
+                ApiError::bad_request(format!(
+                    "failed to parse {} JSONL row: {error}",
+                    failures_path.display()
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Json(json!({
+        "input_dir": input_dir.display().to_string(),
+        "failure_count": failures.len(),
+        "failures": failures,
     })))
 }
 
