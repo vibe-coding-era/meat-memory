@@ -101,6 +101,7 @@
     "blocked_urls": [],
     "crawl_discovered_count": 0,
     "crawl_discovered_urls": [],
+    "crawl_next_frontier_urls": [],
     "crawl_policy": "urls_txt_seed_plus_in_scope_links",
     "crawl_queue_remaining": 0,
     "crawl_seed_count": 0,

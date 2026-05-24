@@ -927,10 +927,10 @@ fn build_web_crawler_sync_plan(
     }
 
     if request.allow_remote_fetch {
-        while let Some(url) = remote_queue.pop_front() {
-            if documents.len() >= request.max_items {
+        while documents.len() < request.max_items {
+            let Some(url) = remote_queue.pop_front() else {
                 break;
-            }
+            };
             match web_page_remote_sync_candidate(&root, &url, &allowlist_domains, &url_validators) {
                 Ok(WebRemoteFetchOutcome::Candidate(parsed)) => {
                     seen.insert(parsed.canonical_uri.clone());
@@ -1025,6 +1025,7 @@ fn build_web_crawler_sync_plan(
         .map(|document| connector_document_evidence_span(&request.scope_id, document))
         .collect::<Vec<_>>();
 
+    let crawl_next_frontier_urls = remote_queue.iter().cloned().collect::<Vec<_>>();
     let checkpoint = json!({
         "strategy": "canonical_uri_content_hash",
         "apply_target": "Kernel::apply_project_document_sync_plan",
@@ -1044,7 +1045,8 @@ fn build_web_crawler_sync_plan(
         "crawl_seed_count": url_manifest.len(),
         "crawl_discovered_count": discovered_remote_urls.len(),
         "crawl_discovered_urls": discovered_remote_urls,
-        "crawl_queue_remaining": remote_queue.len(),
+        "crawl_queue_remaining": crawl_next_frontier_urls.len(),
+        "crawl_next_frontier_urls": crawl_next_frontier_urls,
         "url_manifest": "urls.txt",
         "url_manifest_count": url_manifest.len(),
         "validator_manifest": "url-validators.json",
@@ -5038,6 +5040,14 @@ mod tests {
         assert_eq!(
             output.report.incremental_checkpoint["update_detection"][2],
             "etag"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_queue_remaining"],
+            1
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_next_frontier_urls"][0],
+            format!("{base_url}/next")
         );
     }
 

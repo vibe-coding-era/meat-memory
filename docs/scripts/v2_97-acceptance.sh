@@ -360,6 +360,7 @@ assert web_crawler_sync_plan["incremental_checkpoint"]["remote_network"] is Fals
 assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_policy"] == "urls_txt_seed_plus_in_scope_links", web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_seed_count"] == 0, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_discovered_count"] == 0, web_crawler_sync_plan
+assert web_crawler_sync_plan["incremental_checkpoint"]["crawl_next_frontier_urls"] == [], web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["validator_manifest"] == "url-validators.json", web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["validator_manifest_count"] == 0, web_crawler_sync_plan
 assert web_crawler_sync_plan["incremental_checkpoint"]["update_detection"][2] == "etag", web_crawler_sync_plan
