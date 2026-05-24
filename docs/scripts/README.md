@@ -99,6 +99,7 @@
 ./docs/scripts/v2_93-acceptance.sh
 ./docs/scripts/v2_94-acceptance.sh
 ./docs/scripts/v2_95-acceptance.sh
+./docs/scripts/v2_9-acceptance.sh
 ./docs/scripts/v2_97-acceptance.sh
 ./docs/scripts/v2_7-production-gate.sh
 ./docs/scripts/v2_8-production-gate.sh
@@ -116,6 +117,7 @@
 - `v2_93-acceptance.sh`：V2.93 secret / PII guard、health report、CLI health 投影和新增代码 100% 覆盖率说明
 - `v2_94-acceptance.sh`：V2.94 evidence span、Memory Passport export / verify / import / provenance 和新增代码 100% 覆盖率说明
 - `v2_95-acceptance.sh`：V2.95 竞品映射、adapter skeleton、CLI / HTTP / MCP surface parity 和新增代码 100% 覆盖率说明
+- `v2_9-acceptance.sh`：V2.9 总验收入口，汇总 V2.91 / V2.92 / V2.93 / V2.94 / V2.95 / V2.97 子版本验收和新增代码 100% 覆盖率报告；`V2_9_ACCEPTANCE_RUN_CHILDREN=0` 可只验证已有报告汇总
 - `v2_97-acceptance.sh`：V2.97 connector dry-run、sync-plan、frontmatter metadata 持久化、完整 YAML frontmatter 兼容、web-crawler 本地网页快照 dry-run / sync-plan / opt-in HTTP fetch policy / robots precedence / validators / HTTP redirect / conditional request / link boundary / multi-page crawl frontier / canonical URL / allowlist failure report、proposal-queue、持久化 queue manifest、service-side proposal store、proposal apply-plan、CLI / HTTP / MCP / Browser Console confirmed executor、conflict review、chat export import draft 和新增代码 100% 覆盖率说明
 - `v2_7-production-gate.sh`：V2.7 商用生产门禁，覆盖格式、接口、P1 回归、存储、接入面、安全和严格 PG 验收
 - `v2_8-production-gate.sh`：V2.8 发布门禁，覆盖格式、接口、V2.8 核心套件、接入面、安全和 strict acceptance
@@ -186,6 +188,7 @@
 - `v2_93-acceptance.sh`：V2.93 secret / health 验收
 - `v2_94-acceptance.sh`：V2.94 evidence / passport 验收
 - `v2_95-acceptance.sh`：V2.95 compatibility surface 验收
+- `v2_9-acceptance.sh`：V2.9 总验收与覆盖率汇总
 - `v2_97-acceptance.sh`：V2.97 connectors parity、frontmatter metadata 持久化、完整 YAML frontmatter 兼容、web-crawler 本地网页快照 dry-run / sync-plan / opt-in HTTP fetch policy / robots precedence / validators / HTTP redirect / conditional request / link boundary / multi-page crawl frontier / canonical URL / allowlist failure report、持久化 queue manifest、service-side proposal store、确认式 apply-plan 与 CLI / HTTP / MCP / Browser Console confirmed executor 验收
 - `v2_7-production-gate.sh`：V2.7 生产门禁
 - `v2_8-production-gate.sh`：V2.8 发布门禁

@@ -1,0 +1,7 @@
+[v2.9] acceptance started
+[v2.9] report: /Users/Rou/dev_projects/meat-memory/tests/reports/v2_9/latest/v2_9-acceptance.txt
+[v2.9] output: /Users/Rou/dev_projects/meat-memory/tests/reports/v2_9/latest
+[v2.9] run children: 0
+[v2.9] format check
+[v2.9] child acceptance scripts skipped by V2_9_ACCEPTANCE_RUN_CHILDREN=0
+[v2.9] acceptance passed
