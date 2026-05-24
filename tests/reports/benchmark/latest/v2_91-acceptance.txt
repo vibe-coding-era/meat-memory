@@ -3,23 +3,12 @@
 [v2.91] benchmark output: /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest
 [v2.91] format check
 [v2.91] interface check
-    Checking memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
-    Checking memory-store v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store)
-    Checking memory-extract v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-extract)
-    Checking memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
-    Checking memory-sync v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-sync)
-    Checking memory-store-md v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-md)
-    Checking memory-policy v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-policy)
-    Checking memory-core v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-core)
-    Checking memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-    Checking memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
     Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.68s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.15s
 [v2.91] benchmark domain models
    Compiling memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.21s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 5 tests
 test benchmark::tests::benchmark_run_status_serializes_to_stable_labels ... ok
@@ -28,30 +17,21 @@ test benchmark::tests::metrics_from_cases_reports_recall_latency_and_failures ..
 test benchmark::tests::metrics_from_empty_cases_uses_zero_baseline ... ok
 test benchmark::tests::percentile_handles_single_and_multiple_values ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s
 
 [v2.91] benchmark ids
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 2 tests
 test ids::tests::from_string_and_default_roundtrip_values ... ok
 test ids::tests::generated_ids_use_expected_prefixes ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 47 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
 
 [v2.91] benchmark kernel runner
-   Compiling memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
-   Compiling memory-store v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store)
-   Compiling memory-store-md v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-md)
-   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
-   Compiling memory-extract v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-extract)
-   Compiling memory-sync v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-sync)
-   Compiling memory-policy v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-policy)
-   Compiling memory-core v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-core)
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa75c1016765f4f)
 
 running 6 tests
 test v29_benchmark::tests::benchmark_failure_reason_prefers_leakage_over_recall_miss ... ok
@@ -61,35 +41,24 @@ test v29_benchmark::tests::contains_restricted_memory_flags_leakage_candidates .
 test v29_benchmark::tests::render_summary_includes_required_metric_names ... ok
 test v29_benchmark::tests::report_paths_are_stable ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 91 filtered out; finished in 0.01s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 145 filtered out; finished in 0.03s
 
 [v2.91] benchmark CLI helpers and parser
-   Compiling memory-domain v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-domain)
-   Compiling memory-store v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store)
-   Compiling memory-policy v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-policy)
-   Compiling memory-store-md v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-md)
-   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
-   Compiling memory-extract v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-extract)
-   Compiling memory-sync v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-sync)
-   Compiling memory-core v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-core)
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.44s
-     Running unittests src/main.rs (target/debug/deps/memory_cli-7baa1cb3a6946b55)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-a38e07fd7caffa00)
 
-running 3 tests
+running 4 tests
 test app::main_tests::benchmark_cli_parser_accepts_run_and_report ... ok
+test app::main_tests::benchmark_compare_reports_metric_deltas_and_regressions ... ok
 test app::main_tests::benchmark_output_helpers_include_required_metrics_and_paths ... ok
 test app::main_tests::benchmark_report_command_reads_summary_and_metrics ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.00s
 
 [v2.91] benchmark PG migration contract
    Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
-     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.28s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
 
 running 1 test
 test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
@@ -98,7 +67,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; fin
 
 [v2.91] V2.7 compatibility smoke
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa75c1016765f4f)
 
 running 23 tests
 test lifecycle::lifecycle_impl::lifecycle_tests::audit_log_service_records_status_transition ... ok
@@ -125,11 +94,11 @@ test lifecycle::lifecycle_impl::lifecycle_tests::task_summary_helpers_split_and_
 test lifecycle::lifecycle_impl::lifecycle_tests::task_summary_service_extracts_structured_fields ... ok
 test v28::v28_tests::executor_plans_audit_only_for_lifecycle_proposals ... ok
 
-test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.00s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 128 filtered out; finished in 0.00s
 
 [v2.91] V2.8 compatibility smoke
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa75c1016765f4f)
 
 running 54 tests
 test v28::v28_tests::classifier_detects_conflict_candidate_for_opposite_fact ... ok
@@ -187,14 +156,10 @@ test v28_runtime::tests::proposal_apply_runtime_materializes_relation_version_au
 test v28_runtime::tests::proposal_review_runtime_lists_inspects_approves_and_rejects_pg ... ok
 test v28_runtime::tests::proposal_review_runtime_requires_pg ... ok
 
-test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 43 filtered out; finished in 0.12s
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 0.01s
 
 [v2.91] CLI benchmark run
-   Compiling memory-store-pg v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-store-pg)
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
    Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.44s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.60s
      Running `target/debug/memory-cli benchmark run --suite meat-code-zh --scope-id scp_v291_acceptance --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest --json`
 [v2.91] acceptance completed

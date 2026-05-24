@@ -1,25 +1,26 @@
 use super::{
-    Cli, api_metadata, benchmark_report_command, benchmark_run_output_json,
-    benchmark_run_output_lines, bootstrap_loaded_config, bootstrap_runtime, build_cli_router,
-    build_distillation_session_override, build_kernel, build_non_interactive_project_init_request,
-    build_remember_image_request, build_remember_request, build_search_request,
-    check_mcp_http_endpoint, compat_connector_dry_run_command,
-    compat_connector_import_draft_command, compat_connector_proposal_apply_plan_command,
-    compat_connector_proposal_queue_command, compat_connector_sync_plan_command,
-    compat_report_command, compat_report_lines, compat_report_output_json, config_check_json,
-    config_check_lines, config_check_report, config_command, config_summary_json,
-    config_summary_lines, connector_dry_run_lines, connector_dry_run_output_json,
-    connector_import_draft_lines, connector_import_draft_output_json,
-    connector_proposal_apply_plan_lines, connector_proposal_apply_plan_output_json,
-    connector_proposal_queue_lines, connector_proposal_queue_output_json,
-    connector_sync_plan_lines, connector_sync_plan_output_json, context_command,
-    detect_image_media_type, distill_command, distillation_preview_result_json,
-    distillation_profile_json, docs_command, ensure_default_key_material, export_skill_bundle,
-    generated_project_scope_id, health_report_json, health_report_lines, key_command,
-    lifecycle_command, lifecycle_inspect_json, lifecycle_status_json, load_body,
-    load_body_from_reader, mcp_command, mcp_info_json, mcp_info_lines, memory_proposal_json,
-    memory_provenance_json, memory_provenance_lines, memory_timeline_json, memory_version_json,
-    parse_artifact_kind, parse_distillation_profile_level, parse_distillation_profile_status,
+    Cli, api_metadata, benchmark_compare_json, benchmark_compare_lines, benchmark_report_command,
+    benchmark_run_output_json, benchmark_run_output_lines, bootstrap_loaded_config,
+    bootstrap_runtime, build_cli_router, build_distillation_session_override, build_kernel,
+    build_non_interactive_project_init_request, build_remember_image_request,
+    build_remember_request, build_search_request, check_mcp_http_endpoint,
+    compat_connector_dry_run_command, compat_connector_import_draft_command,
+    compat_connector_proposal_apply_plan_command, compat_connector_proposal_queue_command,
+    compat_connector_sync_plan_command, compat_report_command, compat_report_lines,
+    compat_report_output_json, config_check_json, config_check_lines, config_check_report,
+    config_command, config_summary_json, config_summary_lines, connector_dry_run_lines,
+    connector_dry_run_output_json, connector_import_draft_lines,
+    connector_import_draft_output_json, connector_proposal_apply_plan_lines,
+    connector_proposal_apply_plan_output_json, connector_proposal_queue_lines,
+    connector_proposal_queue_output_json, connector_sync_plan_lines,
+    connector_sync_plan_output_json, context_command, detect_image_media_type, distill_command,
+    distillation_preview_result_json, distillation_profile_json, docs_command,
+    ensure_default_key_material, export_skill_bundle, generated_project_scope_id,
+    health_report_json, health_report_lines, key_command, lifecycle_command,
+    lifecycle_inspect_json, lifecycle_status_json, load_body, load_body_from_reader, mcp_command,
+    mcp_info_json, mcp_info_lines, memory_proposal_json, memory_provenance_json,
+    memory_provenance_lines, memory_timeline_json, memory_version_json, parse_artifact_kind,
+    parse_distillation_profile_level, parse_distillation_profile_status,
     parse_document_conflict_state, parse_document_sync_state, parse_key_scope, parse_key_source,
     parse_memory_kind, parse_record_status, parse_review_actor_kind, parse_sensitivity,
     parse_source_sync_mode, parse_storage_mode, parse_visibility, passport_export_json,
@@ -891,6 +892,43 @@ fn benchmark_report_command_reads_summary_and_metrics() {
 }
 
 #[test]
+fn benchmark_compare_reports_metric_deltas_and_regressions() {
+    let tempdir = tempdir().unwrap();
+    let baseline_dir = tempdir.path().join("baseline");
+    let candidate_dir = tempdir.path().join("candidate");
+    fs::create_dir_all(&baseline_dir).unwrap();
+    fs::create_dir_all(&candidate_dir).unwrap();
+    fs::write(
+        baseline_dir.join("metrics.json"),
+        r#"{"metrics":{"recall_at_1":0.75,"recall_at_5":1.0,"p50_latency_ms":20,"p95_latency_ms":40,"leakage_count":0,"failure_count":0}}"#,
+    )
+    .unwrap();
+    fs::write(
+        candidate_dir.join("metrics.json"),
+        r#"{"metrics":{"recall_at_1":1.0,"recall_at_5":1.0,"p50_latency_ms":18,"p95_latency_ms":35,"leakage_count":0,"failure_count":0}}"#,
+    )
+    .unwrap();
+
+    let payload = benchmark_compare_json(&baseline_dir, &candidate_dir).unwrap();
+    let lines = benchmark_compare_lines(&payload);
+
+    assert_eq!(payload["mode"], "benchmark_compare");
+    assert_eq!(payload["status"], "passed");
+    assert_eq!(payload["delta"]["p95_latency_ms"], -5);
+    assert!(lines.iter().any(|line| line == "Benchmark compare: passed"));
+
+    fs::write(
+        candidate_dir.join("metrics.json"),
+        r#"{"metrics":{"recall_at_1":0.5,"recall_at_5":1.0,"p50_latency_ms":18,"p95_latency_ms":45,"leakage_count":1,"failure_count":0}}"#,
+    )
+    .unwrap();
+    let regressed = benchmark_compare_json(&baseline_dir, &candidate_dir).unwrap();
+
+    assert_eq!(regressed["status"], "regressed");
+    assert_eq!(regressed["delta"]["leakage_count"], 1);
+}
+
+#[test]
 fn trace_output_helpers_include_budget_and_paths() {
     let tempdir = tempdir().unwrap();
     let (result, paths) = sample_trace_result(tempdir.path());
@@ -1610,6 +1648,34 @@ fn benchmark_cli_parser_accepts_run_and_report() {
             assert!(args.json);
         }
         _ => panic!("expected benchmark report command"),
+    }
+
+    let compare_cli = Cli::try_parse_from([
+        "memory-cli",
+        "benchmark",
+        "compare",
+        "--baseline-dir",
+        "tests/reports/benchmark/baseline",
+        "--candidate-dir",
+        "tests/reports/benchmark/latest",
+        "--json",
+    ])
+    .unwrap();
+    match compare_cli.command {
+        super::Command::Benchmark(super::BenchmarkArgs {
+            command: super::BenchmarkCommand::Compare(args),
+        }) => {
+            assert_eq!(
+                args.baseline_dir,
+                PathBuf::from("tests/reports/benchmark/baseline")
+            );
+            assert_eq!(
+                args.candidate_dir,
+                PathBuf::from("tests/reports/benchmark/latest")
+            );
+            assert!(args.json);
+        }
+        _ => panic!("expected benchmark compare command"),
     }
 }
 

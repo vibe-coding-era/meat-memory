@@ -1301,6 +1301,7 @@ async fn benchmark_command(args: BenchmarkArgs) -> Result<()> {
     match args.command {
         BenchmarkCommand::Run(run) => benchmark_run_command(run).await,
         BenchmarkCommand::Report(report) => benchmark_report_command(report),
+        BenchmarkCommand::Compare(compare) => benchmark_compare_command(compare),
     }
 }
 
@@ -1342,6 +1343,138 @@ fn benchmark_report_command(args: BenchmarkReportArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn benchmark_compare_command(args: BenchmarkCompareArgs) -> Result<()> {
+    let payload = benchmark_compare_json(&args.baseline_dir, &args.candidate_dir)?;
+    if args.json {
+        print_json(payload)?;
+    } else {
+        for line in benchmark_compare_lines(&payload) {
+            println!("{line}");
+        }
+    }
+
+    Ok(())
+}
+
+fn benchmark_compare_json(baseline_dir: &Path, candidate_dir: &Path) -> Result<serde_json::Value> {
+    let baseline = read_benchmark_metrics(baseline_dir)?;
+    let candidate = read_benchmark_metrics(candidate_dir)?;
+
+    let recall_at_1_delta = benchmark_metric_f64(&candidate, "recall_at_1")
+        - benchmark_metric_f64(&baseline, "recall_at_1");
+    let recall_at_5_delta = benchmark_metric_f64(&candidate, "recall_at_5")
+        - benchmark_metric_f64(&baseline, "recall_at_5");
+    let p50_latency_delta = benchmark_metric_i64(&candidate, "p50_latency_ms")
+        - benchmark_metric_i64(&baseline, "p50_latency_ms");
+    let p95_latency_delta = benchmark_metric_i64(&candidate, "p95_latency_ms")
+        - benchmark_metric_i64(&baseline, "p95_latency_ms");
+    let leakage_delta = benchmark_metric_i64(&candidate, "leakage_count")
+        - benchmark_metric_i64(&baseline, "leakage_count");
+    let failure_delta = benchmark_metric_i64(&candidate, "failure_count")
+        - benchmark_metric_i64(&baseline, "failure_count");
+
+    let regressed = recall_at_1_delta < 0.0
+        || recall_at_5_delta < 0.0
+        || p95_latency_delta > 0
+        || leakage_delta > 0
+        || failure_delta > 0;
+
+    Ok(json!({
+        "schema_version": "2.91",
+        "mode": "benchmark_compare",
+        "status": if regressed { "regressed" } else { "passed" },
+        "baseline_dir": baseline_dir.display().to_string(),
+        "candidate_dir": candidate_dir.display().to_string(),
+        "baseline": baseline,
+        "candidate": candidate,
+        "delta": {
+            "recall_at_1": recall_at_1_delta,
+            "recall_at_5": recall_at_5_delta,
+            "p50_latency_ms": p50_latency_delta,
+            "p95_latency_ms": p95_latency_delta,
+            "leakage_count": leakage_delta,
+            "failure_count": failure_delta,
+        },
+        "regression_policy": {
+            "recall": "candidate recall@1 and recall@5 must not decrease",
+            "latency": "candidate p95 latency must not increase",
+            "safety": "candidate leakage_count and failure_count must not increase",
+        },
+    }))
+}
+
+fn read_benchmark_metrics(input_dir: &Path) -> Result<serde_json::Value> {
+    let metrics_path = input_dir.join("metrics.json");
+    let raw = fs::read_to_string(&metrics_path)
+        .with_context(|| format!("failed to read {}", metrics_path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", metrics_path.display()))?;
+    value
+        .get("metrics")
+        .cloned()
+        .filter(serde_json::Value::is_object)
+        .or_else(|| {
+            value
+                .get("run")
+                .and_then(|run| run.get("metrics"))
+                .cloned()
+                .filter(serde_json::Value::is_object)
+        })
+        .or_else(|| value.as_object().map(|_| value.clone()))
+        .context("benchmark metrics.json must contain a metrics object")
+}
+
+fn benchmark_metric_f64(metrics: &serde_json::Value, key: &str) -> f64 {
+    metrics
+        .get(key)
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0)
+}
+
+fn benchmark_metric_i64(metrics: &serde_json::Value, key: &str) -> i64 {
+    metrics
+        .get(key)
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0)
+}
+
+fn benchmark_compare_lines(payload: &serde_json::Value) -> Vec<String> {
+    vec![
+        format!(
+            "Benchmark compare: {}",
+            payload["status"].as_str().unwrap_or("unknown")
+        ),
+        format!(
+            "baseline: {}",
+            payload["baseline_dir"].as_str().unwrap_or("")
+        ),
+        format!(
+            "candidate: {}",
+            payload["candidate_dir"].as_str().unwrap_or("")
+        ),
+        format!(
+            "delta recall@1: {:.3}",
+            payload["delta"]["recall_at_1"].as_f64().unwrap_or(0.0)
+        ),
+        format!(
+            "delta recall@5: {:.3}",
+            payload["delta"]["recall_at_5"].as_f64().unwrap_or(0.0)
+        ),
+        format!(
+            "delta p95 latency ms: {}",
+            payload["delta"]["p95_latency_ms"].as_i64().unwrap_or(0)
+        ),
+        format!(
+            "delta leakage count: {}",
+            payload["delta"]["leakage_count"].as_i64().unwrap_or(0)
+        ),
+        format!(
+            "delta failure count: {}",
+            payload["delta"]["failure_count"].as_i64().unwrap_or(0)
+        ),
+    ]
 }
 
 fn benchmark_run_output_json(output: &BenchmarkRunOutput) -> serde_json::Value {

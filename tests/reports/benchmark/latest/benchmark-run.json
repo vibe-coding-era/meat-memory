@@ -2,7 +2,7 @@
   "cases": [
     {
       "actual_memory_ids": [
-        "mem_01KQ6JHSWFMFE61W9CKZ9J6GBT"
+        "mem_01KSCJ76WX6FQS9PEM6KPZWD5Z"
       ],
       "actual_memory_titles": [
         "V2.91 兼容契约 remember search fetch_context"
@@ -16,11 +16,12 @@
       "leakage": false,
       "query": "V2.91 兼容契约 remember search fetch_context",
       "recall_at_1": true,
-      "recall_at_5": true
+      "recall_at_5": true,
+      "trace_id": "rtr_01KSCJ76WZNYYC57BTFC3WCRT9"
     },
     {
       "actual_memory_ids": [
-        "mem_01KQ6JHSWG3G3QXHFHWX218NPS"
+        "mem_01KSCJ76WZ3P48GMWVT2K602MB"
       ],
       "actual_memory_titles": [
         "评审输出 风险优先 摘要靠后"
@@ -34,11 +35,12 @@
       "leakage": false,
       "query": "评审输出 风险优先 摘要靠后",
       "recall_at_1": true,
-      "recall_at_5": true
+      "recall_at_5": true,
+      "trace_id": "rtr_01KSCJ76X0RB3HEGXP3VNXVZGD"
     },
     {
       "actual_memory_ids": [
-        "mem_01KQ6JHSWHTN8ZTJW9CD47HJWE"
+        "mem_01KSCJ76X0D9074DM7W31NJ026"
       ],
       "actual_memory_titles": [
         "Secret Guard token API key 默认脱敏"
@@ -52,11 +54,12 @@
       "leakage": false,
       "query": "Secret Guard token API key 默认脱敏",
       "recall_at_1": true,
-      "recall_at_5": true
+      "recall_at_5": true,
+      "trace_id": "rtr_01KSCJ76X1177PKYGR6Z27111N"
     },
     {
       "actual_memory_ids": [
-        "mem_01KQ6JHSWJVR683H9SE1MZPFSK"
+        "mem_01KSCJ76X1FSYF7TJ3VBA25EX6"
       ],
       "actual_memory_titles": [
         "Benchmark 报告 recall@1 recall@5 latency leakage failure reason"
@@ -70,7 +73,8 @@
       "leakage": false,
       "query": "Benchmark 报告 recall@1 recall@5 latency leakage failure reason",
       "recall_at_1": true,
-      "recall_at_5": true
+      "recall_at_5": true,
+      "trace_id": "rtr_01KSCJ76X1NH284102H0GEW7YQ"
     }
   ],
   "metrics": {
@@ -93,16 +97,16 @@
     "case_count": 4,
     "finished_at": [
       2026,
-      117,
-      4,
-      18,
-      23,
-      250779000,
+      144,
+      8,
+      39,
+      26,
+      369862000,
       0,
       0,
       0
     ],
-    "id": "bmr_01KQ6JHSWJRHXMQHJ6E5D6J5M7",
+    "id": "bmr_01KSCJ76X190WBWBSN6899W8QJ",
     "metrics": {
       "case_count": 4,
       "failure_count": 0,
@@ -115,11 +119,11 @@
     "report_path": "/Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/summary.md",
     "started_at": [
       2026,
-      117,
-      4,
-      18,
-      23,
-      246507000,
+      144,
+      8,
+      39,
+      26,
+      364480000,
       0,
       0,
       0

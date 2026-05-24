@@ -666,6 +666,7 @@ pub(super) struct BenchmarkArgs {
 pub(super) enum BenchmarkCommand {
     Run(BenchmarkRunArgs),
     Report(BenchmarkReportArgs),
+    Compare(BenchmarkCompareArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -684,6 +685,16 @@ pub(super) struct BenchmarkRunArgs {
 pub(super) struct BenchmarkReportArgs {
     #[arg(long, default_value = "tests/reports/benchmark/latest")]
     pub(super) input_dir: PathBuf,
+    #[arg(long)]
+    pub(super) json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub(super) struct BenchmarkCompareArgs {
+    #[arg(long)]
+    pub(super) baseline_dir: PathBuf,
+    #[arg(long)]
+    pub(super) candidate_dir: PathBuf,
     #[arg(long)]
     pub(super) json: bool,
 }
