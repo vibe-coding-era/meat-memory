@@ -113,7 +113,7 @@
 - `v2_4-acceptance.sh`：source / docs / context / metrics 验收
 - `v2_7-acceptance.sh`：lifecycle / governance / explainability / health report 验收
 - `v2_8-acceptance.sh`：proposal / timeline / rollback / profile / distillation 验收；`V2_8_ACCEPTANCE_STRICT=1` 时要求 PG-backed 主链路
-- `v2_91-acceptance.sh`：V2.91 benchmark baseline、recall / latency / leakage / cost metrics、run / report / compare CLI、报告骨架、V2.7 / V2.8 兼容 smoke 与新增代码 100% 覆盖率说明
+- `v2_91-acceptance.sh`：V2.91 benchmark baseline、LoCoMo / LongMemEval / BEAM adapter skeleton、recall / latency / leakage / cost metrics、run / report / compare CLI、报告骨架、V2.7 / V2.8 兼容 smoke 与新增代码 100% 覆盖率说明
 - `v2_92-acceptance.sh`：V2.92 recall trace、explanation、budget packer、trace CLI 和新增代码 100% 覆盖率说明
 - `v2_93-acceptance.sh`：V2.93 secret / PII guard、health report、CLI health 投影和新增代码 100% 覆盖率说明
 - `v2_94-acceptance.sh`：V2.94 evidence span、Memory Passport export / verify / import / provenance 和新增代码 100% 覆盖率说明

@@ -84,6 +84,7 @@ Covered production areas:
 
 - memory-domain benchmark model and benchmark IDs
 - memory-kernel V2.91 benchmark runner, fixture, recall / latency / leakage / cost metrics, report writer
+- public benchmark adapter skeletons for LoCoMo, LongMemEval and BEAM skipped reports
 - memory-cli benchmark run/report/compare parser and output helpers
 - memory-store-pg 0009 benchmark migration wiring
 

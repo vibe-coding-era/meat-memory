@@ -17,6 +17,7 @@ pub enum BenchmarkRunStatus {
     Running,
     Passed,
     Failed,
+    Skipped,
 }
 
 impl BenchmarkRunStatus {
@@ -25,6 +26,7 @@ impl BenchmarkRunStatus {
             Self::Running => "running",
             Self::Passed => "passed",
             Self::Failed => "failed",
+            Self::Skipped => "skipped",
         }
     }
 }
@@ -180,6 +182,7 @@ mod tests {
         assert_eq!(BenchmarkRunStatus::Running.as_str(), "running");
         assert_eq!(BenchmarkRunStatus::Passed.as_str(), "passed");
         assert_eq!(BenchmarkRunStatus::Failed.as_str(), "failed");
+        assert_eq!(BenchmarkRunStatus::Skipped.as_str(), "skipped");
     }
 
     #[test]

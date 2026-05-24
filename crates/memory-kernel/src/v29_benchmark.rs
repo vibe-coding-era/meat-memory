@@ -16,12 +16,18 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BenchmarkSuiteKind {
     MeatCodeZh,
+    LoCoMo,
+    LongMemEval,
+    Beam,
 }
 
 impl BenchmarkSuiteKind {
     pub fn from_name(raw: &str) -> Result<Self> {
         match raw {
             "meat-code-zh" => Ok(Self::MeatCodeZh),
+            "locomo" => Ok(Self::LoCoMo),
+            "longmemeval" | "long-mem-eval" => Ok(Self::LongMemEval),
+            "beam" | "beam-1m" => Ok(Self::Beam),
             _ => bail!("unsupported benchmark suite: {raw}"),
         }
     }
@@ -29,6 +35,9 @@ impl BenchmarkSuiteKind {
     pub fn as_name(self) -> &'static str {
         match self {
             Self::MeatCodeZh => "meat-code-zh",
+            Self::LoCoMo => "locomo",
+            Self::LongMemEval => "longmemeval",
+            Self::Beam => "beam",
         }
     }
 
@@ -41,12 +50,49 @@ impl BenchmarkSuiteKind {
                 description: "Meat Memory 自有中文代码项目记忆基线".to_string(),
                 metric_profile: "recall@1,recall@5,latency,leakage,failure_reason".to_string(),
             },
+            Self::LoCoMo => BenchmarkSuite {
+                id: BenchmarkSuiteId::from_string("bms_locomo"),
+                name: self.as_name().to_string(),
+                version: "2.91.0-adapter".to_string(),
+                description: "LoCoMo 长对话记忆公开 benchmark adapter".to_string(),
+                metric_profile: "recall@1,recall@5,latency,leakage,cost".to_string(),
+            },
+            Self::LongMemEval => BenchmarkSuite {
+                id: BenchmarkSuiteId::from_string("bms_longmemeval"),
+                name: self.as_name().to_string(),
+                version: "2.91.0-adapter".to_string(),
+                description: "LongMemEval 长上下文记忆公开 benchmark adapter".to_string(),
+                metric_profile: "recall@1,recall@5,latency,leakage,cost".to_string(),
+            },
+            Self::Beam => BenchmarkSuite {
+                id: BenchmarkSuiteId::from_string("bms_beam"),
+                name: self.as_name().to_string(),
+                version: "2.91.0-adapter".to_string(),
+                description: "BEAM 1M / 10M token 级记忆 benchmark adapter".to_string(),
+                metric_profile: "recall@1,recall@5,latency,leakage,cost".to_string(),
+            },
         }
     }
 
     fn cases(self) -> &'static [BenchmarkFixtureCase] {
         match self {
             Self::MeatCodeZh => &MEAT_CODE_ZH_CASES,
+            Self::LoCoMo | Self::LongMemEval | Self::Beam => &[],
+        }
+    }
+
+    fn skip_reason(self) -> Option<&'static str> {
+        match self {
+            Self::MeatCodeZh => None,
+            Self::LoCoMo => Some(
+                "LoCoMo dataset is not bundled; place normalized cases under benchmarks/locomo before running full evaluation.",
+            ),
+            Self::LongMemEval => Some(
+                "LongMemEval dataset is not bundled; place normalized cases under benchmarks/longmemeval before running full evaluation.",
+            ),
+            Self::Beam => Some(
+                "BEAM large-memory dataset is not bundled; prepare 1M/10M token fixtures under benchmarks/beam before running full evaluation.",
+            ),
         }
     }
 }
@@ -121,7 +167,9 @@ impl Kernel {
         }
 
         let metrics = BenchmarkMetrics::from_cases(&case_results);
-        let status = if metrics.failure_count == 0 && metrics.leakage_count == 0 {
+        let status = if request.suite.skip_reason().is_some() {
+            BenchmarkRunStatus::Skipped
+        } else if metrics.failure_count == 0 && metrics.leakage_count == 0 {
             BenchmarkRunStatus::Passed
         } else {
             BenchmarkRunStatus::Failed
@@ -351,6 +399,12 @@ fn render_summary(
         run.metrics.estimated_total_tokens,
         run.metrics.estimated_cost_microusd
     );
+    if run.status == BenchmarkRunStatus::Skipped {
+        summary.push_str(&format!(
+            "skip_reason: public dataset fixture is not bundled for {}\nprepare: add normalized cases under benchmarks/{}\n\n",
+            suite.name, suite.name
+        ));
+    }
 
     for case in cases {
         summary.push_str(&format!(
@@ -399,7 +453,19 @@ mod tests {
             BenchmarkSuiteKind::from_name("meat-code-zh").unwrap(),
             BenchmarkSuiteKind::MeatCodeZh
         );
-        assert!(BenchmarkSuiteKind::from_name("locomo").is_err());
+        assert_eq!(
+            BenchmarkSuiteKind::from_name("locomo").unwrap(),
+            BenchmarkSuiteKind::LoCoMo
+        );
+        assert_eq!(
+            BenchmarkSuiteKind::from_name("long-mem-eval").unwrap(),
+            BenchmarkSuiteKind::LongMemEval
+        );
+        assert_eq!(
+            BenchmarkSuiteKind::from_name("beam-1m").unwrap(),
+            BenchmarkSuiteKind::Beam
+        );
+        assert!(BenchmarkSuiteKind::from_name("unknown-suite").is_err());
         assert_eq!(BenchmarkSuiteKind::MeatCodeZh.as_name(), "meat-code-zh");
     }
 
@@ -449,6 +515,32 @@ mod tests {
         assert!(summary.contains("recall@1"));
         assert!(summary.contains("recall@5"));
         assert!(summary.contains("failure_reason=none"));
+    }
+
+    #[tokio::test]
+    async fn benchmark_public_adapter_without_dataset_writes_skipped_report() {
+        let tempdir = tempdir().unwrap();
+        let report_dir = tempdir.path().join("reports");
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path())
+            .unwrap()
+            .build()
+            .unwrap();
+        let output = kernel
+            .run_benchmark_suite(BenchmarkRunRequest::new(
+                BenchmarkSuiteKind::LoCoMo,
+                ScopeId::from_string("scp_benchmark_locomo"),
+                &report_dir,
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(output.suite.name, "locomo");
+        assert_eq!(output.run.status, BenchmarkRunStatus::Skipped);
+        assert_eq!(output.run.metrics.case_count, 0);
+        let summary = std::fs::read_to_string(output.report_paths.summary).unwrap();
+        assert!(summary.contains("skip_reason"));
+        assert!(summary.contains("benchmarks/locomo"));
     }
 
     #[tokio::test]
