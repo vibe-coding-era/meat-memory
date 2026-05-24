@@ -19,18 +19,19 @@ use memory_kernel::{
     ConnectorProposalApplyPlanRequest, ConnectorProposalQueueReport, ConnectorProposalQueueRequest,
     ConnectorSyncPlanRequest, CreateAccessKeyRequest, ImportProjectDocumentRequest,
     InspectMemoryLifecycleRequest, Kernel, ListAgentContextsRequest, ListProjectDocumentsRequest,
-    PromoteAgentContextRequest, PromoteMemoryRequest, RecallTraceBudget, RecallTraceReportPaths,
-    RememberImageRequest, RememberTextRequest, RememberTextResult, SearchContextRequest,
-    TraceSearchContextRequest, TraceSearchContextResult, UpdateAccessKeyRequest,
-    UpsertAgentContextRequest, apply_connector_proposal_apply_plan,
-    build_competitor_compatibility_report, build_connector_import_draft_report,
-    build_connector_proposal_apply_plan_report,
+    MemoryPassportBundle, MemoryPassportExportRequest, MemoryPassportImportRequest,
+    MemoryPassportImportResult, MemoryPassportPaths, PromoteAgentContextRequest,
+    PromoteMemoryRequest, RecallTraceBudget, RecallTraceReportPaths, RememberImageRequest,
+    RememberTextRequest, RememberTextResult, SearchContextRequest, TraceSearchContextRequest,
+    TraceSearchContextResult, UpdateAccessKeyRequest, UpsertAgentContextRequest,
+    apply_connector_proposal_apply_plan, build_competitor_compatibility_report,
+    build_connector_import_draft_report, build_connector_proposal_apply_plan_report,
     build_connector_proposal_apply_plan_report_from_queue, build_connector_proposal_queue_report,
-    build_connector_sync_plan, compatibility_report_json, connector_dry_run_json,
+    build_connector_sync_plan, bundle_json, compatibility_report_json, connector_dry_run_json,
     connector_import_draft_json, connector_proposal_apply_plan_execution_json,
     connector_proposal_apply_plan_json, connector_proposal_queue_json, connector_sync_plan_json,
     health_json, run_connector_dry_run, verification_json, verify_memory_passport_bundle,
-    write_recall_trace_report,
+    write_memory_passport_bundle, write_recall_trace_report,
 };
 use memory_sync::{
     LocalProjectDocumentDraft, LocalProjectDocumentSyncEngine, MissingProjectDocument,
@@ -91,6 +92,8 @@ pub const HTTP_ROUTES: &[&str] = &[
     "/api/v1/recall/traces/latest",
     "/api/v1/recall/traces/inspect",
     "/api/v1/health/report",
+    "/api/v1/passports/export",
+    "/api/v1/passports/import",
     "/api/v1/passports/manifest",
     "/api/v1/compat/report",
     "/api/v1/compat/connectors/dry-run",
@@ -482,6 +485,21 @@ pub struct TraceLatestHttpRequest {
     pub max_chars: Option<usize>,
     pub debug_candidates: Option<bool>,
     pub output_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct PassportExportHttpRequest {
+    pub scope_id: Option<String>,
+    pub output_dir: Option<String>,
+    pub limit: Option<usize>,
+    pub redact_sensitive: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct PassportImportHttpRequest {
+    pub input_dir: String,
+    pub target_scope_id: Option<String>,
+    pub dry_run: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -902,6 +920,8 @@ pub fn build_router(state: HttpAppState) -> Router {
         .route("/api/v1/recall/traces/latest", post(trace_latest))
         .route("/api/v1/recall/traces/inspect", get(trace_inspect))
         .route("/api/v1/health/report", get(health_report))
+        .route("/api/v1/passports/export", post(passport_export))
+        .route("/api/v1/passports/import", post(passport_import))
         .route("/api/v1/passports/manifest", get(passport_manifest))
         .route("/api/v1/compat/report", get(compat_report))
         .route(
@@ -2189,6 +2209,59 @@ async fn health_report(
     Ok(Json(health_json(&report)))
 }
 
+async fn passport_export(
+    State(state): State<HttpAppState>,
+    Json(payload): Json<PassportExportHttpRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let scope_id = payload
+        .scope_id
+        .map(ScopeId::from_string)
+        .unwrap_or_else(|| state.default_scope_id.clone());
+    let mut request = MemoryPassportExportRequest::new(scope_id);
+    if let Some(limit) = payload.limit {
+        request.limit = limit;
+    }
+    if let Some(redact_sensitive) = payload.redact_sensitive {
+        request.redact_sensitive = redact_sensitive;
+    }
+    let output_dir = payload
+        .output_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "tests/reports/passport/latest".into());
+
+    let bundle = state
+        .kernel
+        .export_memory_passport(request)
+        .await
+        .map_err(api_error_from_anyhow)?;
+    let paths =
+        write_memory_passport_bundle(&output_dir, &bundle).map_err(api_error_from_anyhow)?;
+
+    Ok(Json(passport_export_json(&bundle, &paths)))
+}
+
+async fn passport_import(
+    State(state): State<HttpAppState>,
+    Json(payload): Json<PassportImportHttpRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if payload.input_dir.trim().is_empty() {
+        return Err(ApiError::bad_request("input_dir is required"));
+    }
+
+    let result = state
+        .kernel
+        .import_memory_passport(MemoryPassportImportRequest {
+            input_dir: PathBuf::from(payload.input_dir),
+            target_scope_id: payload.target_scope_id.map(ScopeId::from_string),
+            dry_run: payload.dry_run.unwrap_or(true),
+            context: None,
+        })
+        .await
+        .map_err(api_error_from_anyhow)?;
+
+    Ok(Json(passport_import_json(&result)))
+}
+
 async fn passport_manifest(
     Query(query): Query<ReportInputQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2558,6 +2631,41 @@ fn trace_result_json(
             "trace": paths.trace.display().to_string(),
             "explanation": paths.explanation.display().to_string(),
         }
+    })
+}
+
+fn passport_export_json(
+    bundle: &MemoryPassportBundle,
+    paths: &MemoryPassportPaths,
+) -> serde_json::Value {
+    let mut value = bundle_json(bundle);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("report_paths".to_string(), passport_paths_json(paths));
+    }
+    value
+}
+
+fn passport_import_json(result: &MemoryPassportImportResult) -> serde_json::Value {
+    json!({
+        "manifest": result.manifest,
+        "verified": result.verified,
+        "target_scope_id": result.target_scope_id.as_str(),
+        "imported_count": result.imported_count,
+        "skipped_count": result.skipped_count,
+        "id_mappings": result.id_mappings.iter().map(|mapping| json!({
+            "original_memory_id": mapping.original_memory_id.as_str(),
+            "imported_memory_id": mapping.imported_memory_id.as_str(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn passport_paths_json(paths: &MemoryPassportPaths) -> serde_json::Value {
+    json!({
+        "passport": paths.passport.display().to_string(),
+        "manifest": paths.manifest.display().to_string(),
+        "memories": paths.memories.display().to_string(),
+        "evidence": paths.evidence.display().to_string(),
+        "markdown": paths.markdown.display().to_string(),
     })
 }
 

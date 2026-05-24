@@ -232,6 +232,8 @@ async fn exposes_http_routes() {
     assert!(has_route("/api/v1/recall/traces/latest"));
     assert!(has_route("/api/v1/recall/traces/inspect"));
     assert!(has_route("/api/v1/health/report"));
+    assert!(has_route("/api/v1/passports/export"));
+    assert!(has_route("/api/v1/passports/import"));
     assert!(has_route("/api/v1/passports/manifest"));
     assert!(has_route("/api/v1/compat/report"));
     assert!(has_route("/api/v1/compat/connectors/dry-run"));
@@ -711,6 +713,103 @@ async fn v297_http_connector_proposal_apply_plan_confirmed_executor_writes_memor
             .iter()
             .any(|region| region == "service_side_confirmed_executor")
     );
+}
+
+#[tokio::test]
+async fn v29_surface_http_exports_verifies_and_imports_passport() {
+    let tempdir = tempdir().unwrap();
+    let app = build_router(test_state(tempdir.path()));
+
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/memories")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"scope_id":"scp_http_passport","title":"Passport memory","body":"The portable memory bundle keeps source references."}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), axum::http::StatusCode::CREATED);
+
+    let passport_dir = tempdir.path().join("passport-export");
+    let exported = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/passports/export")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "scope_id": "scp_http_passport",
+                        "output_dir": passport_dir.display().to_string(),
+                        "limit": 10,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exported.status(), axum::http::StatusCode::OK);
+    let exported_payload = response_json(exported).await;
+    assert_eq!(
+        exported_payload["manifest"]["source_scope_id"],
+        "scp_http_passport"
+    );
+    assert_eq!(exported_payload["memories"].as_array().unwrap().len(), 1);
+    assert!(passport_dir.join("passport.json").exists());
+    assert_eq!(
+        exported_payload["report_paths"]["passport"],
+        passport_dir.join("passport.json").display().to_string()
+    );
+
+    let manifest = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/passports/manifest?input_dir={}",
+                passport_dir.display()
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(manifest.status(), axum::http::StatusCode::OK);
+    let manifest_payload = response_json(manifest).await;
+    assert_eq!(manifest_payload["valid"], true);
+    assert_eq!(
+        manifest_payload["manifest"]["source_scope_id"],
+        "scp_http_passport"
+    );
+
+    let imported = app
+        .oneshot(
+            Request::post("/api/v1/passports/import")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "input_dir": passport_dir.display().to_string(),
+                        "target_scope_id": "scp_http_passport_import",
+                        "dry_run": true,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(imported.status(), axum::http::StatusCode::OK);
+    let imported_payload = response_json(imported).await;
+    assert_eq!(imported_payload["verified"], true);
+    assert_eq!(
+        imported_payload["target_scope_id"],
+        "scp_http_passport_import"
+    );
+    assert_eq!(imported_payload["imported_count"], 1);
+    assert_eq!(imported_payload["id_mappings"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
