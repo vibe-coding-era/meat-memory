@@ -4213,6 +4213,9 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
                 <option value="markdown-docs">markdown-docs</option>
                 <option value="local-git">local-git</option>
                 <option value="web-crawler">web-crawler</option>
+                <option value="notion">notion</option>
+                <option value="google-drive">google-drive</option>
+                <option value="onedrive">onedrive</option>
               </select>
               <input id="connector-root-path" class="chat-input" placeholder="root_path" />
               <input id="connector-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />

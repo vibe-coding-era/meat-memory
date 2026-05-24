@@ -311,6 +311,9 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("connector-apply-confirm"));
     assert!(text.contains("connector-persist-queue"));
     assert!(text.contains("connector-load-queue"));
+    assert!(text.contains("notion"));
+    assert!(text.contains("google-drive"));
+    assert!(text.contains("onedrive"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-queue/"));
     assert!(text.contains("/api/v1/compat/connectors/proposal-apply-plan/apply"));
     assert!(text.contains("Benchmark Console"));

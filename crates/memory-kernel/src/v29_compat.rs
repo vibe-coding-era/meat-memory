@@ -593,6 +593,33 @@ pub fn connector_skeletons() -> Vec<ConnectorSkeleton> {
             safe_default: "dry_run_only_no_remote_fetch".to_string(),
             status: "skeleton".to_string(),
         },
+        ConnectorSkeleton {
+            name: "notion".to_string(),
+            source_kind: "notion_export".to_string(),
+            capability:
+                "Scan local Notion exports into page-shaped project document drafts with source refs."
+                    .to_string(),
+            safe_default: "local_export_only_no_remote_api".to_string(),
+            status: "mvp".to_string(),
+        },
+        ConnectorSkeleton {
+            name: "google-drive".to_string(),
+            source_kind: "drive_export".to_string(),
+            capability:
+                "Scan Google Drive document/sheet/PDF export snapshots and sidecar text into sync plans."
+                    .to_string(),
+            safe_default: "local_export_only_no_remote_api".to_string(),
+            status: "mvp".to_string(),
+        },
+        ConnectorSkeleton {
+            name: "onedrive".to_string(),
+            source_kind: "onedrive_export".to_string(),
+            capability:
+                "Scan OneDrive document/sheet/PDF export snapshots and sidecar text into sync plans."
+                    .to_string(),
+            safe_default: "local_export_only_no_remote_api".to_string(),
+            status: "mvp".to_string(),
+        },
     ]
 }
 
@@ -616,6 +643,19 @@ pub fn run_connector_dry_run(request: ConnectorDryRunRequest) -> Result<Connecto
         "markdown-docs" => markdown_docs_dry_run(root_path, request.max_items),
         "chat-export" => chat_export_dry_run(root_path, request.max_items),
         "web-crawler" => web_crawler_dry_run(root_path, request.max_items),
+        "notion" => {
+            external_docs_dry_run(root_path, request.max_items, external_connector("notion")?)
+        }
+        "google-drive" => external_docs_dry_run(
+            root_path,
+            request.max_items,
+            external_connector("google-drive")?,
+        ),
+        "onedrive" => external_docs_dry_run(
+            root_path,
+            request.max_items,
+            external_connector("onedrive")?,
+        ),
         other => bail!("unsupported connector dry-run: {other}"),
     }
 }
@@ -639,6 +679,8 @@ pub fn connector_dry_run_json(report: &ConnectorDryRunReport) -> Value {
                 "yaml_frontmatter_compatibility",
                 "chat_export_dry_run",
                 "web_crawler_dry_run",
+                "notion_export_dry_run",
+                "drive_export_dry_run",
                 "connector_report_projection",
                 "cli_parser_and_command"
             ]
@@ -796,8 +838,13 @@ pub fn build_connector_sync_plan(
     match request.connector.as_str() {
         "markdown-docs" | "local-git" => build_file_connector_sync_plan(request),
         "web-crawler" => build_web_crawler_sync_plan(request),
+        "notion" => build_external_docs_sync_plan(request, external_connector("notion")?),
+        "google-drive" => {
+            build_external_docs_sync_plan(request, external_connector("google-drive")?)
+        }
+        "onedrive" => build_external_docs_sync_plan(request, external_connector("onedrive")?),
         other => bail!(
-            "unsupported connector sync plan: {other}; supported connectors are markdown-docs, local-git, and web-crawler"
+            "unsupported connector sync plan: {other}; supported connectors are markdown-docs, local-git, web-crawler, notion, google-drive, and onedrive"
         ),
     }
 }
@@ -847,6 +894,105 @@ fn build_file_connector_sync_plan(
         conflict_count: plan.conflicts.len(),
         documents,
         conflicts: plan.conflicts.clone(),
+        evidence_preview,
+        incremental_checkpoint: checkpoint,
+    };
+
+    Ok(ConnectorSyncPlanOutput { plan, report })
+}
+
+fn build_external_docs_sync_plan(
+    request: ConnectorSyncPlanRequest,
+    config: ExternalConnectorConfig,
+) -> Result<ConnectorSyncPlanOutput> {
+    let root = request.root_path.canonicalize()?;
+    let previous_by_uri = request
+        .previous_snapshots
+        .iter()
+        .map(|snapshot| {
+            (
+                snapshot.canonical_uri.clone(),
+                snapshot.content_hash.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let (candidates, failures) = external_document_candidates(&root, request.max_items, config)?;
+    let mut seen = BTreeSet::new();
+    let documents = candidates
+        .into_iter()
+        .map(|candidate| {
+            seen.insert(candidate.canonical_uri.clone());
+            let sync_state = match previous_by_uri.get(&candidate.canonical_uri) {
+                Some(previous_hash) if previous_hash == &candidate.content_hash => {
+                    DocumentSyncState::Clean
+                }
+                Some(_) => DocumentSyncState::Changed,
+                None => DocumentSyncState::Changed,
+            };
+            LocalProjectDocumentDraft {
+                canonical_uri: candidate.canonical_uri,
+                local_path: candidate.local_path,
+                title: candidate.title,
+                content_text: candidate.content_text,
+                content_hash: candidate.content_hash,
+                sync_state,
+                metadata: candidate.metadata,
+            }
+        })
+        .collect::<Vec<_>>();
+    let missing = request
+        .previous_snapshots
+        .iter()
+        .filter(|snapshot| !seen.contains(&snapshot.canonical_uri))
+        .map(|snapshot| MissingProjectDocument {
+            canonical_uri: snapshot.canonical_uri.clone(),
+            sync_state: DocumentSyncState::Missing,
+        })
+        .collect::<Vec<_>>();
+    let conflicts =
+        connector_sync_conflict_reports(&request.previous_snapshots, &documents, &missing);
+    let documents_report = documents
+        .iter()
+        .map(|document| ConnectorSyncPlanDocument {
+            title: document.title.clone(),
+            canonical_uri: document.canonical_uri.clone(),
+            local_path: document.local_path.clone(),
+            content_hash: document.content_hash.clone(),
+            sync_state: document.sync_state.as_str().to_string(),
+            metadata: connector_sync_plan_document_metadata(document),
+        })
+        .collect::<Vec<_>>();
+    let evidence_preview = documents
+        .iter()
+        .map(|document| connector_document_evidence_span(&request.scope_id, document))
+        .collect::<Vec<_>>();
+    let checkpoint = json!({
+        "strategy": "export_path_content_hash",
+        "apply_target": "Kernel::apply_project_document_sync_plan",
+        "source_kind": config.source_kind,
+        "safe_default": config.safe_default,
+        "remote_network": false,
+        "supported_extensions": config.extensions,
+        "failure_count": failures.len(),
+        "failures": failures,
+    });
+    let planned_count = documents.len();
+    let plan = LocalProjectDocumentSyncPlan {
+        root: root.clone(),
+        documents,
+        missing,
+        conflicts: conflicts.clone(),
+    };
+    let report = ConnectorSyncPlanReport {
+        schema_version: "2.97-A".to_string(),
+        connector: config.connector.to_string(),
+        root_path: root,
+        mode: "sync_plan".to_string(),
+        planned_count,
+        missing_count: plan.missing.len(),
+        conflict_count: plan.conflicts.len(),
+        documents: documents_report,
+        conflicts,
         evidence_preview,
         incremental_checkpoint: checkpoint,
     };
@@ -1104,6 +1250,8 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "web_crawler_robots_rule_precedence",
                 "web_crawler_link_boundary",
                 "web_crawler_multi_page_crawl",
+                "notion_export_sync_plan",
+                "drive_export_sync_plan",
                 "connector_sync_plan_projection",
                 "cli_parser_and_command"
             ]
@@ -1980,6 +2128,92 @@ fn web_crawler_dry_run(root_path: PathBuf, max_items: usize) -> Result<Connector
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ExternalConnectorConfig {
+    connector: &'static str,
+    source_kind: &'static str,
+    uri_prefix: &'static str,
+    safe_default: &'static str,
+    extensions: &'static [&'static str],
+}
+
+const NOTION_EXTENSIONS: &[&str] = &["md", "markdown", "json", "csv", "txt"];
+const DRIVE_EXTENSIONS: &[&str] = &["md", "markdown", "json", "csv", "txt", "pdf", "docx"];
+
+fn external_connector(connector: &str) -> Result<ExternalConnectorConfig> {
+    match connector {
+        "notion" => Ok(ExternalConnectorConfig {
+            connector: "notion",
+            source_kind: "notion_page",
+            uri_prefix: "notion-export",
+            safe_default: "local_export_only_no_remote_api",
+            extensions: NOTION_EXTENSIONS,
+        }),
+        "google-drive" => Ok(ExternalConnectorConfig {
+            connector: "google-drive",
+            source_kind: "drive_document",
+            uri_prefix: "gdrive-export",
+            safe_default: "local_export_only_no_remote_api",
+            extensions: DRIVE_EXTENSIONS,
+        }),
+        "onedrive" => Ok(ExternalConnectorConfig {
+            connector: "onedrive",
+            source_kind: "onedrive_document",
+            uri_prefix: "onedrive-export",
+            safe_default: "local_export_only_no_remote_api",
+            extensions: DRIVE_EXTENSIONS,
+        }),
+        other => bail!("unsupported external connector config: {other}"),
+    }
+}
+
+fn external_docs_dry_run(
+    root_path: PathBuf,
+    max_items: usize,
+    config: ExternalConnectorConfig,
+) -> Result<ConnectorDryRunReport> {
+    let (candidates, failures) = external_document_candidates(&root_path, max_items, config)?;
+    let items = candidates
+        .into_iter()
+        .map(|candidate| ConnectorDryRunItem {
+            title: candidate.title,
+            source_ref: candidate.canonical_uri,
+            content_bytes: candidate.content_bytes,
+            metadata: candidate.metadata,
+        })
+        .collect::<Vec<_>>();
+    let candidate_count = items.len();
+    let mut failures = failures;
+    if items.is_empty() {
+        failures.push(format!(
+            "no supported {} export documents found",
+            config.connector
+        ));
+    }
+
+    Ok(ConnectorDryRunReport {
+        schema_version: "2.97-A".to_string(),
+        connector: config.connector.to_string(),
+        root_path,
+        mode: "dry_run".to_string(),
+        status: if failures.is_empty() {
+            "ready".to_string()
+        } else {
+            "needs_attention".to_string()
+        },
+        candidate_count,
+        items,
+        failures,
+        incremental_checkpoint: json!({
+            "strategy": "export_path_content_hash",
+            "source_kind": config.source_kind,
+            "safe_default": config.safe_default,
+            "remote_network": false,
+            "supported_extensions": config.extensions,
+        }),
+    })
+}
+
 fn markdown_items(root_path: &Path, max_items: usize) -> Result<Vec<ConnectorDryRunItem>> {
     let mut files = Vec::new();
     collect_markdown_files(root_path, &mut files)?;
@@ -2031,6 +2265,73 @@ fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
             .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ExternalDocumentCandidate {
+    title: String,
+    canonical_uri: String,
+    local_path: PathBuf,
+    content_text: String,
+    content_hash: String,
+    content_bytes: u64,
+    metadata: Value,
+}
+
+fn external_document_candidates(
+    root_path: &Path,
+    max_items: usize,
+    config: ExternalConnectorConfig,
+) -> Result<(Vec<ExternalDocumentCandidate>, Vec<String>)> {
+    let mut files = Vec::new();
+    collect_external_document_files(root_path, &mut files, config.extensions)?;
+    files.sort();
+
+    let mut candidates = Vec::new();
+    let mut failures = Vec::new();
+    for path in files {
+        if candidates.len() >= max_items {
+            break;
+        }
+        match external_document_candidate(root_path, &path, config) {
+            Ok(candidate) => candidates.push(candidate),
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    Ok((candidates, failures))
+}
+
+fn collect_external_document_files(
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+    extensions: &[&str],
+) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+        let entry =
+            entry.with_context(|| format!("failed to read entry under {}", dir.display()))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.starts_with('.') || file_name == "target" || file_name == "reports" {
+            continue;
+        }
+        if path.is_dir() {
+            collect_external_document_files(&path, files, extensions)?;
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extensions
+                    .iter()
+                    .any(|supported| extension.eq_ignore_ascii_case(supported))
+            })
+            && !is_external_text_sidecar_path(&path)
         {
             files.push(path);
         }
@@ -2486,6 +2787,184 @@ fn markdown_item(root_path: &Path, path: &Path) -> Result<ConnectorDryRunItem> {
             "frontmatter_present": frontmatter_present,
         }),
     })
+}
+
+fn external_document_candidate(
+    root_path: &Path,
+    path: &Path,
+    config: ExternalConnectorConfig,
+) -> Result<ExternalDocumentCandidate> {
+    let file_metadata =
+        fs::metadata(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let relative_path = path
+        .strip_prefix(root_path)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let (title, content_text, extraction_mode, external_metadata) = match extension.as_str() {
+        "md" | "markdown" => {
+            let content_text = fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let title = markdown_document_title(path, &content_text);
+            (
+                title,
+                content_text.clone(),
+                "markdown_text".to_string(),
+                markdown_document_metadata(&content_text),
+            )
+        }
+        "txt" | "csv" => {
+            let content_text = fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let title = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or(config.connector)
+                .replace(['_', '-'], " ");
+            (
+                title,
+                content_text,
+                format!("{extension}_text"),
+                json!({ "visible_content_bytes": file_metadata.len() }),
+            )
+        }
+        "json" => external_json_document(path, config)?,
+        "pdf" | "docx" => external_sidecar_document(path, &extension, config)?,
+        _ => bail!("unsupported export extension: {extension}"),
+    };
+    let canonical_uri =
+        external_document_uri(path, &relative_path, config, external_metadata.as_object());
+    let content_hash = memory_domain::Artifact::compute_content_hash(&content_text);
+    let metadata = json!({
+        "source_kind": config.source_kind,
+        "connector": config.connector,
+        "relative_path": relative_path,
+        "document_extension": extension,
+        "extraction_mode": extraction_mode,
+        "content_hash": content_hash,
+        "remote_network": false,
+        "safe_default": config.safe_default,
+        "source_metadata": external_metadata,
+    });
+
+    Ok(ExternalDocumentCandidate {
+        title,
+        canonical_uri,
+        local_path: path.to_path_buf(),
+        content_text,
+        content_hash,
+        content_bytes: file_metadata.len(),
+        metadata,
+    })
+}
+
+fn external_json_document(
+    path: &Path,
+    config: ExternalConnectorConfig,
+) -> Result<(String, String, String, Value)> {
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: Value = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let title = value
+        .get("title")
+        .or_else(|| value.get("name"))
+        .or_else(|| value.get("filename"))
+        .and_then(Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or(config.connector)
+                .replace(['_', '-'], " ")
+        });
+    let content_text = value
+        .get("content")
+        .or_else(|| value.get("text"))
+        .or_else(|| value.get("body"))
+        .or_else(|| value.get("markdown"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_else(|_| raw.clone()));
+
+    Ok((title, content_text, "json_text".to_string(), value))
+}
+
+fn external_sidecar_document(
+    path: &Path,
+    extension: &str,
+    config: ExternalConnectorConfig,
+) -> Result<(String, String, String, Value)> {
+    let sidecar = external_text_sidecar(path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{} export requires a .txt or .md sidecar for text extraction",
+            extension
+        )
+    })?;
+    let content_text = fs::read_to_string(&sidecar)
+        .with_context(|| format!("failed to read {}", sidecar.display()))?;
+    let title = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(config.connector)
+        .replace(['_', '-'], " ");
+    Ok((
+        title,
+        content_text,
+        format!("{extension}_sidecar_text"),
+        json!({
+            "sidecar_path": sidecar.display().to_string(),
+            "sidecar_required": true,
+        }),
+    ))
+}
+
+fn external_text_sidecar(path: &Path) -> Option<PathBuf> {
+    [path.with_extension("txt"), path.with_extension("md")]
+        .into_iter()
+        .find(|candidate| candidate.exists())
+}
+
+fn is_external_text_sidecar_path(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+        return false;
+    };
+    if !extension.eq_ignore_ascii_case("txt") && !extension.eq_ignore_ascii_case("md") {
+        return false;
+    }
+    path.with_extension("pdf").exists() || path.with_extension("docx").exists()
+}
+
+fn external_document_uri(
+    path: &Path,
+    relative_path: &str,
+    config: ExternalConnectorConfig,
+    metadata: Option<&serde_json::Map<String, Value>>,
+) -> String {
+    let external_id = metadata
+        .and_then(|metadata| {
+            metadata
+                .get("id")
+                .or_else(|| metadata.get("page_id"))
+                .or_else(|| metadata.get("file_id"))
+                .or_else(|| metadata.get("drive_id"))
+                .or_else(|| metadata.get("web_url"))
+                .and_then(Value::as_str)
+        })
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or(relative_path)
+                .to_string()
+        });
+    format!("{}://{}", config.uri_prefix, external_id)
 }
 
 fn web_page_item(
@@ -4677,11 +5156,14 @@ mod tests {
             .into_iter()
             .map(|connector| connector.name)
             .collect::<BTreeSet<_>>();
-        assert_eq!(connectors.len(), 4);
+        assert_eq!(connectors.len(), 7);
         assert!(connectors.contains("local-git"));
         assert!(connectors.contains("markdown-docs"));
         assert!(connectors.contains("chat-export"));
         assert!(connectors.contains("web-crawler"));
+        assert!(connectors.contains("notion"));
+        assert!(connectors.contains("google-drive"));
+        assert!(connectors.contains("onedrive"));
     }
 
     #[test]
@@ -4770,6 +5252,134 @@ mod tests {
         assert_eq!(
             report.incremental_checkpoint["frontmatter"],
             "parse_yaml_frontmatter_when_present"
+        );
+    }
+
+    #[test]
+    fn v297_notion_connector_dry_run_scans_exported_pages() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("roadmap.md"),
+            "---\ntitle: Notion Roadmap\n---\n# Roadmap\n\nShip connector MVP.",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("page.json"),
+            serde_json::json!({
+                "id": "notion_page_1",
+                "title": "Notion JSON Page",
+                "content": "JSON export body"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut request = ConnectorDryRunRequest::new("notion", tempdir.path());
+        request.max_items = 10;
+        let report = run_connector_dry_run(request).unwrap();
+
+        assert_eq!(report.connector, "notion");
+        assert_eq!(report.status, "ready");
+        assert_eq!(report.candidate_count, 2);
+        assert!(
+            report
+                .items
+                .iter()
+                .any(|item| item.title == "Notion Roadmap")
+        );
+        let json_page = report
+            .items
+            .iter()
+            .find(|item| item.title == "Notion JSON Page")
+            .unwrap();
+        assert_eq!(json_page.source_ref, "notion-export://notion_page_1");
+        assert_eq!(json_page.metadata["source_kind"], "notion_page");
+        assert_eq!(json_page.metadata["remote_network"], false);
+        assert_eq!(
+            report.incremental_checkpoint["safe_default"],
+            "local_export_only_no_remote_api"
+        );
+    }
+
+    #[test]
+    fn v297_drive_connector_sync_plan_extracts_sidecar_text_and_failures() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("planning.pdf"), "%PDF metadata only").unwrap();
+        fs::write(
+            tempdir.path().join("planning.txt"),
+            "Planning PDF extracted text.",
+        )
+        .unwrap();
+        fs::write(tempdir.path().join("missing-sidecar.pdf"), "%PDF").unwrap();
+        fs::write(
+            tempdir.path().join("sheet.csv"),
+            "name,status\nConnector,done\n",
+        )
+        .unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "google-drive",
+            tempdir.path(),
+            ScopeId::from_string("scp_drive_sync"),
+        );
+        request.max_items = 10;
+
+        let output = build_connector_sync_plan(request).unwrap();
+
+        assert_eq!(output.report.connector, "google-drive");
+        assert_eq!(output.report.planned_count, 2);
+        assert!(
+            output
+                .report
+                .documents
+                .iter()
+                .any(|document| document.canonical_uri == "gdrive-export://planning")
+        );
+        assert!(
+            output
+                .report
+                .documents
+                .iter()
+                .any(|document| document.metadata["extraction_mode"] == "pdf_sidecar_text")
+        );
+        assert!(
+            output.report.incremental_checkpoint["failures"][0]
+                .as_str()
+                .unwrap()
+                .contains("missing-sidecar.pdf")
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["safe_default"],
+            "local_export_only_no_remote_api"
+        );
+        assert_eq!(output.report.evidence_preview.len(), 2);
+    }
+
+    #[test]
+    fn v297_onedrive_connector_sync_plan_marks_clean_previous_snapshot() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("ops.txt");
+        fs::write(&path, "OneDrive exported runbook.").unwrap();
+        let content_hash =
+            memory_domain::Artifact::compute_content_hash(&fs::read_to_string(&path).unwrap());
+        let mut request = ConnectorSyncPlanRequest::new(
+            "onedrive",
+            tempdir.path(),
+            ScopeId::from_string("scp_onedrive_sync"),
+        );
+        request.previous_snapshots = vec![ProjectDocumentSnapshot {
+            canonical_uri: "onedrive-export://ops".to_string(),
+            content_hash,
+        }];
+
+        let output = build_connector_sync_plan(request).unwrap();
+
+        assert_eq!(output.report.connector, "onedrive");
+        assert_eq!(output.report.planned_count, 1);
+        assert_eq!(output.report.documents[0].sync_state, "clean");
+        assert_eq!(output.report.missing_count, 0);
+        assert_eq!(
+            output.report.documents[0].metadata["source_kind"],
+            "onedrive_document"
         );
     }
 
