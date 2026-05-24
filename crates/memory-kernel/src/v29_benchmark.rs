@@ -19,6 +19,7 @@ pub enum BenchmarkSuiteKind {
     LoCoMo,
     LongMemEval,
     Beam,
+    MemoryScale1M,
 }
 
 impl BenchmarkSuiteKind {
@@ -28,6 +29,7 @@ impl BenchmarkSuiteKind {
             "locomo" => Ok(Self::LoCoMo),
             "longmemeval" | "long-mem-eval" => Ok(Self::LongMemEval),
             "beam" | "beam-1m" => Ok(Self::Beam),
+            "memory-1m" | "1m-memory" | "scale-1m" => Ok(Self::MemoryScale1M),
             _ => bail!("unsupported benchmark suite: {raw}"),
         }
     }
@@ -38,6 +40,7 @@ impl BenchmarkSuiteKind {
             Self::LoCoMo => "locomo",
             Self::LongMemEval => "longmemeval",
             Self::Beam => "beam",
+            Self::MemoryScale1M => "memory-1m",
         }
     }
 
@@ -71,13 +74,23 @@ impl BenchmarkSuiteKind {
                 description: "BEAM 1M / 10M token 级记忆 benchmark adapter".to_string(),
                 metric_profile: "recall@1,recall@5,latency,leakage,cost".to_string(),
             },
+            Self::MemoryScale1M => BenchmarkSuite {
+                id: BenchmarkSuiteId::from_string("bms_memory_1m"),
+                name: self.as_name().to_string(),
+                version: "2.9-perf-skeleton".to_string(),
+                description:
+                    "1M memory 规模压测入口，覆盖写入、召回、trace 和 health report 成本基线"
+                        .to_string(),
+                metric_profile: "write_throughput,recall_p95,trace_cost,health_report_cost,leakage"
+                    .to_string(),
+            },
         }
     }
 
     fn cases(self) -> &'static [BenchmarkFixtureCase] {
         match self {
             Self::MeatCodeZh => &MEAT_CODE_ZH_CASES,
-            Self::LoCoMo | Self::LongMemEval | Self::Beam => &[],
+            Self::LoCoMo | Self::LongMemEval | Self::Beam | Self::MemoryScale1M => &[],
         }
     }
 
@@ -92,6 +105,9 @@ impl BenchmarkSuiteKind {
             ),
             Self::Beam => Some(
                 "BEAM large-memory dataset is not bundled; prepare 1M/10M token fixtures under benchmarks/beam before running full evaluation.",
+            ),
+            Self::MemoryScale1M => Some(
+                "1M memory scale fixture is not bundled; generate or mount normalized records under benchmarks/memory-1m before running full evaluation.",
             ),
         }
     }
@@ -465,6 +481,14 @@ mod tests {
             BenchmarkSuiteKind::from_name("beam-1m").unwrap(),
             BenchmarkSuiteKind::Beam
         );
+        assert_eq!(
+            BenchmarkSuiteKind::from_name("memory-1m").unwrap(),
+            BenchmarkSuiteKind::MemoryScale1M
+        );
+        assert_eq!(
+            BenchmarkSuiteKind::from_name("scale-1m").unwrap(),
+            BenchmarkSuiteKind::MemoryScale1M
+        );
         assert!(BenchmarkSuiteKind::from_name("unknown-suite").is_err());
         assert_eq!(BenchmarkSuiteKind::MeatCodeZh.as_name(), "meat-code-zh");
     }
@@ -541,6 +565,34 @@ mod tests {
         let summary = std::fs::read_to_string(output.report_paths.summary).unwrap();
         assert!(summary.contains("skip_reason"));
         assert!(summary.contains("benchmarks/locomo"));
+    }
+
+    #[tokio::test]
+    async fn benchmark_memory_1m_skeleton_writes_skipped_report() {
+        let tempdir = tempdir().unwrap();
+        let report_dir = tempdir.path().join("reports");
+        let kernel = Kernel::builder()
+            .with_markdown_root(tempdir.path().join("memory"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let output = kernel
+            .run_benchmark_suite(BenchmarkRunRequest::new(
+                BenchmarkSuiteKind::MemoryScale1M,
+                ScopeId::from_string("scp_benchmark_memory_1m"),
+                &report_dir,
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(output.suite.name, "memory-1m");
+        assert_eq!(output.run.status, BenchmarkRunStatus::Skipped);
+        assert_eq!(output.run.case_count, 0);
+        assert!(output.suite.description.contains("1M memory"));
+        assert!(output.suite.metric_profile.contains("write_throughput"));
+        let summary = std::fs::read_to_string(output.report_paths.summary).unwrap();
+        assert!(summary.contains("skip_reason"));
+        assert!(summary.contains("benchmarks/memory-1m"));
     }
 
     #[tokio::test]

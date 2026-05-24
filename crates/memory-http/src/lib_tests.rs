@@ -318,6 +318,7 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/benchmark/run"));
     assert!(text.contains("/api/v1/benchmark/failures"));
     assert!(text.contains("benchmark-report"));
+    assert!(text.contains("memory-1m"));
     assert!(text.contains("Trace Console"));
     assert!(text.contains("meat-memory.trace-debug.v1"));
     assert!(text.contains("/api/v1/recall/traces/latest"));
@@ -943,6 +944,29 @@ async fn v29_surface_http_reads_benchmark_and_trace_reports() {
     assert_eq!(run_payload["suite"]["name"], "meat-code-zh");
     assert_eq!(run_payload["metrics"]["case_count"], 4);
     assert!(http_run_dir.join("metrics.json").exists());
+    let http_memory_1m_dir = tempdir.path().join("http-memory-1m-run");
+    let memory_1m_run = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/benchmark/run")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "suite": "memory-1m",
+                        "scope_id": "scp_http_benchmark_1m",
+                        "output_dir": http_memory_1m_dir.display().to_string(),
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(memory_1m_run.status(), axum::http::StatusCode::OK);
+    let memory_1m_payload = response_json(memory_1m_run).await;
+    assert_eq!(memory_1m_payload["suite"]["name"], "memory-1m");
+    assert_eq!(memory_1m_payload["run"]["status"], "skipped");
+    assert!(http_memory_1m_dir.join("summary.md").exists());
     let http_trace_dir = tempdir.path().join("http-trace-run");
     let latest_trace = app
         .clone()

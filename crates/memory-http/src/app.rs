@@ -4040,6 +4040,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
               <option value="locomo">locomo</option>
               <option value="longmemeval">longmemeval</option>
               <option value="beam">beam</option>
+              <option value="memory-1m">memory-1m</option>
             </select>
             <input id="benchmark-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />
             <input id="benchmark-output-dir" class="chat-input" placeholder="output_dir" value="tests/reports/benchmark/latest" />
