@@ -3,30 +3,30 @@
 [v2.93] health output: /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest
 [v2.93] format check
 [v2.93] interface check
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
 [v2.93] secret domain models
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 2 tests
 test security::tests::finding_stores_fingerprint_without_raw_secret ... ok
 test security::tests::secret_enums_expose_stable_labels ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
 
 [v2.93] secret ids
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 2 tests
 test ids::tests::from_string_and_default_roundtrip_values ... ok
 test ids::tests::generated_ids_use_expected_prefixes ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
 
 [v2.93] secret guard and health kernel
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
 
 running 6 tests
 test v29_security::tests::detector_classifies_secret_and_pii_actions ... ok
@@ -36,31 +36,31 @@ test v29_security::tests::health_report_writer_outputs_json_and_markdown ... ok
 test v29_security::tests::ingest_guard_redacts_and_denies_expected_inputs ... ok
 test v29_security::tests::recall_guard_blocks_secret_but_keeps_low_risk_pii ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 156 filtered out; finished in 0.00s
 
 [v2.93] trace recall guard regression
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
 
 running 3 tests
 test v29_trace::tests::failure_classifier_distinguishes_empty_and_expected_miss ... ok
 test v29_trace::tests::trace_report_writer_outputs_json_and_markdown ... ok
 test v29_trace::tests::traced_search_reports_candidates_filtering_and_budget ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.00s
 
 [v2.93] health CLI helpers and parser
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
-     Running unittests src/main.rs (target/debug/deps/memory_cli-7baa1cb3a6946b55)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
 
 running 2 tests
 test app::main_tests::health_cli_parser_accepts_report ... ok
 test app::main_tests::health_output_helpers_include_risks_and_paths ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.03s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.00s
 
 [v2.93] security observability metrics
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
      Running unittests src/lib.rs (target/debug/deps/memory_observability-08fea951c3b208b8)
 
 running 1 test
@@ -69,16 +69,16 @@ test tests::record_functions_update_metrics_counters ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
 
 [v2.93] secret PG migration contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
-     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
 
 running 1 test
 test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
 
 [v2.93] seed secret guard fixture
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli remember --scope-id scp_v293_acceptance --title 'guard redacts api key' --file /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest/api-key.fixture --memory-kind fact --json`
 [v2.93] deny private key fixture
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
@@ -87,6 +87,6 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; fin
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli search 'api key' --scope-id scp_v293_acceptance --json`
 [v2.93] CLI health report
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli health report --scope-id scp_v293_acceptance --limit 20 --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest --json`
 [v2.93] acceptance completed

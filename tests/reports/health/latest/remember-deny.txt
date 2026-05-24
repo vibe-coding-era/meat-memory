@@ -1,3 +1,3 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli remember --scope-id scp_v293_acceptance --title 'deny private key' --file /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest/private-key.fixture --memory-kind risk --json`
 Error: write denied by secret guard

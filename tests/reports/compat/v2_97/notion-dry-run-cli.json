@@ -1,0 +1,85 @@
+{
+  "candidate_count": 2,
+  "connector": "notion",
+  "coverage_gate": {
+    "covered_regions": [
+      "local_git_dry_run",
+      "markdown_docs_dry_run",
+      "yaml_frontmatter_compatibility",
+      "chat_export_dry_run",
+      "web_crawler_dry_run",
+      "notion_export_dry_run",
+      "drive_export_dry_run",
+      "connector_report_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "failures": [],
+  "incremental_checkpoint": {
+    "remote_network": false,
+    "safe_default": "local_export_only_no_remote_api",
+    "source_kind": "notion_page",
+    "strategy": "export_path_content_hash",
+    "supported_extensions": [
+      "md",
+      "markdown",
+      "json",
+      "csv",
+      "txt"
+    ]
+  },
+  "items": [
+    {
+      "content_bytes": 118,
+      "metadata": {
+        "connector": "notion",
+        "content_hash": "25cbf98afa2c75ee5569768890edc236eb53d49f9878f5a3a835511b89c51bd7",
+        "document_extension": "json",
+        "extraction_mode": "json_text",
+        "relative_path": "page.json",
+        "remote_network": false,
+        "safe_default": "local_export_only_no_remote_api",
+        "source_kind": "notion_page",
+        "source_metadata": {
+          "content": "JSON Notion export fixture.",
+          "id": "notion_acceptance_page",
+          "title": "Notion Acceptance JSON"
+        }
+      },
+      "source_ref": "notion-export://notion_acceptance_page",
+      "title": "Notion Acceptance JSON"
+    },
+    {
+      "content_bytes": 104,
+      "metadata": {
+        "connector": "notion",
+        "content_hash": "a1609de0d8fd84d59dacfa28e7a4862baadd1c84867e25ce2b01535bd658f7ad",
+        "document_extension": "md",
+        "extraction_mode": "markdown_text",
+        "relative_path": "roadmap.md",
+        "remote_network": false,
+        "safe_default": "local_export_only_no_remote_api",
+        "source_kind": "notion_page",
+        "source_metadata": {
+          "frontmatter": {
+            "title": "Notion Acceptance Roadmap"
+          },
+          "frontmatter_present": true,
+          "source_kind": "markdown",
+          "visible_content_bytes": 62
+        }
+      },
+      "source_ref": "notion-export://roadmap",
+      "title": "Notion Acceptance Roadmap"
+    }
+  ],
+  "mode": "dry_run",
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/notion-dry-run.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/notion-dry-run.md"
+  },
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/notion",
+  "schema_version": "2.97-A",
+  "status": "ready"
+}

@@ -1,0 +1,6 @@
+[project]
+name = "meat-memory-sdk"
+version = "0.1.0"
+description = "Thin Python SDK for the Meat Memory HTTP API"
+requires-python = ">=3.10"
+license = { text = "MIT" }

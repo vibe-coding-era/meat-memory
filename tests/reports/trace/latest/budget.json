@@ -1,12 +1,12 @@
 {
-  "id": "rbp_01KQ6NP14JSYAS3F89T9XEP3Y5",
-  "trace_id": "rtr_01KQ6NP14JY448SVD5NGB111G8",
+  "id": "rbp_01KSD722KJ6MC95RRYSFH6PRC8",
+  "trace_id": "rtr_01KSD722KJHMFT5N7KPVB19VT6",
   "max_records": 1,
   "max_chars": 64,
   "used_chars": 64,
   "items": [
     {
-      "memory_id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+      "memory_id": "mem_01KSD720WP3M3S6RBK36HP937M",
       "title": "trace budget public two",
       "chars_used": 64,
       "render_mode": "truncated"
@@ -14,7 +14,7 @@
   ],
   "trimmed_items": [
     {
-      "memory_id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+      "memory_id": "mem_01KSD7200QEJ814CXFMXXT7SFC",
       "title": "trace budget public one",
       "reason": "record limit exceeded"
     }

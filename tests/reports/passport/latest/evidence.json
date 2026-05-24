@@ -1,10 +1,10 @@
 [
   {
-    "id": "evd_01KQ7C39QSF0KSET1VTZX0ABRX",
+    "id": "evd_01KSD72DNF729M5K00F6Y7WTQH",
     "scope_id": "scp_v294_acceptance",
-    "memory_id": "mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+    "memory_id": "mem_01KSD72BRYBWJHJGR5D89D0PBY",
     "artifact_id": null,
-    "source_ref": "memory:mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+    "source_ref": "memory:mem_01KSD72BRYBWJHJGR5D89D0PBY",
     "kind": "Text",
     "quote": "password = [REDACTED:PASSWORD]",
     "content_hash": "1941423c604826d5b2707f51dd3475872e930443d466de274c219d4302d3f444",
@@ -18,20 +18,20 @@
     },
     "created_at": [
       2026,
-      117,
-      11,
-      44,
-      50,
-      937323000,
+      144,
+      14,
+      43,
+      49,
+      551490000,
       0,
       0,
       0
     ]
   },
   {
-    "id": "evd_01KQ7C39QSGXC3VEQGJB27D6AB",
+    "id": "evd_01KSD72DNFP5KDKJ93TR8GT2XC",
     "scope_id": "scp_v294_acceptance",
-    "memory_id": "mem_01KQ7C36EHNRM2YCSXZ8QYPD1T",
+    "memory_id": "mem_01KSD72AW9AN3JGT8V40X12NRN",
     "artifact_id": null,
     "source_ref": "file://docs/V2.9/V2.94-development-plan.md",
     "kind": "Text",
@@ -47,11 +47,11 @@
     },
     "created_at": [
       2026,
-      117,
-      11,
-      44,
-      50,
-      937360000,
+      144,
+      14,
+      43,
+      49,
+      551574000,
       0,
       0,
       0

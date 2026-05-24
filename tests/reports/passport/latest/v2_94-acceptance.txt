@@ -3,10 +3,10 @@
 [v2.94] passport output: /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest
 [v2.94] format check
 [v2.94] interface check
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
 [v2.94] evidence domain models
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 5 tests
 test evidence::tests::evidence_span_kinds_expose_stable_labels ... ok
@@ -19,7 +19,7 @@ test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; fin
 
 [v2.94] passport domain models
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 2 tests
 test passport::tests::manifest_sorts_objects_and_computes_bundle_hash ... ok
@@ -29,7 +29,7 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; fin
 
 [v2.94] passport ids
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 2 tests
 test ids::tests::from_string_and_default_roundtrip_values ... ok
@@ -38,8 +38,8 @@ test ids::tests::generated_ids_use_expected_prefixes ... ok
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
 
 [v2.94] passport kernel
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-2101c577fbe381de)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
 
 running 4 tests
 test v29_passport::tests::derives_text_and_multimodal_evidence_spans ... ok
@@ -47,21 +47,21 @@ test v29_passport::tests::passport_export_verify_import_roundtrips_markdown_scop
 test v29_passport::tests::passport_redaction_removes_high_risk_secret_values ... ok
 test v29_passport::tests::passport_writer_and_verifier_check_hash_contract ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 106 filtered out; finished in 0.04s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.01s
 
 [v2.94] passport CLI helpers and parser
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
-     Running unittests src/main.rs (target/debug/deps/memory_cli-84f13e0742ae98d2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
 
 running 2 tests
 test app::main_tests::passport_cli_parser_accepts_export_verify_import_and_provenance ... ok
 test app::main_tests::passport_output_helpers_include_manifest_paths_and_counts ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 57 filtered out; finished in 0.03s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.00s
 
 [v2.94] passport PG migration contract
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
-     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
 
 running 1 test
 test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
@@ -69,15 +69,15 @@ test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
 
 [v2.94] seed passport fixture
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli remember --scope-id scp_v294_acceptance --title 'passport durable fact' --body 'V2.94 passport durable fact keeps evidence and can be imported into another scope' --memory-kind fact --source-refs 'file://docs/V2.9/V2.94-development-plan.md' --json`
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli remember --scope-id scp_v294_acceptance --title 'passport redaction risk' --file /Users/Rou/dev_projects/meat-memory/target/v2_94-passport-markdown/passport-secret.fixture --memory-kind risk --json`
 [v2.94] CLI provenance
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
-     Running `target/debug/memory-cli passport provenance --scope-id scp_v294_acceptance --memory-id mem_01KQ7C36EHNRM2YCSXZ8QYPD1T --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli passport provenance --scope-id scp_v294_acceptance --memory-id mem_01KSD72AW9AN3JGT8V40X12NRN --json`
 [v2.94] CLI passport export
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
      Running `target/debug/memory-cli passport export --scope-id scp_v294_acceptance --limit 20 --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --json`
 [v2.94] CLI passport verify
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s

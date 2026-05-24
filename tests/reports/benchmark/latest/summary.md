@@ -2,7 +2,7 @@
 
 suite: meat-code-zh
 version: 2.91.0
-run_id: bmr_01KSCJJ7F3J1D55D2JNDYXXRRD
+run_id: bmr_01KSD71XZ4N1XAX1MW9T1MQY4K
 status: passed
 case_count: 4
 recall@1: 1.000

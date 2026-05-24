@@ -1,6 +1,6 @@
 # Recall Trace Explanation
 
-trace_id: rtr_01KQ6NP14JY448SVD5NGB111G8
+trace_id: rtr_01KSD722KJHMFT5N7KPVB19VT6
 query: trace budget
 summary: selected 2 of 3 candidates; filtered 1; used 64/64 chars
 retrieval_mode: markdown_keyword_graph

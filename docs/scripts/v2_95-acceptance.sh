@@ -66,7 +66,7 @@ for payload in (cli_payload, file_payload):
     competitors = {item["competitor"] for item in payload["mappings"]}
     assert {"Supermemory", "mem0", "MemoryLake"}.issubset(competitors), payload
     connectors = {item["name"] for item in payload["connector_skeletons"]}
-    assert {"local-git", "markdown-docs", "chat-export"} == connectors, payload
+    assert {"local-git", "markdown-docs", "chat-export"}.issubset(connectors), payload
     assert len(payload["adapter_drafts"]) >= 3, payload
     assert payload["coverage_gate"]["new_feature_test_coverage_required"] == "100%", payload
 PY

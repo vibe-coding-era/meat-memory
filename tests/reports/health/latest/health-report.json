@@ -7,11 +7,11 @@
   "forgotten": 0,
   "generated_at": [
     2026,
-    117,
-    11,
-    3,
-    19,
-    227591000,
+    144,
+    14,
+    43,
+    44,
+    795593000,
     0,
     0,
     0
@@ -28,7 +28,7 @@
     {
       "detail": "restricted memory requires owner-scope recall access",
       "kind": "high_sensitivity",
-      "memory_id": "mem_01KQ79Q6P2WAX37SYJZPA504TX",
+      "memory_id": "mem_01KSD727A8SQA3AC4340ZN54ZH",
       "severity": "warning",
       "suggested_action": "review",
       "title": "restricted health risk"
@@ -36,7 +36,7 @@
     {
       "detail": "api_key detected in memory body",
       "kind": "secret_finding",
-      "memory_id": "mem_01KQ79Q4X1NETYK3YKDF8CA66G",
+      "memory_id": "mem_01KSD725MFZVR462RWQVVNXQSN",
       "severity": "critical",
       "suggested_action": "redact",
       "title": "guard redacts api key"

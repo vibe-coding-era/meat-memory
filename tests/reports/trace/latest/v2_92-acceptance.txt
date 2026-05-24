@@ -3,75 +3,68 @@
 [v2.92] trace output: /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest
 [v2.92] format check
 [v2.92] interface check
-    Checking memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-    Checking memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-    Checking memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-    Checking memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.99s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
 [v2.92] recall domain models
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 3 tests
 test benchmark::tests::metrics_from_cases_reports_recall_latency_and_failures ... ok
 test recall::tests::recall_budget_summary_is_derived_from_pack ... ok
 test recall::tests::recall_enums_expose_stable_labels ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 48 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 54 filtered out; finished in 0.00s
 
 [v2.92] recall ids
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
-     Running unittests src/lib.rs (target/debug/deps/memory_domain-1849a93009f655cf)
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
 
 running 2 tests
 test ids::tests::from_string_and_default_roundtrip_values ... ok
 test ids::tests::generated_ids_use_expected_prefixes ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
 
 [v2.92] recall trace kernel
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.48s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
 
 running 3 tests
 test v29_trace::tests::failure_classifier_distinguishes_empty_and_expected_miss ... ok
 test v29_trace::tests::trace_report_writer_outputs_json_and_markdown ... ok
 test v29_trace::tests::traced_search_reports_candidates_filtering_and_budget ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.00s
 
 [v2.92] benchmark trace association
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running unittests src/lib.rs (target/debug/deps/memory_kernel-9fa1424a5130f337)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
 
-running 6 tests
+running 8 tests
 test v29_benchmark::tests::benchmark_failure_reason_prefers_leakage_over_recall_miss ... ok
+test v29_benchmark::tests::benchmark_memory_1m_skeleton_writes_skipped_report ... ok
+test v29_benchmark::tests::benchmark_public_adapter_without_dataset_writes_skipped_report ... ok
 test v29_benchmark::tests::benchmark_runner_writes_summary_and_json_reports ... ok
 test v29_benchmark::tests::benchmark_suite_kind_accepts_meat_code_zh_only ... ok
 test v29_benchmark::tests::contains_restricted_memory_flags_leakage_candidates ... ok
 test v29_benchmark::tests::render_summary_includes_required_metric_names ... ok
 test v29_benchmark::tests::report_paths_are_stable ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 94 filtered out; finished in 0.01s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 154 filtered out; finished in 0.01s
 
 [v2.92] trace CLI helpers and parser
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.17s
-     Running unittests src/main.rs (target/debug/deps/memory_cli-7baa1cb3a6946b55)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
 
 running 3 tests
 test app::main_tests::trace_cli_parser_accepts_latest_and_inspect ... ok
 test app::main_tests::trace_inspect_command_reads_trace_report ... ok
 test app::main_tests::trace_output_helpers_include_budget_and_paths ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s
 
 [v2.92] recall observability metrics
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
      Running unittests src/lib.rs (target/debug/deps/memory_observability-08fea951c3b208b8)
 
 running 1 test
@@ -80,8 +73,8 @@ test tests::record_functions_update_metrics_counters ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
 
 [v2.92] recall PG migration contract
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
-     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-8e6d841d05840088)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
 
 running 1 test
 test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
@@ -89,11 +82,7 @@ test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
 
 [v2.92] seed trace fixture
-   Compiling memory-kernel v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-kernel)
-   Compiling memory-http v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-http)
-   Compiling memory-mcp v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-mcp)
-   Compiling memory-cli v0.1.0 (/Users/Rou/dev_projects/meat-memory/crates/memory-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.90s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli remember --scope-id scp_v292_acceptance --title 'trace budget public one' --body 'trace budget public one should be selected and explained' --memory-kind fact --json`
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli remember --scope-id scp_v292_acceptance --title 'trace budget public two' --body 'trace budget public two should be trimmed by the record budget' --memory-kind summary --json`
@@ -102,7 +91,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; fin
 [v2.92] CLI trace latest
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/memory-cli trace latest --scope-id scp_v292_acceptance --query 'trace budget' --max-records 1 --max-chars 64 --debug-candidates --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest --json`
-[v2.92] CLI trace inspect rtr_01KQ6NP14JY448SVD5NGB111G8
+[v2.92] CLI trace inspect rtr_01KSD722KJHMFT5N7KPVB19VT6
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running `target/debug/memory-cli trace inspect --trace-id rtr_01KQ6NP14JY448SVD5NGB111G8 --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest --json`
+     Running `target/debug/memory-cli trace inspect --trace-id rtr_01KSD722KJHMFT5N7KPVB19VT6 --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest --json`
 [v2.92] acceptance completed

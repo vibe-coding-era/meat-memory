@@ -8,8 +8,20 @@ ACCEPTANCE_REPORT="${REPORT_DIR}/v2_97-acceptance.txt"
 COVERAGE_REPORT="${REPORT_DIR}/coverage-v2_97-new-code.md"
 
 mkdir -p "${REPORT_DIR}" "${FIXTURE_DIR}"
-rm -rf "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat" "${FIXTURE_DIR}/web"
-mkdir -p "${FIXTURE_DIR}/docs" "${FIXTURE_DIR}/chat" "${FIXTURE_DIR}/web"
+rm -rf \
+  "${FIXTURE_DIR}/docs" \
+  "${FIXTURE_DIR}/chat" \
+  "${FIXTURE_DIR}/web" \
+  "${FIXTURE_DIR}/notion" \
+  "${FIXTURE_DIR}/drive" \
+  "${FIXTURE_DIR}/onedrive"
+mkdir -p \
+  "${FIXTURE_DIR}/docs" \
+  "${FIXTURE_DIR}/chat" \
+  "${FIXTURE_DIR}/web" \
+  "${FIXTURE_DIR}/notion" \
+  "${FIXTURE_DIR}/drive" \
+  "${FIXTURE_DIR}/onedrive"
 cd "${ROOT_DIR}"
 
 exec > >(tee "${ACCEPTANCE_REPORT}") 2>&1
@@ -97,6 +109,36 @@ cat >"${FIXTURE_DIR}/web/index.html" <<'EOF'
 </html>
 EOF
 
+cat >"${FIXTURE_DIR}/notion/roadmap.md" <<'EOF'
+---
+title: Notion Acceptance Roadmap
+---
+# Notion Acceptance Roadmap
+
+Notion export acceptance fixture.
+EOF
+cat >"${FIXTURE_DIR}/notion/page.json" <<'EOF'
+{
+  "id": "notion_acceptance_page",
+  "title": "Notion Acceptance JSON",
+  "content": "JSON Notion export fixture."
+}
+EOF
+
+cat >"${FIXTURE_DIR}/drive/planning.pdf" <<'EOF'
+%PDF metadata fixture
+EOF
+cat >"${FIXTURE_DIR}/drive/planning.txt" <<'EOF'
+Drive PDF sidecar extracted text.
+EOF
+cat >"${FIXTURE_DIR}/drive/sheet.csv" <<'EOF'
+name,status
+Drive connector,done
+EOF
+cat >"${FIXTURE_DIR}/onedrive/ops.txt" <<'EOF'
+OneDrive exported runbook acceptance fixture.
+EOF
+
 run_step "format check" cargo fmt --all --check
 
 run_step "interface check" \
@@ -119,6 +161,15 @@ run_step "HTTP project document frontmatter persistence contract" \
 
 run_step "MCP V2.97 connector management contract" \
   cargo test -p memory-mcp --lib v297_mcp_connector_ -- --test-threads=1
+
+run_step "SDK scaffold smoke" \
+  python3 -m py_compile sdks/python/meat_memory/client.py examples/memory-router/openai.py
+grep -q "connectorDryRun" sdks/typescript/src/index.ts
+grep -q "traceLatest" sdks/typescript/src/index.ts
+grep -q "passportExport" sdks/typescript/src/index.ts
+grep -q "connector_dry_run" sdks/python/meat_memory/client.py
+grep -q "MeatMemoryClient" examples/memory-router/openai.ts
+grep -q "MeatMemoryClient" examples/memory-router/openai.py
 
 run_step "CLI binary build" cargo build -p memory-cli
 MEMORY_CLI="${ROOT_DIR}/target/debug/memory-cli"
@@ -184,6 +235,29 @@ echo "[v2.97] web-crawler sync-plan report"
     --output-dir "${REPORT_DIR}" \
     --json >"${REPORT_DIR}/web-crawler-sync-plan-cli.json"
 
+echo "[v2.97] notion dry-run report"
+"${MEMORY_CLI}" compat connector-dry-run \
+    --connector notion \
+    --root-path "${FIXTURE_DIR}/notion" \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/notion-dry-run-cli.json"
+
+echo "[v2.97] google-drive sync-plan report"
+"${MEMORY_CLI}" compat connector-sync-plan \
+    --connector google-drive \
+    --root-path "${FIXTURE_DIR}/drive" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/google-drive-sync-plan-cli.json"
+
+echo "[v2.97] onedrive sync-plan report"
+"${MEMORY_CLI}" compat connector-sync-plan \
+    --connector onedrive \
+    --root-path "${FIXTURE_DIR}/onedrive" \
+    --scope-id scp_v297_acceptance \
+    --output-dir "${REPORT_DIR}" \
+    --json >"${REPORT_DIR}/onedrive-sync-plan-cli.json"
+
 echo "[v2.97] chat-export import-draft report"
 "${MEMORY_CLI}" compat connector-import-draft \
     --connector chat-export \
@@ -235,6 +309,9 @@ test -f "${REPORT_DIR}/local-git-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-dry-run.json"
 test -f "${REPORT_DIR}/web-crawler-dry-run.json"
 test -f "${REPORT_DIR}/web-crawler-sync-plan.json"
+test -f "${REPORT_DIR}/notion-dry-run.json"
+test -f "${REPORT_DIR}/google-drive-sync-plan.json"
+test -f "${REPORT_DIR}/onedrive-sync-plan.json"
 test -f "${REPORT_DIR}/chat-export-import-draft.json"
 test -f "${REPORT_DIR}/chat-export-proposal-queue.json"
 test -f "${REPORT_DIR}/chat-export-proposal-apply-plan.json"
@@ -244,6 +321,9 @@ grep -q "explicit import only" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "Proposal Drafts" "${REPORT_DIR}/chat-export-import-draft.md"
 grep -q "V2.97 Web Fixture" "${REPORT_DIR}/web-crawler-dry-run.md"
 grep -q "V2.97 Web Fixture" "${REPORT_DIR}/web-crawler-sync-plan.md"
+grep -q "Notion Acceptance Roadmap" "${REPORT_DIR}/notion-dry-run.md"
+grep -q "planning" "${REPORT_DIR}/google-drive-sync-plan.md"
+grep -q "ops" "${REPORT_DIR}/onedrive-sync-plan.md"
 grep -q "review queue only" "${REPORT_DIR}/chat-export-proposal-queue.md"
 grep -q "Connector Proposal Apply Plan" "${REPORT_DIR}/chat-export-proposal-apply-plan.md"
 
@@ -254,6 +334,9 @@ python3 - <<'PY' \
   "${REPORT_DIR}/chat-export-dry-run-cli.json" \
   "${REPORT_DIR}/web-crawler-dry-run-cli.json" \
   "${REPORT_DIR}/web-crawler-sync-plan-cli.json" \
+  "${REPORT_DIR}/notion-dry-run-cli.json" \
+  "${REPORT_DIR}/google-drive-sync-plan-cli.json" \
+  "${REPORT_DIR}/onedrive-sync-plan-cli.json" \
   "${REPORT_DIR}/chat-export-import-draft-cli.json" \
   "${REPORT_DIR}/markdown-docs-proposal-queue-cli.json" \
   "${REPORT_DIR}/local-git-proposal-queue-cli.json" \
@@ -268,11 +351,14 @@ local_git_sync_plan = json.load(open(sys.argv[3]))
 chat_dry_run = json.load(open(sys.argv[4]))
 web_crawler_dry_run = json.load(open(sys.argv[5]))
 web_crawler_sync_plan = json.load(open(sys.argv[6]))
-chat_import_draft = json.load(open(sys.argv[7]))
-markdown_proposal_queue = json.load(open(sys.argv[8]))
-local_git_proposal_queue = json.load(open(sys.argv[9]))
-chat_proposal_queue = json.load(open(sys.argv[10]))
-chat_apply_plan = json.load(open(sys.argv[11]))
+notion_dry_run = json.load(open(sys.argv[7]))
+google_drive_sync_plan = json.load(open(sys.argv[8]))
+onedrive_sync_plan = json.load(open(sys.argv[9]))
+chat_import_draft = json.load(open(sys.argv[10]))
+markdown_proposal_queue = json.load(open(sys.argv[11]))
+local_git_proposal_queue = json.load(open(sys.argv[12]))
+chat_proposal_queue = json.load(open(sys.argv[13]))
+chat_apply_plan = json.load(open(sys.argv[14]))
 
 for payload in (
     markdown_dry_run,
@@ -281,6 +367,9 @@ for payload in (
     chat_dry_run,
     web_crawler_dry_run,
     web_crawler_sync_plan,
+    notion_dry_run,
+    google_drive_sync_plan,
+    onedrive_sync_plan,
     chat_import_draft,
     markdown_proposal_queue,
     local_git_proposal_queue,
@@ -371,6 +460,19 @@ assert "web_crawler_redirect_conditional_request" in web_crawler_sync_plan["cove
 assert "web_crawler_robots_rule_precedence" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_link_boundary" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
 assert "web_crawler_multi_page_crawl" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert "web_crawler_https_url_policy" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert "web_crawler_remote_fetch_rate_limit" in web_crawler_sync_plan["coverage_gate"]["covered_regions"], web_crawler_sync_plan
+assert notion_dry_run["connector"] == "notion", notion_dry_run
+assert notion_dry_run["candidate_count"] == 2, notion_dry_run
+assert notion_dry_run["items"][0]["metadata"]["safe_default"] == "local_export_only_no_remote_api", notion_dry_run
+assert notion_dry_run["incremental_checkpoint"]["remote_network"] is False, notion_dry_run
+assert google_drive_sync_plan["connector"] == "google-drive", google_drive_sync_plan
+assert google_drive_sync_plan["planned_count"] == 2, google_drive_sync_plan
+assert google_drive_sync_plan["documents"][0]["metadata"]["source_kind"] == "drive_document", google_drive_sync_plan
+assert google_drive_sync_plan["incremental_checkpoint"]["safe_default"] == "local_export_only_no_remote_api", google_drive_sync_plan
+assert onedrive_sync_plan["connector"] == "onedrive", onedrive_sync_plan
+assert onedrive_sync_plan["planned_count"] == 1, onedrive_sync_plan
+assert onedrive_sync_plan["documents"][0]["metadata"]["source_kind"] == "onedrive_document", onedrive_sync_plan
 assert chat_import_draft["connector"] == "chat-export", chat_import_draft
 assert chat_import_draft["draft_count"] == 1, chat_import_draft
 assert chat_import_draft["proposal_draft_count"] == 1, chat_import_draft
@@ -435,6 +537,15 @@ Covered regions:
 - web-crawler robots exact user-agent / Allow / Disallow precedence
 - web-crawler link boundary / in-scope / out-of-scope / blocked / unsupported links
 - web-crawler multi-page crawl frontier
+- web-crawler HTTPS URL policy / same-scheme robots
+- web-crawler remote fetch rate limit / frontier preservation
+- Notion export connector dry-run
+- Google Drive export connector sync-plan
+- OneDrive export connector sync-plan
+- V2.97 parity surface for namespace / graph / SDK / multimodal / ops / policy / passport / perf
+- TypeScript SDK scaffold
+- Python SDK scaffold
+- Memory Router examples
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

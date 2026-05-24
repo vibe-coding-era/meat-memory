@@ -2,7 +2,7 @@
   "cases": [
     {
       "actual_memory_ids": [
-        "mem_01KSCJJ7EQ6ZF6ZW7GFP0K7NS4"
+        "mem_01KSD71XZ0HSS8BTRFMQE7GNYK"
       ],
       "actual_memory_titles": [
         "V2.91 兼容契约 remember search fetch_context"
@@ -17,11 +17,11 @@
       "query": "V2.91 兼容契约 remember search fetch_context",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJJ7ER5F8WTEQJ1665HF5V"
+      "trace_id": "rtr_01KSD71XZ288QQTPFMWNARG70X"
     },
     {
       "actual_memory_ids": [
-        "mem_01KSCJJ7ERWK7AMV5BZTJMW2AC"
+        "mem_01KSD71XZ2JXJMBCF234CSRBJS"
       ],
       "actual_memory_titles": [
         "评审输出 风险优先 摘要靠后"
@@ -36,11 +36,11 @@
       "query": "评审输出 风险优先 摘要靠后",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJJ7EVN1P266TQXRGGQH2F"
+      "trace_id": "rtr_01KSD71XZ2G2K9MPJ52ABG90FW"
     },
     {
       "actual_memory_ids": [
-        "mem_01KSCJJ7EVVTZWMNYEX45NQ5AK"
+        "mem_01KSD71XZ3M3CVWSY27W8S89XX"
       ],
       "actual_memory_titles": [
         "Secret Guard token API key 默认脱敏"
@@ -55,11 +55,11 @@
       "query": "Secret Guard token API key 默认脱敏",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJJ7EYGJWX0517TZHR9KP3"
+      "trace_id": "rtr_01KSD71XZ32C5JY18PP6E0N2Y1"
     },
     {
       "actual_memory_ids": [
-        "mem_01KSCJJ7EYQ9MZ1GK57ZDMGSQC"
+        "mem_01KSD71XZ3QFF42B8B9C7ASJDP"
       ],
       "actual_memory_titles": [
         "Benchmark 报告 recall@1 recall@5 latency leakage failure reason"
@@ -74,7 +74,7 @@
       "query": "Benchmark 报告 recall@1 recall@5 latency leakage failure reason",
       "recall_at_1": true,
       "recall_at_5": true,
-      "trace_id": "rtr_01KSCJJ7F3FKJCKGATS7QG9Y2W"
+      "trace_id": "rtr_01KSD71XZ4VRYMEC3HWB833FCZ"
     }
   ],
   "metrics": {
@@ -102,15 +102,15 @@
     "finished_at": [
       2026,
       144,
-      8,
-      45,
-      27,
-      395385000,
+      14,
+      43,
+      33,
+      476652000,
       0,
       0,
       0
     ],
-    "id": "bmr_01KSCJJ7F3J1D55D2JNDYXXRRD",
+    "id": "bmr_01KSD71XZ4N1XAX1MW9T1MQY4K",
     "metrics": {
       "case_count": 4,
       "estimated_cost_microusd": 76,
@@ -128,10 +128,10 @@
     "started_at": [
       2026,
       144,
-      8,
-      45,
-      27,
-      382099000,
+      14,
+      43,
+      33,
+      470939000,
       0,
       0,
       0

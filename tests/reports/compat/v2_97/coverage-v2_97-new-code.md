@@ -25,6 +25,15 @@ Covered regions:
 - web-crawler robots exact user-agent / Allow / Disallow precedence
 - web-crawler link boundary / in-scope / out-of-scope / blocked / unsupported links
 - web-crawler multi-page crawl frontier
+- web-crawler HTTPS URL policy / same-scheme robots
+- web-crawler remote fetch rate limit / frontier preservation
+- Notion export connector dry-run
+- Google Drive export connector sync-plan
+- OneDrive export connector sync-plan
+- V2.97 parity surface for namespace / graph / SDK / multimodal / ops / policy / passport / perf
+- TypeScript SDK scaffold
+- Python SDK scaffold
+- Memory Router examples
 - connector proposal-queue projection
 - connector proposal apply-plan projection
 - connector queue confirmation token

@@ -1,0 +1,159 @@
+{
+  "apply": false,
+  "conflict_count": 0,
+  "conflicts": [],
+  "connector": "google-drive",
+  "coverage_gate": {
+    "covered_regions": [
+      "markdown_docs_sync_plan",
+      "frontmatter_metadata_persistence",
+      "yaml_frontmatter_compatibility",
+      "sync_plan_conflict_review_projection",
+      "sync_plan_evidence_preview",
+      "web_crawler_sync_plan",
+      "web_crawler_remote_fetch_policy",
+      "web_crawler_redirect_conditional_request",
+      "web_crawler_robots_rule_precedence",
+      "web_crawler_link_boundary",
+      "web_crawler_multi_page_crawl",
+      "web_crawler_https_url_policy",
+      "web_crawler_remote_fetch_rate_limit",
+      "notion_export_sync_plan",
+      "drive_export_sync_plan",
+      "connector_sync_plan_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "documents": [
+    {
+      "canonical_uri": "gdrive-export://planning",
+      "content_hash": "98217299dfc17422ac7d9612b5ff63087fbc61eab848e6a544c519aecd06115d",
+      "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/drive/planning.pdf",
+      "metadata": {
+        "connector": "google-drive",
+        "content_hash": "98217299dfc17422ac7d9612b5ff63087fbc61eab848e6a544c519aecd06115d",
+        "document_extension": "pdf",
+        "extraction_mode": "pdf_sidecar_text",
+        "relative_path": "planning.pdf",
+        "remote_network": false,
+        "safe_default": "local_export_only_no_remote_api",
+        "source_kind": "drive_document",
+        "source_metadata": {
+          "sidecar_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/drive/planning.txt",
+          "sidecar_required": true
+        }
+      },
+      "sync_state": "changed",
+      "title": "planning"
+    },
+    {
+      "canonical_uri": "gdrive-export://sheet",
+      "content_hash": "fc8f0e25a45695df5ef2194e93d760326a7a61446601663e6871d96b299203eb",
+      "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/drive/sheet.csv",
+      "metadata": {
+        "connector": "google-drive",
+        "content_hash": "fc8f0e25a45695df5ef2194e93d760326a7a61446601663e6871d96b299203eb",
+        "document_extension": "csv",
+        "extraction_mode": "csv_text",
+        "relative_path": "sheet.csv",
+        "remote_network": false,
+        "safe_default": "local_export_only_no_remote_api",
+        "source_kind": "drive_document",
+        "source_metadata": {
+          "visible_content_bytes": 33
+        }
+      },
+      "sync_state": "changed",
+      "title": "sheet"
+    }
+  ],
+  "evidence_preview": [
+    {
+      "artifact_id": null,
+      "content_hash": "98217299dfc17422ac7d9612b5ff63087fbc61eab848e6a544c519aecd06115d",
+      "created_at": [
+        1970,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "evd_v297_98217299dfc17422ac7d9612b5",
+      "kind": "Text",
+      "location": {
+        "end": 33,
+        "end_ms": null,
+        "page": null,
+        "region": null,
+        "start": 0,
+        "start_ms": null
+      },
+      "memory_id": null,
+      "quote": "Drive PDF sidecar extracted text.",
+      "scope_id": "scp_v297_acceptance",
+      "source_ref": "gdrive-export://planning"
+    },
+    {
+      "artifact_id": null,
+      "content_hash": "fc8f0e25a45695df5ef2194e93d760326a7a61446601663e6871d96b299203eb",
+      "created_at": [
+        1970,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "evd_v297_fc8f0e25a45695df5ef2194e93",
+      "kind": "Text",
+      "location": {
+        "end": 11,
+        "end_ms": null,
+        "page": null,
+        "region": null,
+        "start": 0,
+        "start_ms": null
+      },
+      "memory_id": null,
+      "quote": "name,status",
+      "scope_id": "scp_v297_acceptance",
+      "source_ref": "gdrive-export://sheet"
+    }
+  ],
+  "imported": [],
+  "incremental_checkpoint": {
+    "apply_target": "Kernel::apply_project_document_sync_plan",
+    "failure_count": 0,
+    "failures": [],
+    "remote_network": false,
+    "safe_default": "local_export_only_no_remote_api",
+    "source_kind": "drive_document",
+    "strategy": "export_path_content_hash",
+    "supported_extensions": [
+      "md",
+      "markdown",
+      "json",
+      "csv",
+      "txt",
+      "pdf",
+      "docx"
+    ]
+  },
+  "missing_count": 0,
+  "mode": "sync_plan",
+  "planned_count": 2,
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/google-drive-sync-plan.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/google-drive-sync-plan.md"
+  },
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/drive",
+  "schema_version": "2.97-A"
+}

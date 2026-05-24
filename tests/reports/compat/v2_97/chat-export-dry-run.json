@@ -8,6 +8,8 @@
       "yaml_frontmatter_compatibility",
       "chat_export_dry_run",
       "web_crawler_dry_run",
+      "notion_export_dry_run",
+      "drive_export_dry_run",
       "connector_report_projection",
       "cli_parser_and_command"
     ],

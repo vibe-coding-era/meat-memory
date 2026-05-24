@@ -1,8 +1,8 @@
 {
-  "artifact_id": "art_01KQ7C36EG0VN0Q09CK2HY7WHM",
+  "artifact_id": "art_01KSD72AW9AQXRVQKQD0AM76EP",
   "body": "V2.94 passport durable fact keeps evidence and can be imported into another scope",
   "evidence_count": 1,
-  "memory_id": "mem_01KQ7C36EHNRM2YCSXZ8QYPD1T",
+  "memory_id": "mem_01KSD72AW9AN3JGT8V40X12NRN",
   "memory_kind": "fact",
   "memory_state": "active",
   "scope_id": "scp_v294_acceptance",

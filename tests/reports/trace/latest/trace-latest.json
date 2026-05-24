@@ -1,20 +1,20 @@
 {
   "budget_pack": {
-    "id": "rbp_01KQ6NP14JSYAS3F89T9XEP3Y5",
+    "id": "rbp_01KSD722KJ6MC95RRYSFH6PRC8",
     "items": [
       {
         "chars_used": 64,
-        "memory_id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+        "memory_id": "mem_01KSD720WP3M3S6RBK36HP937M",
         "render_mode": "truncated",
         "title": "trace budget public two"
       }
     ],
     "max_chars": 64,
     "max_records": 1,
-    "trace_id": "rtr_01KQ6NP14JY448SVD5NGB111G8",
+    "trace_id": "rtr_01KSD722KJHMFT5N7KPVB19VT6",
     "trimmed_items": [
       {
-        "memory_id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+        "memory_id": "mem_01KSD7200QEJ814CXFMXXT7SFC",
         "reason": "record limit exceeded",
         "title": "trace budget public one"
       }
@@ -25,11 +25,11 @@
     "entities": [],
     "generated_at": [
       2026,
-      117,
-      5,
-      13,
-      7,
-      474604000,
+      144,
+      14,
+      43,
+      38,
+      226705000,
       0,
       0,
       0
@@ -39,17 +39,17 @@
         "body": "trace budget public two should be trimmed by the record budget",
         "created_at": [
           2026,
-          117,
-          5,
-          13,
-          5,
-          724160000,
+          144,
+          14,
+          43,
+          36,
+          470550000,
           0,
           0,
           0
         ],
         "evidence_count": 1,
-        "id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+        "id": "mem_01KSD720WP3M3S6RBK36HP937M",
         "kind": "Summary",
         "language_code": "en",
         "owner_scope_id": "scp_v292_acceptance",
@@ -67,11 +67,11 @@
         "title": "trace budget public two",
         "updated_at": [
           2026,
-          117,
-          5,
-          13,
-          5,
-          724161000,
+          144,
+          14,
+          43,
+          36,
+          470555000,
           0,
           0,
           0
@@ -82,17 +82,17 @@
         "body": "trace budget public one should be selected and explained",
         "created_at": [
           2026,
-          117,
-          5,
-          13,
-          4,
-          826323000,
+          144,
+          14,
+          43,
+          35,
+          575395000,
           0,
           0,
           0
         ],
         "evidence_count": 1,
-        "id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+        "id": "mem_01KSD7200QEJ814CXFMXXT7SFC",
         "kind": "Fact",
         "language_code": "en",
         "owner_scope_id": "scp_v292_acceptance",
@@ -110,11 +110,11 @@
         "title": "trace budget public one",
         "updated_at": [
           2026,
-          117,
-          5,
-          13,
-          4,
-          826325000,
+          144,
+          14,
+          43,
+          35,
+          575399000,
           0,
           0,
           0
@@ -143,7 +143,7 @@
       "budget"
     ],
     "summary": "selected 2 of 3 candidates; filtered 1; used 64/64 chars",
-    "trace_id": "rtr_01KQ6NP14JY448SVD5NGB111G8"
+    "trace_id": "rtr_01KSD722KJHMFT5N7KPVB19VT6"
   },
   "report_paths": {
     "budget": "/Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest/budget.json",
@@ -161,7 +161,7 @@
     "candidates": [
       {
         "filtered_reason": "restricted sensitivity requires owner scope access",
-        "memory_id": "mem_01KQ6NP07Y048HT5XY5DJF7ZJY",
+        "memory_id": "mem_01KSD721Q6YSQD5PTCEZJAAZ54",
         "rank": 1,
         "score": 19,
         "selected": false,
@@ -169,7 +169,7 @@
       },
       {
         "filtered_reason": null,
-        "memory_id": "mem_01KQ6NNZDWNRRTZCJ3958XXMA6",
+        "memory_id": "mem_01KSD720WP3M3S6RBK36HP937M",
         "rank": 2,
         "score": 19,
         "selected": true,
@@ -177,7 +177,7 @@
       },
       {
         "filtered_reason": null,
-        "memory_id": "mem_01KQ6NNYHTMRN8BRDTXGA1B32K",
+        "memory_id": "mem_01KSD7200QEJ814CXFMXXT7SFC",
         "rank": 3,
         "score": 19,
         "selected": true,
@@ -186,17 +186,17 @@
     ],
     "created_at": [
       2026,
-      117,
-      5,
-      13,
-      7,
-      474904000,
+      144,
+      14,
+      43,
+      38,
+      226997000,
       0,
       0,
       0
     ],
     "filtered_count": 1,
-    "id": "rtr_01KQ6NP14JY448SVD5NGB111G8",
+    "id": "rtr_01KSD722KJHMFT5N7KPVB19VT6",
     "query": "trace budget",
     "retention": "debug_candidates",
     "retrieval_mode": "markdown_keyword_graph",

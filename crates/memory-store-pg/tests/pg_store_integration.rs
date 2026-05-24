@@ -6,15 +6,23 @@ use memory_domain::{
 };
 use memory_store_pg::PgStore;
 
-fn test_database_url() -> String {
-    std::env::var("MEAT_MEMORY_TEST_DATABASE_URL").unwrap_or_else(|_| {
-        "postgres://postgres:postgres@127.0.0.1:5433/meat_memory_dev".to_string()
-    })
+fn test_database_url() -> Option<String> {
+    std::env::var("MEAT_MEMORY_TEST_DATABASE_URL").ok()
+}
+
+async fn test_store(test_name: &str) -> Option<PgStore> {
+    let Some(database_url) = test_database_url() else {
+        eprintln!("skipping {test_name}: set MEAT_MEMORY_TEST_DATABASE_URL to run PG integration");
+        return None;
+    };
+    Some(PgStore::connect(&database_url).await.unwrap())
 }
 
 #[tokio::test]
 async fn pg_store_can_migrate_insert_and_search() {
-    let store = PgStore::connect(&test_database_url()).await.unwrap();
+    let Some(store) = test_store("pg_store_can_migrate_insert_and_search").await else {
+        return;
+    };
     store.migrate().await.unwrap();
 
     let scope_id = ScopeId::new();
@@ -64,7 +72,9 @@ async fn pg_store_can_migrate_insert_and_search() {
 
 #[tokio::test]
 async fn pg_store_persists_access_key_and_isolation_links() {
-    let store = PgStore::connect(&test_database_url()).await.unwrap();
+    let Some(store) = test_store("pg_store_persists_access_key_and_isolation_links").await else {
+        return;
+    };
     store.migrate().await.unwrap();
 
     let scope_id = ScopeId::new();
@@ -208,7 +218,10 @@ async fn pg_store_persists_access_key_and_isolation_links() {
 
 #[tokio::test]
 async fn pg_store_persists_v2_4_sources_contexts_and_documents() {
-    let store = PgStore::connect(&test_database_url()).await.unwrap();
+    let Some(store) = test_store("pg_store_persists_v2_4_sources_contexts_and_documents").await
+    else {
+        return;
+    };
     store.migrate().await.unwrap();
 
     let scope_id = ScopeId::new();

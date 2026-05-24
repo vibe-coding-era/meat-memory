@@ -67,6 +67,34 @@
       "safe_default": "explicit_import_only",
       "source_kind": "conversation_export",
       "status": "skeleton"
+    },
+    {
+      "capability": "Inspect local web page snapshots with canonical URL and allowlist metadata.",
+      "name": "web-crawler",
+      "safe_default": "dry_run_only_no_remote_fetch",
+      "source_kind": "web_snapshot",
+      "status": "skeleton"
+    },
+    {
+      "capability": "Scan local Notion exports into page-shaped project document drafts with source refs.",
+      "name": "notion",
+      "safe_default": "local_export_only_no_remote_api",
+      "source_kind": "notion_export",
+      "status": "mvp"
+    },
+    {
+      "capability": "Scan Google Drive document/sheet/PDF export snapshots and sidecar text into sync plans.",
+      "name": "google-drive",
+      "safe_default": "local_export_only_no_remote_api",
+      "source_kind": "drive_export",
+      "status": "mvp"
+    },
+    {
+      "capability": "Scan OneDrive document/sheet/PDF export snapshots and sidecar text into sync plans.",
+      "name": "onedrive",
+      "safe_default": "local_export_only_no_remote_api",
+      "source_kind": "onedrive_export",
+      "status": "mvp"
     }
   ],
   "coverage_gate": {
@@ -80,11 +108,11 @@
   },
   "generated_at": [
     2026,
-    118,
-    12,
-    48,
-    38,
-    419894000,
+    144,
+    14,
+    43,
+    55,
+    108965000,
     0,
     0,
     0

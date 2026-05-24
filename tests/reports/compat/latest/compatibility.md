@@ -1,7 +1,7 @@
 # V2.95 Competitor Compatibility Report
 
 schema_version: 2.95
-generated_at: 2026-04-28 12:48:38.419894 +00:00:00
+generated_at: 2026-05-24 14:43:55.108965 +00:00:00
 
 ## Markdown Compatibility
 
@@ -38,6 +38,10 @@ generated_at: 2026-04-28 12:48:38.419894 +00:00:00
 - local-git [repository]: Read repository metadata, commits, and important docs as project context. (read_only_no_remote_push, skeleton)
 - markdown-docs [document_tree]: Scan local markdown docs into project documents and evidence refs. (local_files_only, skeleton)
 - chat-export [conversation_export]: Normalize chat exports into timestamped message memory drafts. (explicit_import_only, skeleton)
+- web-crawler [web_snapshot]: Inspect local web page snapshots with canonical URL and allowlist metadata. (dry_run_only_no_remote_fetch, skeleton)
+- notion [notion_export]: Scan local Notion exports into page-shaped project document drafts with source refs. (local_export_only_no_remote_api, mvp)
+- google-drive [drive_export]: Scan Google Drive document/sheet/PDF export snapshots and sidecar text into sync plans. (local_export_only_no_remote_api, mvp)
+- onedrive [onedrive_export]: Scan OneDrive document/sheet/PDF export snapshots and sidecar text into sync plans. (local_export_only_no_remote_api, mvp)
 
 ## Adapter Fixture Drafts
 

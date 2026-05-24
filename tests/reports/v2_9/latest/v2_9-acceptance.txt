@@ -1,7 +1,734 @@
 [v2.9] acceptance started
 [v2.9] report: /Users/Rou/dev_projects/meat-memory/tests/reports/v2_9/latest/v2_9-acceptance.txt
 [v2.9] output: /Users/Rou/dev_projects/meat-memory/tests/reports/v2_9/latest
-[v2.9] run children: 0
+[v2.9] run children: 1
 [v2.9] format check
-[v2.9] child acceptance scripts skipped by V2_9_ACCEPTANCE_RUN_CHILDREN=0
+[v2.9] V2.91 benchmark baseline
+[v2.91] acceptance started
+[v2.91] report: /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest/v2_91-acceptance.txt
+[v2.91] benchmark output: /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest
+[v2.91] format check
+[v2.91] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+[v2.91] benchmark domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 5 tests
+test benchmark::tests::benchmark_run_status_serializes_to_stable_labels ... ok
+test benchmark::tests::benchmark_suite_keeps_metric_profile_metadata ... ok
+test benchmark::tests::metrics_from_cases_reports_recall_latency_and_failures ... ok
+test benchmark::tests::metrics_from_empty_cases_uses_zero_baseline ... ok
+test benchmark::tests::percentile_handles_single_and_multiple_values ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s
+
+[v2.91] benchmark ids
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 2 tests
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.91] benchmark kernel runner
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 8 tests
+test v29_benchmark::tests::benchmark_failure_reason_prefers_leakage_over_recall_miss ... ok
+test v29_benchmark::tests::benchmark_memory_1m_skeleton_writes_skipped_report ... ok
+test v29_benchmark::tests::benchmark_public_adapter_without_dataset_writes_skipped_report ... ok
+test v29_benchmark::tests::benchmark_runner_writes_summary_and_json_reports ... ok
+test v29_benchmark::tests::benchmark_suite_kind_accepts_meat_code_zh_only ... ok
+test v29_benchmark::tests::contains_restricted_memory_flags_leakage_candidates ... ok
+test v29_benchmark::tests::render_summary_includes_required_metric_names ... ok
+test v29_benchmark::tests::report_paths_are_stable ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 154 filtered out; finished in 0.03s
+
+[v2.91] benchmark CLI helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 4 tests
+test app::main_tests::benchmark_cli_parser_accepts_run_and_report ... ok
+test app::main_tests::benchmark_compare_reports_metric_deltas_and_regressions ... ok
+test app::main_tests::benchmark_output_helpers_include_required_metrics_and_paths ... ok
+test app::main_tests::benchmark_report_command_reads_summary_and_metrics ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.00s
+
+[v2.91] benchmark PG migration contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
+
+running 1 test
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+[v2.91] V2.7 compatibility smoke
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 23 tests
+test lifecycle::lifecycle_impl::lifecycle_tests::audit_log_service_records_status_transition ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::budget_packer_covers_zero_and_fit_paths ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::budget_packer_respects_record_and_character_limits ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::classifier_covers_all_text_driven_record_types ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::classifier_covers_memory_source_ref_kinds ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::classifier_detects_summary_and_code_context_keywords ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::compact_summary_handles_long_chinese_text_without_panic ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::evolution_service_describes_supersede_and_conflict_events ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::forget_service_soft_forgets_and_restores_records ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_agent_context_to_short_term_record ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_clean_document_to_active_record_with_uri_content ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_conflicted_document_to_needs_review_record ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_maps_memory_to_long_term_record ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_preserves_memory_source_metadata ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::normalizer_preserves_source_ref_and_kind_for_long_term_records ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_explainer_covers_summary_content_source_and_default_reasons ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_explainer_returns_traceable_reason ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_guard_excludes_restricted_archived_and_expired_records ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::recall_guard_filters_restricted_memories_by_request_context ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::summary_and_truncation_helpers_cover_short_and_tiny_limits ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::task_summary_helpers_split_and_deduplicate_clauses ... ok
+test lifecycle::lifecycle_impl::lifecycle_tests::task_summary_service_extracts_structured_fields ... ok
+test v28::v28_tests::executor_plans_audit_only_for_lifecycle_proposals ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 139 filtered out; finished in 0.00s
+
+[v2.91] V2.8 compatibility smoke
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 54 tests
+test v28::v28_tests::classifier_detects_conflict_candidate_for_opposite_fact ... ok
+test v28::v28_tests::classifier_detects_exact_duplicate_with_same_source ... ok
+test v28::v28_tests::classifier_detects_near_duplicate_by_type_and_title ... ok
+test v28::v28_tests::classifier_detects_reverse_polarity_conflicts ... ok
+test v28::v28_tests::classifier_detects_supersede_candidate_for_new_decision ... ok
+test v28::v28_tests::classifier_detects_true_false_and_chinese_conflicts ... ok
+test v28::v28_tests::classifier_returns_unrelated_for_same_scope_different_title ... ok
+test v28::v28_tests::classifier_returns_unrelated_when_scope_differs ... ok
+test v28::v28_tests::distillation_preview_builds_candidate_from_input_and_profile ... ok
+test v28::v28_tests::distillation_preview_rejects_empty_input_and_evidence ... ok
+test v28::v28_tests::distillation_preview_uses_default_memory_kind_when_profile_has_no_preference ... ok
+test v28::v28_tests::executor_plans_audit_only_for_lifecycle_proposals ... ok
+test v28::v28_tests::executor_plans_supersede_and_conflict_relations ... ok
+test v28::v28_tests::executor_plans_version_actions_for_content_changing_proposals ... ok
+test v28::v28_tests::executor_rejects_non_approved_proposals ... ok
+test v28::v28_tests::executor_requires_subject_and_target_when_needed ... ok
+test v28::v28_tests::orchestrator_creates_required_supersede_proposal ... ok
+test v28::v28_tests::orchestrator_maps_near_duplicate_and_conflict_to_proposals ... ok
+test v28::v28_tests::orchestrator_skips_exact_duplicate_and_unrelated_assessments ... ok
+test v28::v28_tests::profile_service_allows_session_preferences_without_prompt_text ... ok
+test v28::v28_tests::profile_service_composes_system_user_project_and_session_layers ... ok
+test v28::v28_tests::profile_service_deduplicates_session_preferences ... ok
+test v28::v28_tests::profile_service_ignores_archived_and_other_project_profiles ... ok
+test v28::v28_tests::profile_service_uses_latest_active_profile_per_persistent_layer ... ok
+test v28::v28_tests::resolver_asks_confirmation_when_signal_has_no_binding ... ok
+test v28::v28_tests::resolver_derives_project_key_from_repo_remote_or_source_signal ... ok
+test v28::v28_tests::resolver_falls_back_to_scope_without_project_signal ... ok
+test v28::v28_tests::resolver_ignores_bindings_from_other_scopes ... ok
+test v28::v28_tests::resolver_matches_confirmed_repo_root_binding ... ok
+test v28::v28_tests::resolver_matches_remote_source_prefix_and_alias_bindings ... ok
+test v28::v28_tests::review_policy_allows_auto_and_suggested_approval_boundaries ... ok
+test v28::v28_tests::review_policy_allows_system_apply_but_guards_agent_required_apply ... ok
+test v28::v28_tests::review_policy_denies_blocked_approval_and_apply ... ok
+test v28::v28_tests::review_policy_requires_user_authorization_for_required_approval ... ok
+test v28::v28_tests::rollback_plans_new_version_from_old_snapshot ... ok
+test v28::v28_tests::rollback_rejects_empty_inputs ... ok
+test v28::v28_tests::rollback_rejects_missing_or_latest_targets ... ok
+test v28::v28_tests::timeline_emits_rejected_and_applied_proposal_events ... ok
+test v28::v28_tests::timeline_emits_remaining_proposal_decision_statuses_and_tie_breaker ... ok
+test v28::v28_tests::timeline_filters_related_inputs_and_sorts_events_newest_first ... ok
+test v28::v28_tests::timeline_handles_empty_inputs ... ok
+test v28::v28_tests::timeline_includes_target_side_relations_and_proposals ... ok
+test v28_runtime::tests::distillation_preview_runtime_persists_single_profile_source_and_kind_labels ... ok
+test v28_runtime::tests::distillation_preview_runtime_uses_stored_profiles_and_persists_run ... ok
+test v28_runtime::tests::distillation_preview_runtime_works_without_pg ... ok
+test v28_runtime::tests::distillation_profile_runtime_rejects_project_profiles_without_scope ... ok
+test v28_runtime::tests::distillation_profile_runtime_upserts_and_lists_profiles_with_pg ... ok
+test v28_runtime::tests::memory_rollback_runtime_restores_old_snapshot_and_marks_version ... ok
+test v28_runtime::tests::memory_timeline_runtime_aggregates_versions_relations_proposals_and_audit ... ok
+test v28_runtime::tests::memory_timeline_runtime_requires_pg ... ok
+test v28_runtime::tests::memory_versions_runtime_reads_pg_history_latest_first ... ok
+test v28_runtime::tests::proposal_apply_runtime_materializes_relation_version_audit_and_status ... ok
+test v28_runtime::tests::proposal_review_runtime_lists_inspects_approves_and_rejects_pg ... ok
+test v28_runtime::tests::proposal_review_runtime_requires_pg ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 108 filtered out; finished in 0.01s
+
+[v2.91] CLI benchmark run
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli benchmark run --suite meat-code-zh --scope-id scp_v291_acceptance --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/benchmark/latest --json`
+[v2.91] acceptance completed
+[v2.9] V2.92 recall trace and budget
+[v2.92] acceptance started
+[v2.92] report: /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest/v2_92-acceptance.txt
+[v2.92] trace output: /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest
+[v2.92] format check
+[v2.92] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+[v2.92] recall domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 3 tests
+test benchmark::tests::metrics_from_cases_reports_recall_latency_and_failures ... ok
+test recall::tests::recall_budget_summary_is_derived_from_pack ... ok
+test recall::tests::recall_enums_expose_stable_labels ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 54 filtered out; finished in 0.00s
+
+[v2.92] recall ids
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 2 tests
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.92] recall trace kernel
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 3 tests
+test v29_trace::tests::failure_classifier_distinguishes_empty_and_expected_miss ... ok
+test v29_trace::tests::trace_report_writer_outputs_json_and_markdown ... ok
+test v29_trace::tests::traced_search_reports_candidates_filtering_and_budget ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.00s
+
+[v2.92] benchmark trace association
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 8 tests
+test v29_benchmark::tests::benchmark_failure_reason_prefers_leakage_over_recall_miss ... ok
+test v29_benchmark::tests::benchmark_memory_1m_skeleton_writes_skipped_report ... ok
+test v29_benchmark::tests::benchmark_public_adapter_without_dataset_writes_skipped_report ... ok
+test v29_benchmark::tests::benchmark_runner_writes_summary_and_json_reports ... ok
+test v29_benchmark::tests::benchmark_suite_kind_accepts_meat_code_zh_only ... ok
+test v29_benchmark::tests::contains_restricted_memory_flags_leakage_candidates ... ok
+test v29_benchmark::tests::render_summary_includes_required_metric_names ... ok
+test v29_benchmark::tests::report_paths_are_stable ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 154 filtered out; finished in 0.01s
+
+[v2.92] trace CLI helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 3 tests
+test app::main_tests::trace_cli_parser_accepts_latest_and_inspect ... ok
+test app::main_tests::trace_inspect_command_reads_trace_report ... ok
+test app::main_tests::trace_output_helpers_include_budget_and_paths ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s
+
+[v2.92] recall observability metrics
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_observability-08fea951c3b208b8)
+
+running 1 test
+test tests::record_functions_update_metrics_counters ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+[v2.92] recall PG migration contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
+
+running 1 test
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+[v2.92] seed trace fixture
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v292_acceptance --title 'trace budget public one' --body 'trace budget public one should be selected and explained' --memory-kind fact --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v292_acceptance --title 'trace budget public two' --body 'trace budget public two should be trimmed by the record budget' --memory-kind summary --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v292_acceptance --title 'trace budget restricted' --body 'trace budget restricted should be filtered by recall guard' --memory-kind risk --sensitivity restricted --json`
+[v2.92] CLI trace latest
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli trace latest --scope-id scp_v292_acceptance --query 'trace budget' --max-records 1 --max-chars 64 --debug-candidates --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest --json`
+[v2.92] CLI trace inspect rtr_01KSD722KJHMFT5N7KPVB19VT6
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli trace inspect --trace-id rtr_01KSD722KJHMFT5N7KPVB19VT6 --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/trace/latest --json`
+[v2.92] acceptance completed
+[v2.9] V2.93 secret guard and health
+[v2.93] acceptance started
+[v2.93] report: /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest/v2_93-acceptance.txt
+[v2.93] health output: /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest
+[v2.93] format check
+[v2.93] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+[v2.93] secret domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 2 tests
+test security::tests::finding_stores_fingerprint_without_raw_secret ... ok
+test security::tests::secret_enums_expose_stable_labels ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.93] secret ids
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 2 tests
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.93] secret guard and health kernel
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 6 tests
+test v29_security::tests::detector_classifies_secret_and_pii_actions ... ok
+test v29_security::tests::hard_delete_redaction_clears_secret_body_only ... ok
+test v29_security::tests::health_report_classifies_operational_risks ... ok
+test v29_security::tests::health_report_writer_outputs_json_and_markdown ... ok
+test v29_security::tests::ingest_guard_redacts_and_denies_expected_inputs ... ok
+test v29_security::tests::recall_guard_blocks_secret_but_keeps_low_risk_pii ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 156 filtered out; finished in 0.00s
+
+[v2.93] trace recall guard regression
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 3 tests
+test v29_trace::tests::failure_classifier_distinguishes_empty_and_expected_miss ... ok
+test v29_trace::tests::trace_report_writer_outputs_json_and_markdown ... ok
+test v29_trace::tests::traced_search_reports_candidates_filtering_and_budget ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.00s
+
+[v2.93] health CLI helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 2 tests
+test app::main_tests::health_cli_parser_accepts_report ... ok
+test app::main_tests::health_output_helpers_include_risks_and_paths ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.00s
+
+[v2.93] security observability metrics
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_observability-08fea951c3b208b8)
+
+running 1 test
+test tests::record_functions_update_metrics_counters ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+[v2.93] secret PG migration contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
+
+running 1 test
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+[v2.93] seed secret guard fixture
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v293_acceptance --title 'guard redacts api key' --file /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest/api-key.fixture --memory-kind fact --json`
+[v2.93] deny private key fixture
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v293_acceptance --title 'restricted health risk' --body 'restricted health note should appear as high sensitivity risk' --memory-kind risk --sensitivity restricted --json`
+[v2.93] CLI search redacted result
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli search 'api key' --scope-id scp_v293_acceptance --json`
+[v2.93] CLI health report
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli health report --scope-id scp_v293_acceptance --limit 20 --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/health/latest --json`
+[v2.93] acceptance completed
+[v2.9] V2.94 evidence and passport
+[v2.94] acceptance started
+[v2.94] report: /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest/v2_94-acceptance.txt
+[v2.94] passport output: /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest
+[v2.94] format check
+[v2.94] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+[v2.94] evidence domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 5 tests
+test evidence::tests::evidence_span_kinds_expose_stable_labels ... ok
+test evidence::tests::text_evidence_span_keeps_source_location ... ok
+test proposal::tests::proposal_rejects_empty_reason_and_evidence ... ok
+test relation::tests::activates_after_adding_evidence ... ok
+test relation::tests::refuses_to_activate_without_evidence ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s
+
+[v2.94] passport domain models
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 2 tests
+test passport::tests::manifest_sorts_objects_and_computes_bundle_hash ... ok
+test passport::tests::passport_labels_and_hashes_are_stable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.94] passport ids
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/memory_domain-662dc5a07a4f7be2)
+
+running 2 tests
+test ids::tests::from_string_and_default_roundtrip_values ... ok
+test ids::tests::generated_ids_use_expected_prefixes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+
+[v2.94] passport kernel
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 4 tests
+test v29_passport::tests::derives_text_and_multimodal_evidence_spans ... ok
+test v29_passport::tests::passport_export_verify_import_roundtrips_markdown_scope ... ok
+test v29_passport::tests::passport_redaction_removes_high_risk_secret_values ... ok
+test v29_passport::tests::passport_writer_and_verifier_check_hash_contract ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.01s
+
+[v2.94] passport CLI helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 2 tests
+test app::main_tests::passport_cli_parser_accepts_export_verify_import_and_provenance ... ok
+test app::main_tests::passport_output_helpers_include_manifest_paths_and_counts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.00s
+
+[v2.94] passport PG migration contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_store_pg-f327459b54537e2b)
+
+running 1 test
+test pg_impl::lib_tests::v28_sql_helpers_expose_expected_statements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+[v2.94] seed passport fixture
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v294_acceptance --title 'passport durable fact' --body 'V2.94 passport durable fact keeps evidence and can be imported into another scope' --memory-kind fact --source-refs 'file://docs/V2.9/V2.94-development-plan.md' --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli remember --scope-id scp_v294_acceptance --title 'passport redaction risk' --file /Users/Rou/dev_projects/meat-memory/target/v2_94-passport-markdown/passport-secret.fixture --memory-kind risk --json`
+[v2.94] CLI provenance
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli passport provenance --scope-id scp_v294_acceptance --memory-id mem_01KSD72AW9AN3JGT8V40X12NRN --json`
+[v2.94] CLI passport export
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/memory-cli passport export --scope-id scp_v294_acceptance --limit 20 --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --json`
+[v2.94] CLI passport verify
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli passport verify --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --json`
+[v2.94] CLI passport import
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli passport import --input-dir /Users/Rou/dev_projects/meat-memory/tests/reports/passport/latest --target-scope-id scp_v294_imported --json`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli search 'durable fact' --scope-id scp_v294_imported --json`
+[v2.94] acceptance completed
+[v2.9] V2.95 compatibility surface
+[v2.95] acceptance started
+[v2.95] report: /Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest/v2_95-acceptance.txt
+[v2.95] compat output: /Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest
+[v2.95] format check
+[v2.95] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+[v2.95] competitor mapping and adapter fixtures
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 50 tests
+test v29_compat::tests::v297_chat_export_dry_run_parses_chatgpt_mapping_json ... ok
+test v29_compat::tests::v297_chat_export_dry_run_parses_generic_messages_json ... ok
+test v29_compat::tests::v297_chat_export_import_draft_projects_reviewable_memory_drafts ... ok
+test v29_compat::tests::v297_connector_dry_run_rejects_unknown_connector ... ok
+test v29_compat::tests::v297_connector_dry_run_scans_markdown_docs ... ok
+test v29_compat::tests::v297_connector_dry_run_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_import_draft_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_accepts_persisted_queue_manifest ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_keeps_blocked_conflicts_plan_only ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_requires_confirmation_and_blocks_conflicts ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_proposal_queue_blocks_missing_doc_conflict_items ... ok
+test v29_compat::tests::v297_connector_proposal_queue_projects_chat_export_review_items ... ok
+test v29_compat::tests::v297_connector_proposal_queue_projects_markdown_and_local_git_sync_items ... ok
+test v29_compat::tests::v297_connector_proposal_queue_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_sync_plan_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_drive_connector_sync_plan_extracts_sidecar_text_and_failures ... ok
+test v29_compat::tests::v297_encrypted_passport_plan_requires_byok_and_verify_before_import ... ok
+test v29_compat::tests::v297_local_git_dry_run_reports_repository_candidates_and_failures ... ok
+test v29_compat::tests::v297_local_git_porcelain_status_summarizes_dirty_entries ... ok
+test v29_compat::tests::v297_local_git_sync_plan_includes_repository_checkpoint ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_builds_apply_ready_plan_and_evidence_preview ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_dirs ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
+test v29_compat::tests::v297_namespace_and_graph_surface_maps_scope_and_explains_paths ... ok
+test v29_compat::tests::v297_notion_connector_dry_run_scans_exported_pages ... ok
+test v29_compat::tests::v297_onedrive_connector_sync_plan_marks_clean_previous_snapshot ... ok
+test v29_compat::tests::v297_parity_surface_marks_remaining_tasklist_done_and_covered ... ok
+test v29_compat::tests::v297_sdk_multimodal_ops_policy_and_perf_surfaces_are_actionable ... ok
+test v29_compat::tests::v297_web_crawler_dry_run_extracts_canonical_allowlist_and_visible_text ... ok
+test v29_compat::tests::v297_web_crawler_dry_run_reports_allowlist_blocks ... ok
+test v29_compat::tests::v297_web_crawler_https_urls_preserve_scheme_for_robots_and_redirects ... ok
+test v29_compat::tests::v297_web_crawler_link_boundary_normalizes_relative_urls ... ok
+test v29_compat::tests::v297_web_crawler_multi_page_crawl_follows_in_scope_links ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_blocks_robots_disallow ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_follows_redirects ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_rate_limit_preserves_frontier ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_records_robots_and_validators ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_sends_conditional_validators ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_keep_empty_exact_group ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_match_wildcard_and_end_anchor ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_prefer_exact_user_agent ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_use_allow_longest_match ... ok
+test v29_compat::tests::v297_web_crawler_sync_plan_blocks_disallowed_urls_and_records_conflict ... ok
+test v29_compat::tests::v297_web_crawler_sync_plan_builds_project_document_plan ... ok
+test v29_compat::tests::v29_compat_adapters_parse_competitor_fixtures ... ok
+test v29_compat::tests::v29_compat_mappings_cover_expected_competitors_and_connectors ... ok
+test v29_compat::tests::v29_compat_rejects_unknown_fixture_kind ... ok
+test v29_compat::tests::v29_compat_report_writer_outputs_json_and_markdown ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 112 filtered out; finished in 0.37s
+
+[v2.95] CLI compat report helpers and parser
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 15 tests
+test app::main_tests::compat_cli_parser_accepts_connector_dry_run ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_import_draft ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_proposal_apply_plan ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_proposal_queue ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_sync_plan ... ok
+test app::main_tests::compat_cli_parser_accepts_report ... ok
+test app::main_tests::compat_connector_dry_run_command_writes_chat_export_report ... ok
+test app::main_tests::compat_connector_dry_run_command_writes_report ... ok
+test app::main_tests::compat_connector_import_draft_command_writes_chat_export_report ... ok
+test app::main_tests::compat_connector_proposal_apply_plan_command_writes_report ... ok
+test app::main_tests::compat_connector_proposal_queue_command_writes_report ... ok
+test app::main_tests::compat_connector_sync_plan_apply_without_source_id_fails_without_match ... ok
+test app::main_tests::compat_connector_sync_plan_command_writes_report ... ok
+test app::main_tests::compat_output_helpers_include_mappings_paths_and_coverage_gate ... ok
+test app::main_tests::compat_report_command_writes_report ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 65 filtered out; finished in 0.01s
+
+[v2.95] HTTP V2.9 read-only surface
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/memory_http-4b260f6f17a2b3e1)
+
+running 9 tests
+test app::lib_tests::v297_http_connector_dry_run_returns_report ... ok
+test app::lib_tests::v297_http_connector_proposal_apply_plan_confirmed_executor_writes_memory ... ok
+test app::lib_tests::v297_http_connector_proposal_apply_plan_returns_plan_only_report ... ok
+test app::lib_tests::v297_http_connector_proposal_queue_returns_report ... ok
+test app::lib_tests::v297_http_connector_proposal_store_persists_and_reuses_queue ... ok
+test app::lib_tests::v297_http_connector_sync_plan_and_import_draft_return_reports ... ok
+test app::lib_tests::v29_surface_http_exports_verifies_and_imports_passport ... ok
+test app::lib_tests::v29_surface_http_reads_benchmark_and_trace_reports ... ok
+test app::lib_tests::v29_surface_http_reports_compat_and_health ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.05s
+
+[v2.95] MCP V2.9 read-only surface
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/memory_mcp-1b7e431117ef6ae1)
+
+running 7 tests
+test app::lib_tests::dispatch_v29_benchmark_and_trace_report_readers ... ok
+test app::lib_tests::dispatch_v29_compat_and_health_reports ... ok
+test app::lib_tests::v297_mcp_connector_dry_run_returns_report ... ok
+test app::lib_tests::v297_mcp_connector_proposal_apply_plan_confirmed_executor_writes_memory ... ok
+test app::lib_tests::v297_mcp_connector_proposal_apply_plan_returns_plan_only_report ... ok
+test app::lib_tests::v297_mcp_connector_proposal_queue_returns_report ... ok
+test app::lib_tests::v297_mcp_connector_sync_plan_and_import_draft_return_reports ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.03s
+
+[v2.95] CLI / HTTP / MCP surface parity
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 1 test
+test app::main_tests::surface_parity_smoke_covers_mcp_cli_and_http_contracts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 79 filtered out; finished in 0.01s
+
+[v2.95] generate compat report
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/memory-cli compat report --scope-id scp_v295_acceptance --output-dir /Users/Rou/dev_projects/meat-memory/tests/reports/compat/latest --json`
+[v2.95] acceptance passed
+[v2.9] V2.97 connector parity
+[v2.97] acceptance started
+[v2.97] report: /Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/v2_97-acceptance.txt
+[v2.97] fixture root: /Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures
+[v2.97] format check
+[v2.97] interface check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+[v2.97] kernel V2.97 connector contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_kernel-32bb08c3077a4066)
+
+running 46 tests
+test v29_compat::tests::v297_chat_export_dry_run_parses_chatgpt_mapping_json ... ok
+test v29_compat::tests::v297_chat_export_dry_run_parses_generic_messages_json ... ok
+test v29_compat::tests::v297_chat_export_import_draft_projects_reviewable_memory_drafts ... ok
+test v29_compat::tests::v297_connector_dry_run_rejects_unknown_connector ... ok
+test v29_compat::tests::v297_connector_dry_run_scans_markdown_docs ... ok
+test v29_compat::tests::v297_connector_dry_run_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_import_draft_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_accepts_persisted_queue_manifest ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_keeps_blocked_conflicts_plan_only ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_requires_confirmation_and_blocks_conflicts ... ok
+test v29_compat::tests::v297_connector_proposal_apply_plan_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_proposal_queue_blocks_missing_doc_conflict_items ... ok
+test v29_compat::tests::v297_connector_proposal_queue_projects_chat_export_review_items ... ok
+test v29_compat::tests::v297_connector_proposal_queue_projects_markdown_and_local_git_sync_items ... ok
+test v29_compat::tests::v297_connector_proposal_queue_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_connector_sync_plan_writer_outputs_json_and_markdown ... ok
+test v29_compat::tests::v297_drive_connector_sync_plan_extracts_sidecar_text_and_failures ... ok
+test v29_compat::tests::v297_encrypted_passport_plan_requires_byok_and_verify_before_import ... ok
+test v29_compat::tests::v297_local_git_dry_run_reports_repository_candidates_and_failures ... ok
+test v29_compat::tests::v297_local_git_porcelain_status_summarizes_dirty_entries ... ok
+test v29_compat::tests::v297_local_git_sync_plan_includes_repository_checkpoint ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_builds_apply_ready_plan_and_evidence_preview ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_excludes_generated_report_dirs ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_marks_previous_missing ... ok
+test v29_compat::tests::v297_markdown_docs_sync_plan_marks_unchanged_previous_snapshot_clean ... ok
+test v29_compat::tests::v297_namespace_and_graph_surface_maps_scope_and_explains_paths ... ok
+test v29_compat::tests::v297_notion_connector_dry_run_scans_exported_pages ... ok
+test v29_compat::tests::v297_onedrive_connector_sync_plan_marks_clean_previous_snapshot ... ok
+test v29_compat::tests::v297_parity_surface_marks_remaining_tasklist_done_and_covered ... ok
+test v29_compat::tests::v297_sdk_multimodal_ops_policy_and_perf_surfaces_are_actionable ... ok
+test v29_compat::tests::v297_web_crawler_dry_run_extracts_canonical_allowlist_and_visible_text ... ok
+test v29_compat::tests::v297_web_crawler_dry_run_reports_allowlist_blocks ... ok
+test v29_compat::tests::v297_web_crawler_https_urls_preserve_scheme_for_robots_and_redirects ... ok
+test v29_compat::tests::v297_web_crawler_link_boundary_normalizes_relative_urls ... ok
+test v29_compat::tests::v297_web_crawler_multi_page_crawl_follows_in_scope_links ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_blocks_robots_disallow ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_follows_redirects ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_rate_limit_preserves_frontier ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_records_robots_and_validators ... ok
+test v29_compat::tests::v297_web_crawler_remote_fetch_sends_conditional_validators ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_keep_empty_exact_group ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_match_wildcard_and_end_anchor ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_prefer_exact_user_agent ... ok
+test v29_compat::tests::v297_web_crawler_robots_rules_use_allow_longest_match ... ok
+test v29_compat::tests::v297_web_crawler_sync_plan_blocks_disallowed_urls_and_records_conflict ... ok
+test v29_compat::tests::v297_web_crawler_sync_plan_builds_project_document_plan ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.36s
+
+[v2.97] CLI V2.97 connector contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 17 tests
+test app::main_tests::compat_cli_parser_accepts_connector_dry_run ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_import_draft ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_proposal_apply_plan ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_proposal_queue ... ok
+test app::main_tests::compat_cli_parser_accepts_connector_sync_plan ... ok
+test app::main_tests::compat_connector_dry_run_command_writes_chat_export_report ... ok
+test app::main_tests::compat_connector_dry_run_command_writes_report ... ok
+test app::main_tests::compat_connector_import_draft_command_writes_chat_export_report ... ok
+test app::main_tests::compat_connector_proposal_apply_plan_command_writes_report ... ok
+test app::main_tests::compat_connector_proposal_queue_command_writes_report ... ok
+test app::main_tests::compat_connector_sync_plan_apply_without_source_id_fails_without_match ... ok
+test app::main_tests::compat_connector_sync_plan_command_writes_report ... ok
+test app::main_tests::connector_dry_run_output_helpers_include_paths_and_coverage_gate ... ok
+test app::main_tests::connector_import_draft_output_helpers_include_paths_policy_and_coverage_gate ... ok
+test app::main_tests::connector_proposal_apply_plan_output_helpers_include_paths_policy_and_coverage_gate ... ok
+test app::main_tests::connector_proposal_queue_output_helpers_include_paths_policy_and_coverage_gate ... ok
+test app::main_tests::connector_sync_plan_output_helpers_include_paths_evidence_and_coverage_gate ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.01s
+
+[v2.97] CLI V2.97 confirmed connector executor contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (target/debug/deps/memory_cli-fd2d98b2d11e3a40)
+
+running 1 test
+test app::main_tests::cli_command_functions_cover_pg_management_paths ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 79 filtered out; finished in 0.00s
+
+[v2.97] HTTP V2.97 connector management contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/memory_http-4b260f6f17a2b3e1)
+
+running 6 tests
+test app::lib_tests::v297_http_connector_dry_run_returns_report ... ok
+test app::lib_tests::v297_http_connector_proposal_apply_plan_confirmed_executor_writes_memory ... ok
+test app::lib_tests::v297_http_connector_proposal_apply_plan_returns_plan_only_report ... ok
+test app::lib_tests::v297_http_connector_proposal_queue_returns_report ... ok
+test app::lib_tests::v297_http_connector_proposal_store_persists_and_reuses_queue ... ok
+test app::lib_tests::v297_http_connector_sync_plan_and_import_draft_return_reports ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.01s
+
+[v2.97] HTTP project document frontmatter persistence contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/http_api_tests.rs (target/debug/deps/http_api_tests-12b85e433789c453)
+
+running 1 test
+test http_project_document_sync_scans_imports_and_lists_documents ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+
+[v2.97] MCP V2.97 connector management contract
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/memory_mcp-1b7e431117ef6ae1)
+
+running 5 tests
+test app::lib_tests::v297_mcp_connector_dry_run_returns_report ... ok
+test app::lib_tests::v297_mcp_connector_proposal_apply_plan_confirmed_executor_writes_memory ... ok
+test app::lib_tests::v297_mcp_connector_proposal_apply_plan_returns_plan_only_report ... ok
+test app::lib_tests::v297_mcp_connector_proposal_queue_returns_report ... ok
+test app::lib_tests::v297_mcp_connector_sync_plan_and_import_draft_return_reports ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+
+[v2.97] SDK scaffold smoke
+[v2.97] CLI binary build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+[v2.97] markdown-docs dry-run report
+[v2.97] markdown-docs sync-plan report
+[v2.97] markdown-docs proposal-queue report
+[v2.97] local-git sync-plan report
+[v2.97] local-git proposal-queue report
+[v2.97] chat-export dry-run report
+[v2.97] web-crawler dry-run report
+[v2.97] web-crawler sync-plan report
+[v2.97] notion dry-run report
+[v2.97] google-drive sync-plan report
+[v2.97] onedrive sync-plan report
+[v2.97] chat-export import-draft report
+[v2.97] chat-export proposal-queue report
+[v2.97] chat-export proposal apply-plan report
+[v2.97] acceptance passed
 [v2.9] acceptance passed

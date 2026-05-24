@@ -2,7 +2,7 @@
 
 Status: passed
 
-Child acceptance scripts: 0
+Child acceptance scripts: 1
 
 Validated release slices:
 

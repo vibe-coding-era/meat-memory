@@ -5,16 +5,16 @@
       "content_hash": "1941423c604826d5b2707f51dd3475872e930443d466de274c219d4302d3f444",
       "created_at": [
         2026,
-        117,
-        11,
-        44,
-        50,
-        937323000,
+        144,
+        14,
+        43,
+        49,
+        551490000,
         0,
         0,
         0
       ],
-      "id": "evd_01KQ7C39QSF0KSET1VTZX0ABRX",
+      "id": "evd_01KSD72DNF729M5K00F6Y7WTQH",
       "kind": "Text",
       "location": {
         "end": 30,
@@ -24,26 +24,26 @@
         "start": 0,
         "start_ms": null
       },
-      "memory_id": "mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+      "memory_id": "mem_01KSD72BRYBWJHJGR5D89D0PBY",
       "quote": "password = [REDACTED:PASSWORD]",
       "scope_id": "scp_v294_acceptance",
-      "source_ref": "memory:mem_01KQ7C37EBY5HA0NVCZ3N9VNA7"
+      "source_ref": "memory:mem_01KSD72BRYBWJHJGR5D89D0PBY"
     },
     {
       "artifact_id": null,
       "content_hash": "6b5c7f6ea93f17c3b69b2ae09f394bfac0e0676e1bef15dfdac4a327ba6998a2",
       "created_at": [
         2026,
-        117,
-        11,
-        44,
-        50,
-        937360000,
+        144,
+        14,
+        43,
+        49,
+        551574000,
         0,
         0,
         0
       ],
-      "id": "evd_01KQ7C39QSGXC3VEQGJB27D6AB",
+      "id": "evd_01KSD72DNFP5KDKJ93TR8GT2XC",
       "kind": "Text",
       "location": {
         "end": 81,
@@ -53,14 +53,14 @@
         "start": 0,
         "start_ms": null
       },
-      "memory_id": "mem_01KQ7C36EHNRM2YCSXZ8QYPD1T",
+      "memory_id": "mem_01KSD72AW9AN3JGT8V40X12NRN",
       "quote": "V2.94 passport durable fact keeps evidence and can be imported into another scope",
       "scope_id": "scp_v294_acceptance",
       "source_ref": "file://docs/V2.9/V2.94-development-plan.md"
     }
   ],
   "manifest": {
-    "bundle_hash": "b8774fe9f56c055fd9a168fa51c117a864cf66e4ac64b67012588362ee1e0dad",
+    "bundle_hash": "a8b4f75ed9f2afcb06fb6364537dbdae4c7e58138cea5306406474789e57f5bf",
     "encryption": {
       "algorithm": null,
       "enabled": false,
@@ -68,40 +68,40 @@
     },
     "exported_at": [
       2026,
-      117,
-      11,
-      44,
-      50,
-      937654000,
+      144,
+      14,
+      43,
+      49,
+      551872000,
       0,
       0,
       0
     ],
-    "id": "mpt_01KQ7C39QSX51TS5022Y58MRMQ",
+    "id": "mpt_01KSD72DNF2FSW4MRTBABHHVSK",
     "object_count": 4,
     "objects": [
       {
         "byte_len": 463,
-        "hash": "320e82a319b665cdbd9d7d620aed1b0a6b30b9be0b636aac2a3adcecc7b37dc2",
-        "id": "evd_01KQ7C39QSF0KSET1VTZX0ABRX",
+        "hash": "f21c830926adcf8a1e7c144f3b24783cae012b6cfc7e7ee0ecaa7ca0b4b9b753",
+        "id": "evd_01KSD72DNF729M5K00F6Y7WTQH",
         "kind": "EvidenceSpan"
       },
       {
         "byte_len": 519,
-        "hash": "f0ba532c6420227e3fb29e2410d735d40bc595a53c65ee1a5411dfc9c51f771a",
-        "id": "evd_01KQ7C39QSGXC3VEQGJB27D6AB",
+        "hash": "00ceeb1f95aea65c9a8a2b90359b4a3374f18631eb524901bbce63570bc31c82",
+        "id": "evd_01KSD72DNFP5KDKJ93TR8GT2XC",
         "kind": "EvidenceSpan"
       },
       {
         "byte_len": 620,
-        "hash": "8efbc6971aaf31df43468d104abfc50ee186e742ae88b5e2a7d0b86635af2c1d",
-        "id": "mem_01KQ7C36EHNRM2YCSXZ8QYPD1T",
+        "hash": "07accd85528628ec9de5cf02e98687206ce2a700d6f3be8bba379357bb3ea5d8",
+        "id": "mem_01KSD72AW9AN3JGT8V40X12NRN",
         "kind": "Memory"
       },
       {
         "byte_len": 530,
-        "hash": "86f9af0add9a8b06a36107709c23b950f9ae64e291a9fa3733c7a805a8c7d343",
-        "id": "mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+        "hash": "d800845bb8773d815772a8d15e5968aa2d0fb1d4a8a294ad55636a7b3cdf0367",
+        "id": "mem_01KSD72BRYBWJHJGR5D89D0PBY",
         "kind": "Memory"
       }
     ],
@@ -114,17 +114,17 @@
       "body": "password = [REDACTED:PASSWORD]",
       "created_at": [
         2026,
-        117,
-        11,
-        44,
-        48,
-        587890000,
+        144,
+        14,
+        43,
+        47,
+        614817000,
         0,
         0,
         0
       ],
       "evidence_count": 1,
-      "id": "mem_01KQ7C37EBY5HA0NVCZ3N9VNA7",
+      "id": "mem_01KSD72BRYBWJHJGR5D89D0PBY",
       "kind": "Risk",
       "language_code": "en",
       "owner_scope_id": "scp_v294_acceptance",
@@ -142,11 +142,11 @@
       "title": "passport redaction risk",
       "updated_at": [
         2026,
-        117,
-        11,
-        44,
-        48,
-        587890000,
+        144,
+        14,
+        43,
+        47,
+        614817000,
         0,
         0,
         0
@@ -157,17 +157,17 @@
       "body": "V2.94 passport durable fact keeps evidence and can be imported into another scope",
       "created_at": [
         2026,
-        117,
-        11,
-        44,
-        47,
-        569508000,
+        144,
+        14,
+        43,
+        46,
+        697964000,
         0,
         0,
         0
       ],
       "evidence_count": 1,
-      "id": "mem_01KQ7C36EHNRM2YCSXZ8QYPD1T",
+      "id": "mem_01KSD72AW9AN3JGT8V40X12NRN",
       "kind": "Fact",
       "language_code": "en",
       "owner_scope_id": "scp_v294_acceptance",
@@ -187,11 +187,11 @@
       "title": "passport durable fact",
       "updated_at": [
         2026,
-        117,
-        11,
-        44,
-        47,
-        569511000,
+        144,
+        14,
+        43,
+        46,
+        697966000,
         0,
         0,
         0

@@ -1,0 +1,109 @@
+{
+  "apply": false,
+  "conflict_count": 0,
+  "conflicts": [],
+  "connector": "onedrive",
+  "coverage_gate": {
+    "covered_regions": [
+      "markdown_docs_sync_plan",
+      "frontmatter_metadata_persistence",
+      "yaml_frontmatter_compatibility",
+      "sync_plan_conflict_review_projection",
+      "sync_plan_evidence_preview",
+      "web_crawler_sync_plan",
+      "web_crawler_remote_fetch_policy",
+      "web_crawler_redirect_conditional_request",
+      "web_crawler_robots_rule_precedence",
+      "web_crawler_link_boundary",
+      "web_crawler_multi_page_crawl",
+      "web_crawler_https_url_policy",
+      "web_crawler_remote_fetch_rate_limit",
+      "notion_export_sync_plan",
+      "drive_export_sync_plan",
+      "connector_sync_plan_projection",
+      "cli_parser_and_command"
+    ],
+    "new_feature_test_coverage_required": "100%"
+  },
+  "documents": [
+    {
+      "canonical_uri": "onedrive-export://ops",
+      "content_hash": "e818e9cd423ad2a667d70a21a9cac072820aec998ce22e4d5ab72addd3c51a98",
+      "local_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/onedrive/ops.txt",
+      "metadata": {
+        "connector": "onedrive",
+        "content_hash": "e818e9cd423ad2a667d70a21a9cac072820aec998ce22e4d5ab72addd3c51a98",
+        "document_extension": "txt",
+        "extraction_mode": "txt_text",
+        "relative_path": "ops.txt",
+        "remote_network": false,
+        "safe_default": "local_export_only_no_remote_api",
+        "source_kind": "onedrive_document",
+        "source_metadata": {
+          "visible_content_bytes": 46
+        }
+      },
+      "sync_state": "changed",
+      "title": "ops"
+    }
+  ],
+  "evidence_preview": [
+    {
+      "artifact_id": null,
+      "content_hash": "e818e9cd423ad2a667d70a21a9cac072820aec998ce22e4d5ab72addd3c51a98",
+      "created_at": [
+        1970,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "evd_v297_e818e9cd423ad2a667d70a21a9",
+      "kind": "Text",
+      "location": {
+        "end": 45,
+        "end_ms": null,
+        "page": null,
+        "region": null,
+        "start": 0,
+        "start_ms": null
+      },
+      "memory_id": null,
+      "quote": "OneDrive exported runbook acceptance fixture.",
+      "scope_id": "scp_v297_acceptance",
+      "source_ref": "onedrive-export://ops"
+    }
+  ],
+  "imported": [],
+  "incremental_checkpoint": {
+    "apply_target": "Kernel::apply_project_document_sync_plan",
+    "failure_count": 0,
+    "failures": [],
+    "remote_network": false,
+    "safe_default": "local_export_only_no_remote_api",
+    "source_kind": "onedrive_document",
+    "strategy": "export_path_content_hash",
+    "supported_extensions": [
+      "md",
+      "markdown",
+      "json",
+      "csv",
+      "txt",
+      "pdf",
+      "docx"
+    ]
+  },
+  "missing_count": 0,
+  "mode": "sync_plan",
+  "planned_count": 1,
+  "report_paths": {
+    "json": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/onedrive-sync-plan.json",
+    "markdown": "/Users/Rou/dev_projects/meat-memory/tests/reports/compat/v2_97/onedrive-sync-plan.md"
+  },
+  "root_path": "/Users/Rou/dev_projects/meat-memory/target/v2_97-acceptance-fixtures/onedrive",
+  "schema_version": "2.97-A"
+}
