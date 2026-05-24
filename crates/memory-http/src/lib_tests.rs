@@ -318,6 +318,11 @@ async fn serves_browser_console_at_root() {
     assert!(text.contains("/api/v1/benchmark/run"));
     assert!(text.contains("/api/v1/benchmark/failures"));
     assert!(text.contains("benchmark-report"));
+    assert!(text.contains("Trace Console"));
+    assert!(text.contains("meat-memory.trace-debug.v1"));
+    assert!(text.contains("/api/v1/recall/traces/latest"));
+    assert!(text.contains("/api/v1/recall/traces/inspect"));
+    assert!(text.contains("trace-latest"));
     assert!(text.contains("Health Console"));
     assert!(text.contains("meat-memory.health-debug.v1"));
     assert!(text.contains("/api/v1/health/report"));
@@ -2455,6 +2460,9 @@ fn builds_console_page_and_escapes_metadata() {
     assert!(page.contains("Benchmark Console"));
     assert!(page.contains("benchmark-suite"));
     assert!(page.contains("benchmark-output"));
+    assert!(page.contains("Trace Console"));
+    assert!(page.contains("trace-query"));
+    assert!(page.contains("trace-output"));
     assert!(page.contains("Health Console"));
     assert!(page.contains("health-scope-id"));
     assert!(page.contains("health-output"));

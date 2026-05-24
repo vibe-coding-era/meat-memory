@@ -4060,6 +4060,37 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
 
         <section class="card">
           <div class="card-header">
+            <h2 class="card-title">Trace Console</h2>
+            <span class="memory-meta-tag">/api/v1/recall/traces/latest · inspect</span>
+          </div>
+          <div class="chat-composer">
+            <input id="trace-scope-id" class="chat-input" placeholder="scope_id" value="__DEFAULT_SCOPE__" />
+            <input id="trace-query" class="chat-input" placeholder="query" value="memory trace" />
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="trace-output-dir" class="chat-input" placeholder="output_dir" value="tests/reports/trace/latest" />
+            <input id="trace-input-dir" class="chat-input" placeholder="input_dir" value="tests/reports/trace/latest" />
+            <input id="trace-id" class="chat-input" placeholder="trace_id for inspect" />
+          </div>
+          <div class="chat-composer" style="margin-top: 10px;">
+            <input id="trace-max-records" class="chat-input" placeholder="max_records" value="5" />
+            <input id="trace-max-chars" class="chat-input" placeholder="max_chars" value="2000" />
+          </div>
+          <label class="memory-meta-tag" style="margin-top: 10px;">
+            <input id="trace-debug-candidates" type="checkbox" />
+            debug candidates
+          </label>
+          <div class="chip-row" style="margin-top: 10px;">
+            <button type="button" class="send-button" id="trace-latest">Generate Trace</button>
+            <button type="button" class="toolbar-button" id="trace-inspect">Inspect</button>
+          </div>
+          <div id="trace-status" class="status-box hidden" style="margin-top: 12px;"></div>
+          <div id="trace-meta" class="memory-expanded hidden" style="margin-top: 12px;"></div>
+          <pre id="trace-output" class="memory-expanded-body hidden" style="margin-top: 12px; white-space: pre-wrap;"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
             <h2 class="card-title">Health Console</h2>
             <span class="memory-meta-tag">/api/v1/health/report</span>
           </div>
@@ -4219,6 +4250,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const PROJECTION_DEBUG_STORAGE_KEY = "meat-memory.projection-debug.v1";
     const CONNECTOR_DEBUG_STORAGE_KEY = "meat-memory.connector-debug.v1";
     const BENCHMARK_DEBUG_STORAGE_KEY = "meat-memory.benchmark-debug.v1";
+    const TRACE_DEBUG_STORAGE_KEY = "meat-memory.trace-debug.v1";
     const HEALTH_DEBUG_STORAGE_KEY = "meat-memory.health-debug.v1";
     const PASSPORT_DEBUG_STORAGE_KEY = "meat-memory.passport-debug.v1";
     async function fetchJson(url, options) {
@@ -4250,6 +4282,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       projectionDocumentSearch: "",
       connectorReport: null,
       benchmarkReport: null,
+      traceReport: null,
       healthReport: null,
       passportReport: null,
       chatLoading: false,
@@ -4338,6 +4371,19 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     const benchmarkStatusEl = document.getElementById("benchmark-status");
     const benchmarkMetaEl = document.getElementById("benchmark-meta");
     const benchmarkOutputEl = document.getElementById("benchmark-output");
+    const traceScopeIdEl = document.getElementById("trace-scope-id");
+    const traceQueryEl = document.getElementById("trace-query");
+    const traceOutputDirEl = document.getElementById("trace-output-dir");
+    const traceInputDirEl = document.getElementById("trace-input-dir");
+    const traceIdEl = document.getElementById("trace-id");
+    const traceMaxRecordsEl = document.getElementById("trace-max-records");
+    const traceMaxCharsEl = document.getElementById("trace-max-chars");
+    const traceDebugCandidatesEl = document.getElementById("trace-debug-candidates");
+    const traceLatestEl = document.getElementById("trace-latest");
+    const traceInspectEl = document.getElementById("trace-inspect");
+    const traceStatusEl = document.getElementById("trace-status");
+    const traceMetaEl = document.getElementById("trace-meta");
+    const traceOutputEl = document.getElementById("trace-output");
     const healthScopeIdEl = document.getElementById("health-scope-id");
     const healthLimitEl = document.getElementById("health-limit");
     const healthLoadEl = document.getElementById("health-load");
@@ -4524,6 +4570,44 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
             scopeId: benchmarkScopeIdEl.value.trim(),
             outputDir: benchmarkOutputDirEl.value.trim(),
             inputDir: benchmarkInputDirEl.value.trim(),
+          })
+        );
+      } catch (_error) {
+      }
+    }
+
+    function loadTraceDebugState() {
+      try {
+        const raw = localStorage.getItem(TRACE_DEBUG_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+        const persisted = JSON.parse(raw);
+        traceScopeIdEl.value = String(persisted.scopeId || metadata.default_scope || "");
+        traceQueryEl.value = String(persisted.query || "memory trace");
+        traceOutputDirEl.value = String(persisted.outputDir || "tests/reports/trace/latest");
+        traceInputDirEl.value = String(persisted.inputDir || "tests/reports/trace/latest");
+        traceIdEl.value = String(persisted.traceId || "");
+        traceMaxRecordsEl.value = String(persisted.maxRecords || "5");
+        traceMaxCharsEl.value = String(persisted.maxChars || "2000");
+        traceDebugCandidatesEl.checked = Boolean(persisted.debugCandidates);
+      } catch (_error) {
+      }
+    }
+
+    function saveTraceDebugState() {
+      try {
+        localStorage.setItem(
+          TRACE_DEBUG_STORAGE_KEY,
+          JSON.stringify({
+            scopeId: traceScopeIdEl.value.trim(),
+            query: traceQueryEl.value.trim(),
+            outputDir: traceOutputDirEl.value.trim(),
+            inputDir: traceInputDirEl.value.trim(),
+            traceId: traceIdEl.value.trim(),
+            maxRecords: traceMaxRecordsEl.value.trim(),
+            maxChars: traceMaxCharsEl.value.trim(),
+            debugCandidates: traceDebugCandidatesEl.checked,
           })
         );
       } catch (_error) {
@@ -5504,6 +5588,124 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       }
     }
 
+    function setTraceStatus(message) {
+      traceStatusEl.textContent = message;
+      traceStatusEl.classList.remove("hidden");
+    }
+
+    function positiveIntegerFromInput(element, label) {
+      const raw = element.value.trim();
+      if (!raw) {
+        return null;
+      }
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(label + " 必须是正整数。");
+      }
+      return parsed;
+    }
+
+    function renderTraceReport(label, payload) {
+      state.traceReport = payload;
+      const trace = payload.trace || {};
+      const budget = payload.budget_pack || {};
+      const tags = [
+        ["operation", label],
+        ["trace", trace.id],
+        ["query", trace.query],
+        ["records", budget.used_records],
+        ["chars", budget.used_chars],
+        ["trimmed", budget.trimmed_items],
+      ].filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== "");
+
+      traceMetaEl.innerHTML =
+        '<div class="memory-expanded-title">Recall Trace</div>' +
+        '<div class="memory-meta">' +
+        tags
+          .map((item) => {
+            return '<span class="memory-meta-tag">' +
+              escapeHtml(item[0] + " " + String(item[1])) +
+              "</span>";
+          })
+          .join("") +
+        "</div>";
+      traceMetaEl.classList.remove("hidden");
+      traceOutputEl.textContent = JSON.stringify(payload, null, 2);
+      traceOutputEl.classList.remove("hidden");
+    }
+
+    async function generateTrace() {
+      saveTraceDebugState();
+      setTraceStatus("正在生成 Recall Trace...");
+      traceMetaEl.classList.add("hidden");
+      traceMetaEl.innerHTML = "";
+      traceOutputEl.classList.add("hidden");
+      traceOutputEl.textContent = "";
+
+      try {
+        const query = traceQueryEl.value.trim();
+        if (!query) {
+          throw new Error("请先填写 query。");
+        }
+        const outputDir = traceOutputDirEl.value.trim() || "tests/reports/trace/latest";
+        const body = {
+          scope_id: traceScopeIdEl.value.trim() || metadata.default_scope,
+          query,
+          output_dir: outputDir,
+          debug_candidates: traceDebugCandidatesEl.checked,
+        };
+        const maxRecords = positiveIntegerFromInput(traceMaxRecordsEl, "max_records");
+        const maxChars = positiveIntegerFromInput(traceMaxCharsEl, "max_chars");
+        if (maxRecords) {
+          body.max_records = maxRecords;
+        }
+        if (maxChars) {
+          body.max_chars = maxChars;
+        }
+        const payload = await fetchJson("/api/v1/recall/traces/latest", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (payload.trace && payload.trace.id) {
+          traceIdEl.value = String(payload.trace.id);
+        }
+        traceInputDirEl.value = outputDir;
+        saveTraceDebugState();
+        renderTraceReport("latest", payload);
+        setTraceStatus("Recall Trace 已生成。");
+      } catch (error) {
+        setTraceStatus("Recall Trace 生成失败：" + String(error));
+      }
+    }
+
+    async function inspectTrace() {
+      saveTraceDebugState();
+      setTraceStatus("正在读取 Recall Trace...");
+      traceMetaEl.classList.add("hidden");
+      traceMetaEl.innerHTML = "";
+      traceOutputEl.classList.add("hidden");
+      traceOutputEl.textContent = "";
+
+      try {
+        const inputDir = traceInputDirEl.value.trim();
+        if (!inputDir) {
+          throw new Error("请先填写 input_dir。");
+        }
+        const params = new URLSearchParams();
+        params.set("input_dir", inputDir);
+        const traceId = traceIdEl.value.trim();
+        if (traceId) {
+          params.set("trace_id", traceId);
+        }
+        const payload = await fetchJson("/api/v1/recall/traces/inspect?" + params.toString());
+        renderTraceReport("inspect", payload.trace || payload);
+        setTraceStatus("Recall Trace 已读取。");
+      } catch (error) {
+        setTraceStatus("Recall Trace 读取失败：" + String(error));
+      }
+    }
+
     function setHealthStatus(message) {
       healthStatusEl.textContent = message;
       healthStatusEl.classList.remove("hidden");
@@ -5770,6 +5972,19 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
       element.addEventListener("change", saveBenchmarkDebugState);
     });
     [
+      traceScopeIdEl,
+      traceQueryEl,
+      traceOutputDirEl,
+      traceInputDirEl,
+      traceIdEl,
+      traceMaxRecordsEl,
+      traceMaxCharsEl,
+      traceDebugCandidatesEl,
+    ].forEach((element) => {
+      element.addEventListener("input", saveTraceDebugState);
+      element.addEventListener("change", saveTraceDebugState);
+    });
+    [
       healthScopeIdEl,
       healthLimitEl,
     ].forEach((element) => {
@@ -5843,6 +6058,8 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     benchmarkReportEl.addEventListener("click", loadBenchmarkReport);
     benchmarkFailuresEl.addEventListener("click", loadBenchmarkFailures);
     benchmarkRunsEl.addEventListener("click", loadBenchmarkRuns);
+    traceLatestEl.addEventListener("click", generateTrace);
+    traceInspectEl.addEventListener("click", inspectTrace);
     healthLoadEl.addEventListener("click", loadHealthReport);
     passportExportEl.addEventListener("click", exportPassport);
     passportVerifyEl.addEventListener("click", verifyPassport);
@@ -5851,6 +6068,7 @@ fn build_console_page(metadata: &ApiMetadata) -> String {
     loadProjectionDebugState();
     loadConnectorDebugState();
     loadBenchmarkDebugState();
+    loadTraceDebugState();
     loadHealthDebugState();
     loadPassportDebugState();
     render();
