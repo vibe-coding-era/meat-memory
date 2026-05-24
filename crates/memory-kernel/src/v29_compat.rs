@@ -19,9 +19,12 @@ use std::{
     net::TcpStream,
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
     time::Duration,
 };
 use time::OffsetDateTime;
+
+const WEB_CRAWLER_REMOTE_FETCH_MAX_REQUESTS_PER_RUN: usize = 8;
 
 const MEM0_FIXTURE: &str = r#"{
   "id": "mem0_fixture_001",
@@ -1071,13 +1074,26 @@ fn build_web_crawler_sync_plan(
             remote_queue.push_back(url.clone());
         }
     }
+    let mut remote_fetch_budget =
+        WebRemoteFetchBudget::new(WEB_CRAWLER_REMOTE_FETCH_MAX_REQUESTS_PER_RUN);
+    let mut remote_fetch_rate_limited = false;
 
     if request.allow_remote_fetch {
         while documents.len() < request.max_items {
+            if remote_fetch_budget.is_exhausted() {
+                remote_fetch_rate_limited = !remote_queue.is_empty();
+                break;
+            }
             let Some(url) = remote_queue.pop_front() else {
                 break;
             };
-            match web_page_remote_sync_candidate(&root, &url, &allowlist_domains, &url_validators) {
+            match web_page_remote_sync_candidate(
+                &root,
+                &url,
+                &allowlist_domains,
+                &url_validators,
+                &mut remote_fetch_budget,
+            ) {
                 Ok(WebRemoteFetchOutcome::Candidate(parsed)) => {
                     seen.insert(parsed.canonical_uri.clone());
                     if !parsed.allowlist_allowed {
@@ -1135,10 +1151,20 @@ fn build_web_crawler_sync_plan(
                     seen.insert(canonical_uri);
                     not_modified_urls.push(metadata);
                 }
-                Err(error) => fetch_failures.push(json!({
-                    "url": url,
-                    "error": error.to_string(),
-                })),
+                Err(error) => {
+                    let error = error.to_string();
+                    let rate_limited = error.contains("remote fetch rate limit exceeded");
+                    fetch_failures.push(json!({
+                        "url": url,
+                        "error": error,
+                        "rate_limited": rate_limited,
+                    }));
+                    if rate_limited {
+                        remote_queue.push_front(url);
+                        remote_fetch_rate_limited = true;
+                        break;
+                    }
+                }
             }
         }
     }
@@ -1186,6 +1212,11 @@ fn build_web_crawler_sync_plan(
         "redirects": redirect_chains,
         "remote_fetch_allowed": request.allow_remote_fetch,
         "remote_network": request.allow_remote_fetch,
+        "remote_fetch_rate_limit_policy": "max_requests_per_sync_plan",
+        "remote_fetch_max_requests_per_run": remote_fetch_budget.max_requests,
+        "remote_fetch_attempted_requests": remote_fetch_budget.attempted_requests,
+        "remote_fetch_remaining_requests": remote_fetch_budget.remaining_requests(),
+        "remote_fetch_rate_limited": remote_fetch_rate_limited,
         "safe_default": "local_snapshot_only_no_remote_fetch",
         "crawl_policy": "urls_txt_seed_plus_in_scope_links",
         "crawl_seed_count": url_manifest.len(),
@@ -1250,6 +1281,8 @@ pub fn connector_sync_plan_json(report: &ConnectorSyncPlanReport) -> Value {
                 "web_crawler_robots_rule_precedence",
                 "web_crawler_link_boundary",
                 "web_crawler_multi_page_crawl",
+                "web_crawler_https_url_policy",
+                "web_crawler_remote_fetch_rate_limit",
                 "notion_export_sync_plan",
                 "drive_export_sync_plan",
                 "connector_sync_plan_projection",
@@ -3077,6 +3110,7 @@ fn web_page_remote_sync_candidate(
     url: &str,
     allowlist_domains: &[String],
     url_validators: &BTreeMap<String, WebUrlValidator>,
+    budget: &mut WebRemoteFetchBudget,
 ) -> Result<WebRemoteFetchOutcome> {
     let requested = parse_http_url(url)?;
     if !web_url_allowed(url, allowlist_domains) {
@@ -3093,7 +3127,7 @@ fn web_page_remote_sync_candidate(
         ));
     }
 
-    let fetch = web_fetch_remote_url(url, allowlist_domains, url_validators)?;
+    let fetch = web_fetch_remote_url(url, allowlist_domains, url_validators, budget)?;
     let Some(response) = fetch.response else {
         let final_url = fetch.final_url;
         let redirects = fetch.redirects;
@@ -3383,6 +3417,7 @@ fn web_url_scheme(url: &str) -> Option<&str> {
 
 #[derive(Debug, Clone)]
 struct ParsedHttpUrl {
+    scheme: String,
     host: String,
     port: u16,
     path_and_query: String,
@@ -3390,7 +3425,11 @@ struct ParsedHttpUrl {
 
 impl ParsedHttpUrl {
     fn host_header(&self) -> String {
-        if self.port == 80 {
+        let default_port = match self.scheme.as_str() {
+            "https" => 443,
+            _ => 80,
+        };
+        if self.port == default_port {
             self.host.clone()
         } else {
             format!("{}:{}", self.host, self.port)
@@ -3407,7 +3446,7 @@ impl ParsedHttpUrl {
     }
 
     fn robots_url(&self) -> String {
-        format!("http://{}/robots.txt", self.host_header())
+        format!("{}://{}/robots.txt", self.scheme, self.host_header())
     }
 }
 
@@ -3428,23 +3467,62 @@ struct WebRemoteFetch {
     robots_url: String,
 }
 
+#[derive(Debug, Clone)]
+struct WebRemoteFetchBudget {
+    max_requests: usize,
+    attempted_requests: usize,
+}
+
+impl WebRemoteFetchBudget {
+    fn new(max_requests: usize) -> Self {
+        Self {
+            max_requests,
+            attempted_requests: 0,
+        }
+    }
+
+    fn remaining_requests(&self) -> usize {
+        self.max_requests.saturating_sub(self.attempted_requests)
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.remaining_requests() == 0
+    }
+
+    fn reserve(&mut self, url: &str) -> Result<()> {
+        if self.is_exhausted() {
+            bail!("remote fetch rate limit exceeded before requesting {url}");
+        }
+        self.attempted_requests += 1;
+        Ok(())
+    }
+}
+
 fn parse_http_url(url: &str) -> Result<ParsedHttpUrl> {
-    let tail = url
-        .strip_prefix("http://")
-        .ok_or_else(|| anyhow::anyhow!("remote fetch currently supports http:// URLs only"))?;
+    let (scheme, tail) = url
+        .split_once("://")
+        .ok_or_else(|| anyhow::anyhow!("remote fetch URL is missing scheme"))?;
+    if !matches!(scheme, "http" | "https") {
+        bail!("remote fetch currently supports http:// and https:// URLs only");
+    }
     let (authority, path) = tail.split_once('/').unwrap_or((tail, ""));
     if authority.trim().is_empty() {
         bail!("remote fetch URL is missing host");
     }
+    if authority.contains('@') {
+        bail!("remote fetch URL userinfo is not supported");
+    }
+    let default_port = if scheme == "https" { 443 } else { 80 };
     let (host, port) = match authority.rsplit_once(':') {
         Some((host, port)) if !host.is_empty() => (
             host.to_ascii_lowercase(),
             port.parse::<u16>()
                 .with_context(|| format!("invalid remote fetch port in {url}"))?,
         ),
-        _ => (authority.to_ascii_lowercase(), 80),
+        _ => (authority.to_ascii_lowercase(), default_port),
     };
     Ok(ParsedHttpUrl {
+        scheme: scheme.to_string(),
         host,
         port,
         path_and_query: format!("/{}", path),
@@ -3455,6 +3533,7 @@ fn web_fetch_remote_url(
     url: &str,
     allowlist_domains: &[String],
     url_validators: &BTreeMap<String, WebUrlValidator>,
+    budget: &mut WebRemoteFetchBudget,
 ) -> Result<WebRemoteFetch> {
     let mut current_url = url.to_string();
     let mut redirects = Vec::new();
@@ -3465,7 +3544,7 @@ fn web_fetch_remote_url(
         }
         let parsed = parse_http_url(&current_url)?;
         let robots_url = parsed.robots_url();
-        let robots_response = web_fetch_url(&robots_url, None)?;
+        let robots_response = web_fetch_url(&robots_url, None, budget)?;
         let robots_body = if (200..300).contains(&robots_response.status_code) {
             robots_response.body.as_str()
         } else {
@@ -3489,7 +3568,7 @@ fn web_fetch_remote_url(
             .get(&current_url)
             .or_else(|| url_validators.get(url))
             .cloned();
-        let response = web_fetch_url(&current_url, validator.as_ref())?;
+        let response = web_fetch_url(&current_url, validator.as_ref(), budget)?;
         if response.status_code == 304 {
             return Ok(WebRemoteFetch {
                 final_url: current_url,
@@ -3528,16 +3607,13 @@ fn web_fetch_remote_url(
     bail!("remote fetch exceeded redirect limit")
 }
 
-fn web_fetch_url(url: &str, validator: Option<&WebUrlValidator>) -> Result<WebHttpResponse> {
+fn web_fetch_url(
+    url: &str,
+    validator: Option<&WebUrlValidator>,
+    budget: &mut WebRemoteFetchBudget,
+) -> Result<WebHttpResponse> {
     let parsed = parse_http_url(url)?;
-    let mut stream = TcpStream::connect((parsed.host.as_str(), parsed.port))
-        .with_context(|| format!("failed to connect to {}", parsed.host_header()))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .context("failed to configure remote fetch read timeout")?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .context("failed to configure remote fetch write timeout")?;
+    budget.reserve(url)?;
     let mut conditional_headers = String::new();
     if let Some(validator) = validator {
         if let Some(etag) = &validator.etag {
@@ -3553,13 +3629,11 @@ fn web_fetch_url(url: &str, validator: Option<&WebUrlValidator>) -> Result<WebHt
         parsed.host_header(),
         conditional_headers
     );
-    stream
-        .write_all(request.as_bytes())
-        .with_context(|| format!("failed to send remote fetch request to {url}"))?;
-    let mut bytes = Vec::new();
-    stream
-        .read_to_end(&mut bytes)
-        .with_context(|| format!("failed to read remote fetch response from {url}"))?;
+    let bytes = if parsed.scheme == "https" {
+        web_fetch_https_bytes(&parsed, request.as_bytes(), url)?
+    } else {
+        web_fetch_http_bytes(&parsed, request.as_bytes(), url)?
+    };
     let response = String::from_utf8_lossy(&bytes);
     let (head, body) = response
         .split_once("\r\n\r\n")
@@ -3589,6 +3663,55 @@ fn web_fetch_url(url: &str, validator: Option<&WebUrlValidator>) -> Result<WebHt
     })
 }
 
+fn web_open_tcp_stream(parsed: &ParsedHttpUrl) -> Result<TcpStream> {
+    let stream = TcpStream::connect((parsed.host.as_str(), parsed.port))
+        .with_context(|| format!("failed to connect to {}", parsed.host_header()))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .context("failed to configure remote fetch read timeout")?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .context("failed to configure remote fetch write timeout")?;
+    Ok(stream)
+}
+
+fn web_fetch_http_bytes(parsed: &ParsedHttpUrl, request: &[u8], url: &str) -> Result<Vec<u8>> {
+    let mut stream = web_open_tcp_stream(parsed)?;
+    stream
+        .write_all(request)
+        .with_context(|| format!("failed to send remote fetch request to {url}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read remote fetch response from {url}"))?;
+    Ok(bytes)
+}
+
+fn web_fetch_https_bytes(parsed: &ParsedHttpUrl, request: &[u8], url: &str) -> Result<Vec<u8>> {
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .context("failed to configure HTTPS protocol versions")?
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    let server_name = rustls::pki_types::ServerName::try_from(parsed.host.clone())
+        .with_context(|| format!("invalid HTTPS server name: {}", parsed.host))?;
+    let connection = rustls::ClientConnection::new(Arc::new(config), server_name)
+        .with_context(|| format!("failed to initialize HTTPS connection to {}", parsed.host))?;
+    let tcp = web_open_tcp_stream(parsed)?;
+    let mut stream = rustls::StreamOwned::new(connection, tcp);
+    stream
+        .write_all(request)
+        .with_context(|| format!("failed to send HTTPS remote fetch request to {url}"))?;
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read HTTPS remote fetch response from {url}"))?;
+    Ok(bytes)
+}
+
 fn web_is_redirect_status(status_code: u16) -> bool {
     matches!(status_code, 301 | 302 | 303 | 307 | 308)
 }
@@ -3599,11 +3722,16 @@ fn resolve_http_redirect_url(current_url: &str, location: &str) -> Result<String
         return Ok(location.to_string());
     }
     if location.starts_with("https://") {
-        bail!("remote fetch currently supports http:// redirects only");
+        return Ok(location.to_string());
     }
     let parsed = parse_http_url(current_url)?;
     if location.starts_with('/') {
-        return Ok(format!("http://{}{}", parsed.host_header(), location));
+        return Ok(format!(
+            "{}://{}{}",
+            parsed.scheme,
+            parsed.host_header(),
+            location
+        ));
     }
     let current_path = parsed.path_without_query();
     let current_dir = current_path
@@ -3611,7 +3739,8 @@ fn resolve_http_redirect_url(current_url: &str, location: &str) -> Result<String
         .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
         .unwrap_or("/");
     Ok(format!(
-        "http://{}{}{}{}",
+        "{}://{}{}{}{}",
+        parsed.scheme,
         parsed.host_header(),
         current_dir,
         if current_dir.ends_with('/') { "" } else { "/" },
@@ -5973,6 +6102,101 @@ Disallow: /*.pdf$
         assert_eq!(
             output.report.incremental_checkpoint["not_modified_urls"][0]["etag"],
             "\"cached\""
+        );
+    }
+
+    #[test]
+    fn v297_web_crawler_https_urls_preserve_scheme_for_robots_and_redirects() {
+        let parsed = parse_http_url("https://Example.com/docs/page?x=1").unwrap();
+
+        assert_eq!(parsed.scheme, "https");
+        assert_eq!(parsed.host, "example.com");
+        assert_eq!(parsed.port, 443);
+        assert_eq!(parsed.host_header(), "example.com");
+        assert_eq!(parsed.robots_url(), "https://example.com/robots.txt");
+        assert_eq!(
+            resolve_http_redirect_url("https://example.com/docs/start", "/next").unwrap(),
+            "https://example.com/next"
+        );
+        assert_eq!(
+            resolve_http_redirect_url(
+                "https://example.com/docs/start",
+                "https://cdn.example.com/final"
+            )
+            .unwrap(),
+            "https://cdn.example.com/final"
+        );
+    }
+
+    #[test]
+    fn v297_web_crawler_remote_fetch_rate_limit_preserves_frontier() {
+        let tempdir = tempdir().unwrap();
+        fs::write(tempdir.path().join("allowlist.txt"), "127.0.0.1\n").unwrap();
+        let (base_url, handle) = spawn_web_fixture_server_with_responder(
+            WEB_CRAWLER_REMOTE_FETCH_MAX_REQUESTS_PER_RUN,
+            |request, server_base_url| {
+                let first_line = request.lines().next().unwrap_or("");
+                if first_line.contains("GET /robots.txt ") {
+                    return http_response("text/plain", "User-agent: *\nAllow: /\n", &[]);
+                }
+                let path = first_line.split_whitespace().nth(1).unwrap_or("/");
+                let page_index = path
+                    .trim_start_matches("/page")
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                http_response(
+                    "text/html",
+                    &format!(
+                        "<!doctype html><html><head><link rel=\"canonical\" href=\"{server_base_url}/page{page_index}\" /><title>Page {page_index}</title></head><body><p>Page body.</p><a href=\"/page{}\">Next</a></body></html>",
+                        page_index + 1
+                    ),
+                    &[("ETag", "\"rate-limit\"")],
+                )
+            },
+        );
+        let start_url = format!("{base_url}/page0");
+        let next_frontier_url = format!(
+            "{base_url}/page{}",
+            WEB_CRAWLER_REMOTE_FETCH_MAX_REQUESTS_PER_RUN / 2
+        );
+        fs::write(tempdir.path().join("urls.txt"), format!("{start_url}\n")).unwrap();
+        let mut request = ConnectorSyncPlanRequest::new(
+            "web-crawler",
+            tempdir.path(),
+            ScopeId::from_string("scp_connector_sync"),
+        );
+        request.allow_remote_fetch = true;
+        request.max_items = 100;
+        let output = build_connector_sync_plan(request).unwrap();
+        handle.join().unwrap();
+
+        assert_eq!(
+            output.report.planned_count,
+            WEB_CRAWLER_REMOTE_FETCH_MAX_REQUESTS_PER_RUN / 2
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["remote_fetch_rate_limit_policy"],
+            "max_requests_per_sync_plan"
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["remote_fetch_attempted_requests"],
+            WEB_CRAWLER_REMOTE_FETCH_MAX_REQUESTS_PER_RUN
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["remote_fetch_rate_limited"],
+            true
+        );
+        assert_eq!(
+            output.report.incremental_checkpoint["crawl_next_frontier_urls"][0],
+            next_frontier_url
+        );
+        let payload = connector_sync_plan_json(&output.report);
+        assert!(
+            payload["coverage_gate"]["covered_regions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|region| region == "web_crawler_remote_fetch_rate_limit")
         );
     }
 

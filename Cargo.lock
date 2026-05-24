@@ -1130,6 +1130,7 @@ dependencies = [
  "memory-store-md",
  "memory-store-pg",
  "memory-sync",
+ "rustls",
  "serde",
  "serde_json",
  "sqlx",
@@ -1138,6 +1139,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
