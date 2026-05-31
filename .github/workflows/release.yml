@@ -1,5 +1,5 @@
 # GitHub Release 工作流
-# 用途：当推送 `v*` tag 时构建多平台 release 产物并上传到 GitHub Release。
+# 用途：当推送 `v*` 或 `release-*` tag 时构建多平台 release 产物并上传到 GitHub Release。
 # 使用方式：
 # 1. 创建并推送 tag，例如 `git tag v0.1.0 && git push origin v0.1.0`
 # 2. GitHub Actions 会自动构建 tarball、checksum 和汇总 release
@@ -10,6 +10,7 @@ on:
   push:
     tags:
       - "v*"
+      - "release-*"
 
 permissions:
   contents: write
