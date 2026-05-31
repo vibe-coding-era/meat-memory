@@ -12,6 +12,7 @@ RUN_TUI="${MEAT_MEMORY_RUN_TUI:-auto}"
 TUI_CONFIG="${MEAT_MEMORY_TUI_CONFIG:-${CONFIG_DIR}/app.local.toml}"
 CHECK_ONLY=0
 MISSING_COMMANDS=()
+TMP_DIR_TO_CLEAN=""
 
 log() {
   printf '[meat-memory] %s\n' "$*"
@@ -20,6 +21,12 @@ log() {
 fail() {
   printf '[meat-memory] ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+cleanup() {
+  if [ -n "${TMP_DIR_TO_CLEAN:-}" ]; then
+    rm -rf "$TMP_DIR_TO_CLEAN"
+  fi
 }
 
 need_command() {
@@ -251,9 +258,11 @@ download_file() {
   local output="$2"
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 --connect-timeout 15 --output "$output" "$url"
+    curl -fL --retry 3 --connect-timeout 15 --output "$output" "$url" \
+      || fail "failed to download ${url}; verify ${VERSION} release assets or MEAT_MEMORY_RELEASE_BASE_URL"
   elif command -v wget >/dev/null 2>&1; then
-    wget -O "$output" "$url"
+    wget -O "$output" "$url" \
+      || fail "failed to download ${url}; verify ${VERSION} release assets or MEAT_MEMORY_RELEASE_BASE_URL"
   else
     fail "curl or wget is required to download release assets"
   fi
@@ -362,10 +371,11 @@ main() {
   asset_name="$(detect_asset_name)"
   archive_name="${asset_name}.tar.gz"
   tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/meat-memory-install.XXXXXX")"
+  TMP_DIR_TO_CLEAN="$tmp_dir"
   archive_path="${tmp_dir}/${archive_name}"
   checksum_path="${archive_path}.sha256"
 
-  trap 'rm -rf "${tmp_dir}"' EXIT
+  trap cleanup EXIT
 
   log "repository: ${REPO}"
   log "release: ${VERSION}"

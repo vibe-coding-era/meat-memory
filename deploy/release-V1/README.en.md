@@ -34,8 +34,13 @@ bash deploy/release-V1/install.sh --install-deps
 Remote install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --install-deps
+curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
+chmod +x install.sh
+./install.sh --check
+./install.sh --skip-tui
 ```
+
+Do not pipe a remote script directly into `bash --install-deps`. If system dependencies are missing, review the script and package-manager command first, then explicitly run `./install.sh --install-deps`.
 
 The installer downloads prebuilt binaries from the `release-V1` GitHub Release by default. After installation, it starts `memory-cli tui init --interactive` when an interactive terminal is available. In CI, automation, or binary-only installation, skip TUI:
 
@@ -73,6 +78,12 @@ cp .env.example .env
 ```
 
 The default `.env` points to PostgreSQL / pgvector on `127.0.0.1:5433`; update `MEAT_MEMORY_DATABASE_URL` first if your database runs elsewhere.
+`dev-up.sh` checks the database TCP endpoint before starting services; set `MEAT_MEMORY_SKIP_DB_CHECK=1` only when you intentionally want to skip that preflight.
+Environment variables passed on the command line take precedence over `.env`, for example:
+
+```bash
+MEAT_MEMORY_SKIP_DB_CHECK=1 ./dev-up.sh
+```
 
 Note: `./docs/scripts/dev-up.sh` is the Docker development entrypoint for the source repository. It is not the release-V1 binary deployment entrypoint.
 
@@ -98,6 +109,8 @@ MEAT_MEMORY_VERSION=release-V1 \
 bash deploy/release-V1/install.sh
 ```
 
+Note: `--check` does not download or install release binaries, but it creates the install and config directories to verify writability.
+
 ## Supported Platforms
 
 | OS | Architecture | Release asset |
@@ -113,12 +126,14 @@ Each binary package must be published with its matching `.sha256` file. The inst
 
 ```bash
 memory-cli --help
-memory-app --help
-memory-worker --help
 memory-cli config check
+command -v memory-app
+command -v memory-worker
 ```
 
-When the default config directory is used, the installer copies the sample `app.toml` from the release bundle to `~/.config/meat-memory/app.toml`. Existing config files are never overwritten. TUI defaults to writing `~/.config/meat-memory/app.local.toml`; verify it with:
+`memory-app` and `memory-worker` are long-running service entrypoints. For installation verification, first check that the binaries exist; start them through `dev-up.sh`, systemd, launchd, or your process manager.
+
+When the default config directory is used, the installer copies the sample `app.toml` from the release bundle to `~/.config/meat-memory/app.toml`. Existing config files are never overwritten. If `memory-cli config check` reports warnings, the installer continues and guides you into TUI configuration; those warnings usually mean the local database, model routes, or paths are not configured yet, not that binary installation failed. TUI defaults to writing `~/.config/meat-memory/app.local.toml`; verify it with:
 
 ```bash
 MEAT_MEMORY_CONFIG=~/.config/meat-memory/app.local.toml memory-cli config check

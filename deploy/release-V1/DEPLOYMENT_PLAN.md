@@ -47,11 +47,11 @@ release-V1
 每个 tarball 内应包含：
 
 ```text
-bin/memory-cli
-bin/memory-app
-bin/memory-worker
-config/app.toml
-README.txt
+${ASSET_NAME}/bin/memory-cli
+${ASSET_NAME}/bin/memory-app
+${ASSET_NAME}/bin/memory-worker
+${ASSET_NAME}/config/app.toml
+${ASSET_NAME}/README.txt
 ```
 
 ## 安装流程
@@ -64,7 +64,7 @@ README.txt
 6. 解压发布包。
 7. 将 `memory-cli`、`memory-app`、`memory-worker` 安装到 `MEAT_MEMORY_INSTALL_DIR`。
 8. 如果 `MEAT_MEMORY_CONFIG_DIR/app.toml` 不存在，复制发布包中的示例配置。
-9. 运行 `memory-cli --help` 和 `memory-cli config check` 做基础验证。
+9. 运行 `memory-cli --help` 和 `memory-cli config check` 做基础验证；`config check` warning 不阻断二进制安装，后续由 TUI 配置处理。
 10. 如果存在交互终端，默认进入 `memory-cli tui init --interactive --write-config <app.local.toml>` 完成本地配置；CI 或自动化场景可使用 `--skip-tui`。
 
 安装程序不克隆仓库、不运行源码构建、不写入源码目录。
@@ -75,6 +75,8 @@ README.txt
 bash deploy/release-V1/install.sh --check
 bash deploy/release-V1/install.sh --install-deps
 ```
+
+`--check` 不下载、不安装 release 资产，但会创建安装目录和配置目录以确认可写性。
 
 ## 本地启动流程
 
@@ -92,9 +94,11 @@ cp .env.example .env
 2. 读取 `.env` 并将相对路径解析到 `deploy/release-V1/`。
 3. 如果 `bin/memory-cli`、`bin/memory-app` 或 `bin/memory-worker` 不存在，调用 `install.sh` 安装 release 二进制。
 4. 创建 `data/`、`logs/` 和 `run/` 目录。
-5. 后台启动 `memory-app` 和 `memory-worker`，pid 写入 `run/`，日志写入 `logs/`。
+5. 检查 `MEAT_MEMORY_DATABASE_URL` 指向的 PostgreSQL / pgvector TCP 端口；如需脚本-only smoke，可设置 `MEAT_MEMORY_SKIP_DB_CHECK=1` 跳过。
+6. 后台启动 `memory-app` 和 `memory-worker`，pid 写入 `run/`，日志写入 `logs/`。
 
 默认 `.env` 使用 `127.0.0.1:5433` 的 PostgreSQL / pgvector。生产或非本机数据库部署前，应先修改 `MEAT_MEMORY_DATABASE_URL`。
+命令行传入的 `MEAT_MEMORY_*` 环境变量优先级高于 `.env`，便于临时覆盖数据库或跳过 DB preflight。
 
 停止：
 
@@ -164,8 +168,9 @@ memory-worker
 
 ```bash
 memory-cli --help
-memory-app --help
-memory-worker --help
+memory-cli config check
+command -v memory-app
+command -v memory-worker
 ```
 
 6. 按部署环境启动服务并检查日志。

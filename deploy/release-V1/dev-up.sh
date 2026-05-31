@@ -14,6 +14,18 @@ fail() {
   exit 1
 }
 
+capture_env_overrides() {
+  for name in "$@"; do
+    eval "if [ \"\${${name}+set}\" = set ]; then __HAS_${name}=1; __VAL_${name}=\"\${${name}}\"; else __HAS_${name}=0; fi"
+  done
+}
+
+restore_env_overrides() {
+  for name in "$@"; do
+    eval "if [ \"\${__HAS_${name}:-0}\" = 1 ]; then export ${name}=\"\${__VAL_${name}}\"; fi; unset __HAS_${name} __VAL_${name}"
+  done
+}
+
 abspath_from_script_dir() {
   case "$1" in
     /*)
@@ -31,6 +43,50 @@ is_running() {
   local pid
   pid="$(cat "$pid_file")"
   [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+database_host_port() {
+  local url="${MEAT_MEMORY_DATABASE_URL:-}"
+  [ -n "$url" ] || return 1
+
+  local rest="${url#*://}"
+  local authority="${rest%%/*}"
+  authority="${authority##*@}"
+
+  local host="${authority%%:*}"
+  local port="${authority##*:}"
+
+  if [ "$host" = "$authority" ]; then
+    port="5432"
+  fi
+
+  [ -n "$host" ] || return 1
+  printf '%s %s\n' "$host" "$port"
+}
+
+check_database_endpoint() {
+  if [ "${MEAT_MEMORY_SKIP_DB_CHECK:-0}" = "1" ]; then
+    log "skipped database preflight because MEAT_MEMORY_SKIP_DB_CHECK=1"
+    return
+  fi
+
+  local host_port
+  if ! host_port="$(database_host_port)"; then
+    fail "MEAT_MEMORY_DATABASE_URL is empty or unsupported; update .env before running dev-up.sh"
+  fi
+
+  local host="${host_port% *}"
+  local port="${host_port#* }"
+
+  if ! command -v nc >/dev/null 2>&1; then
+    fail "nc is required for database TCP preflight; install netcat or set MEAT_MEMORY_SKIP_DB_CHECK=1 for script-only smoke tests"
+  fi
+
+  if ! nc -z "$host" "$port" >/dev/null 2>&1; then
+    fail "PostgreSQL/pgvector is not reachable at ${host}:${port}; start the database, update MEAT_MEMORY_DATABASE_URL, or set MEAT_MEMORY_SKIP_DB_CHECK=1 for script-only smoke tests"
+  fi
+
+  log "database TCP preflight passed: ${host}:${port}"
 }
 
 start_process() {
@@ -60,15 +116,34 @@ start_process() {
 
 cd "$SCRIPT_DIR"
 
+ENV_OVERRIDE_NAMES=(
+  MEAT_MEMORY_INSTALL_DIR
+  MEAT_MEMORY_CONFIG_DIR
+  MEAT_MEMORY_TUI_CONFIG
+  MEAT_MEMORY_RUN_TUI
+  MEAT_MEMORY_INSTALL_MISSING_DEPS
+  MEAT_MEMORY_CONFIG
+  MEAT_MEMORY_SERVER_BIND
+  MEAT_MEMORY_MARKDOWN_ROOT
+  MEAT_MEMORY_ASSETS_ROOT
+  MEAT_MEMORY_DATABASE_URL
+  MEAT_MEMORY_SKIP_DB_CHECK
+  MEAT_MEMORY_ENABLE_HTTP
+  MEAT_MEMORY_ENABLE_MCP
+  RUST_LOG
+)
+
 if [ ! -f "$ENV_FILE" ]; then
   cp "${SCRIPT_DIR}/.env.example" "$ENV_FILE"
   log "created ${ENV_FILE}; edit it before production deployment"
 fi
 
+capture_env_overrides "${ENV_OVERRIDE_NAMES[@]}"
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
+restore_env_overrides "${ENV_OVERRIDE_NAMES[@]}"
 
 INSTALL_DIR="$(abspath_from_script_dir "${MEAT_MEMORY_INSTALL_DIR:-./bin}")"
 CONFIG_DIR="$(abspath_from_script_dir "${MEAT_MEMORY_CONFIG_DIR:-./config}")"
@@ -87,6 +162,7 @@ else
 fi
 
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$MARKDOWN_ROOT" "$ASSETS_ROOT" "${SCRIPT_DIR}/logs" "${SCRIPT_DIR}/run"
+check_database_endpoint
 
 if [ ! -x "${INSTALL_DIR}/memory-app" ] || [ ! -x "${INSTALL_DIR}/memory-worker" ] || [ ! -x "${INSTALL_DIR}/memory-cli" ]; then
   log "binaries not found in ${INSTALL_DIR}; running install.sh"
