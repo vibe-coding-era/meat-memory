@@ -63,9 +63,10 @@ ${ASSET_NAME}/README.txt
 5. 计算本地 sha256，并与发布 checksum 对比。
 6. 解压发布包。
 7. 将 `memory-cli`、`memory-app`、`memory-worker` 安装到 `MEAT_MEMORY_INSTALL_DIR`。
-8. 如果 `MEAT_MEMORY_CONFIG_DIR/app.toml` 不存在，复制发布包中的示例配置。
+8. 如果 `MEAT_MEMORY_CONFIG_DIR/app.toml` 不存在，复制发布包中的示例配置，并改写为用户目录下的 markdown-only 快速开始配置：`MEAT_MEMORY_DATA_DIR/markdown`、`MEAT_MEMORY_DATA_DIR/assets`、`MEAT_MEMORY_DATA_DIR/keys`、`MEAT_MEMORY_DATA_DIR/sync`、`enable_pg = false`。
 9. 运行 `memory-cli --help` 和 `memory-cli config check` 做基础验证；`config check` warning 不阻断二进制安装，后续由 TUI 配置处理。
-10. 如果存在交互终端，默认进入 `memory-cli tui init --interactive --write-config <app.local.toml>` 完成本地配置；CI 或自动化场景可使用 `--skip-tui`。
+10. 如果传入 `--verify-write`，使用安装后的 `memory-cli remember` 写入一条 quickstart memory，并用 `memory-cli search` 校验可检索。
+11. 如果存在交互终端，默认进入 `memory-cli tui init --interactive --write-config <app.local.toml>` 完成本地配置；CI 或自动化场景可使用 `--skip-tui`。
 
 安装程序不克隆仓库、不运行源码构建、不写入源码目录。
 
@@ -73,10 +74,11 @@ ${ASSET_NAME}/README.txt
 
 ```bash
 bash deploy/release-V1/install.sh --check
-bash deploy/release-V1/install.sh --install-deps
+bash deploy/release-V1/install.sh --skip-tui --verify-write
 ```
 
 `--check` 不下载、不安装 release 资产，但会创建安装目录和配置目录以确认可写性。
+如环境检测提示缺少基础工具，审阅安装器输出后再运行 `bash deploy/release-V1/install.sh --install-deps`。
 
 ## 本地启动流程
 
@@ -114,6 +116,7 @@ cd deploy/release-V1
 ```text
 ~/.local/bin
 ~/.config/meat-memory
+~/.local/share/meat-memory
 ```
 
 服务器建议：
@@ -134,6 +137,7 @@ cd deploy/release-V1
 适合个人本机或自动化脚本：
 
 ```bash
+export MEAT_MEMORY_CONFIG="$HOME/.config/meat-memory/app.toml"
 memory-cli --help
 memory-cli config check
 ```
@@ -167,10 +171,13 @@ memory-worker
 5. 执行安装后验证：
 
 ```bash
+export MEAT_MEMORY_CONFIG="$HOME/.config/meat-memory/app.toml"
 memory-cli --help
 memory-cli config check
 command -v memory-app
 command -v memory-worker
+memory-cli remember --scope-id scp_release_v1_quickstart --title "Release V1 install smoke" --body "Meat Memory release-V1 installer wrote this quickstart memory." --memory-kind procedure --json
+memory-cli search "quickstart memory" --scope-id scp_release_v1_quickstart --limit 5 --json
 ```
 
 6. 按部署环境启动服务并检查日志。
@@ -208,6 +215,7 @@ MEAT_MEMORY_VERSION=<previous-release-tag> bash install.sh
 - `.env.example`、`dev-up.sh`、`dev-down.sh` 提供部署目录内的自包含启动路径。
 - `install.sh` 通过 shell 语法检查。
 - `install.sh --check` 能在不下载 release 资产的情况下完成环境检测。
+- `install.sh --skip-tui --verify-write` 能用 release 二进制写入并检索一条 markdown-only memory。
 - 安装后能进入 TUI 配置，或通过 `--skip-tui` 明确跳过。
 - 安装脚本不包含 `git clone`、`cargo build` 或源码路径安装逻辑。
 - 提交到 GitHub 时只包含 `deploy/release-V1/` 下的部署类文件。
@@ -217,5 +225,5 @@ MEAT_MEMORY_VERSION=<previous-release-tag> bash install.sh
 - GitHub Release 资产完整。
 - checksum 校验通过。
 - 目标平台安装成功。
-- 基础命令验证成功。
+- 基础命令和 `remember/search` 写入验证成功。
 - 外部发布门禁已通过或存在正式 waiver。

@@ -18,11 +18,11 @@ English version: [README.en.md](./README.en.md)
 
 ## 安装方式
 
-推荐安装流程是先检测环境，再安装，最后进入 TUI 配置：
+推荐安装流程是先检测环境，再安装并验证第一条 memory：
 
 ```bash
 bash deploy/release-V1/install.sh --check
-bash deploy/release-V1/install.sh
+bash deploy/release-V1/install.sh --skip-tui --verify-write
 ```
 
 如果环境检测提示缺少 `curl`、`tar`、`awk`、`coreutils` 等基础工具，可以先看脚本输出的系统包管理器命令；确认后再让安装器尝试补齐：
@@ -37,12 +37,20 @@ bash deploy/release-V1/install.sh --install-deps
 curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
 chmod +x install.sh
 ./install.sh --check
-./install.sh --skip-tui
+./install.sh --skip-tui --verify-write
 ```
 
 不要把远程脚本直接 pipe 到 `bash --install-deps`；需要系统依赖时，先审阅脚本和输出的包管理器命令，再显式执行 `./install.sh --install-deps`。
 
-安装脚本默认从 GitHub Release 下载 `release-V1` 的预编译二进制包，安装后会在有交互终端时启动 `memory-cli tui init --interactive`。如果是在 CI、自动化脚本或只想安装二进制，可以跳过 TUI：
+安装脚本默认从 GitHub Release 下载 `release-V1` 的预编译二进制包。首次安装会生成用户目录下的 markdown-only 快速开始配置，默认不要求本机已有 PostgreSQL；配置和数据目录分别位于 `~/.config/meat-memory` 与 `~/.local/share/meat-memory`。
+
+如果希望安装后立即验证第一条 memory 写入，可以加 `--verify-write`：
+
+```bash
+bash deploy/release-V1/install.sh --skip-tui --verify-write
+```
+
+安装器会使用安装后的 `memory-cli remember` 写入一条 quickstart memory，再用 `memory-cli search` 验证可检索。安装后在有交互终端时默认启动 `memory-cli tui init --interactive`；如果是在 CI、自动化脚本或只想安装二进制，可以跳过 TUI：
 
 ```bash
 bash deploy/release-V1/install.sh --skip-tui
@@ -96,9 +104,17 @@ MEAT_MEMORY_SKIP_DB_CHECK=1 ./dev-up.sh
 | `MEAT_MEMORY_RELEASE_BASE_URL` | GitHub Release 下载地址 | 私有镜像或内网制品库地址 |
 | `MEAT_MEMORY_INSTALL_DIR` | `$HOME/.local/bin` | 二进制安装目录 |
 | `MEAT_MEMORY_CONFIG_DIR` | `$HOME/.config/meat-memory` | 默认配置目录 |
+| `MEAT_MEMORY_DATA_DIR` | `$HOME/.local/share/meat-memory` | quickstart 数据目录 |
+| `MEAT_MEMORY_MARKDOWN_ROOT` | `$MEAT_MEMORY_DATA_DIR/markdown` | quickstart markdown memory 目录 |
+| `MEAT_MEMORY_ASSETS_ROOT` | `$MEAT_MEMORY_DATA_DIR/assets` | quickstart 资产目录 |
+| `MEAT_MEMORY_KEY_STORE_PATH` | `$MEAT_MEMORY_DATA_DIR/keys/default-key.toml` | quickstart key 配置路径 |
+| `MEAT_MEMORY_SYNC_STATE_PATH` | `$MEAT_MEMORY_DATA_DIR/sync/state.json` | quickstart sync 状态路径 |
+| `MEAT_MEMORY_DEFAULT_ENABLE_PG` | `0` | 首次生成配置时是否默认启用 PostgreSQL |
+| `MEAT_MEMORY_OVERWRITE_CONFIG` | `0` | `1` 时覆盖已有 `app.toml` |
 | `MEAT_MEMORY_TUI_CONFIG` | `$MEAT_MEMORY_CONFIG_DIR/app.local.toml` | TUI 推荐写出的本地配置 |
 | `MEAT_MEMORY_RUN_TUI` | `auto` | `auto` 有交互终端时运行 TUI；`1` 强制；`0` 跳过 |
 | `MEAT_MEMORY_INSTALL_MISSING_DEPS` | `0` | `1` 时等同 `--install-deps` |
+| `MEAT_MEMORY_VERIFY_SCOPE_ID` | `scp_release_v1_quickstart` | `--verify-write` 使用的 scope |
 | `MEAT_MEMORY_ENV_FILE` | `deploy/release-V1/.env` | `dev-up.sh` 使用的环境变量文件 |
 
 示例：
@@ -106,7 +122,7 @@ MEAT_MEMORY_SKIP_DB_CHECK=1 ./dev-up.sh
 ```bash
 MEAT_MEMORY_INSTALL_DIR=/usr/local/bin \
 MEAT_MEMORY_VERSION=release-V1 \
-bash deploy/release-V1/install.sh
+bash deploy/release-V1/install.sh --skip-tui --verify-write
 ```
 
 说明：`--check` 不会下载或安装 release 二进制，但会创建安装目录和配置目录，用来确认路径可写。
@@ -125,18 +141,33 @@ bash deploy/release-V1/install.sh
 ## 安装后验证
 
 ```bash
+export MEAT_MEMORY_CONFIG="$HOME/.config/meat-memory/app.toml"
 memory-cli --help
 memory-cli config check
 command -v memory-app
 command -v memory-worker
 ```
 
-`memory-app` 和 `memory-worker` 是长驻服务入口，验证安装时先检查二进制存在；正式启动请使用 `dev-up.sh`、systemd、launchd 或你的进程管理器。
-
-如果使用默认配置目录，安装程序会在 `~/.config/meat-memory/app.toml` 写入发布包中的示例配置。已有配置不会被覆盖。`memory-cli config check` 如果报告 warning，安装器会继续执行并引导你进入 TUI 配置；这类 warning 通常表示本地数据库、模型或路径还未配置完成，不代表二进制安装失败。TUI 配置默认建议写入 `~/.config/meat-memory/app.local.toml`，写出后用：
+写入并检索第一条 memory：
 
 ```bash
-MEAT_MEMORY_CONFIG=~/.config/meat-memory/app.local.toml memory-cli config check
+export MEAT_MEMORY_CONFIG="$HOME/.config/meat-memory/app.toml"
+memory-cli remember \
+  --scope-id scp_release_v1_quickstart \
+  --title "Release V1 install smoke" \
+  --body "Meat Memory release-V1 installer wrote this quickstart memory." \
+  --memory-kind procedure \
+  --json
+
+memory-cli search "quickstart memory" --scope-id scp_release_v1_quickstart --limit 5 --json
+```
+
+`memory-app` 和 `memory-worker` 是长驻服务入口，验证安装时先检查二进制存在；正式启动请使用 `dev-up.sh`、systemd、launchd 或你的进程管理器。
+
+如果使用默认配置目录，安装程序会在 `~/.config/meat-memory/app.toml` 写入发布包中的示例配置，并改写为用户目录下的 markdown-only 快速开始配置。已有配置不会被覆盖，除非设置 `MEAT_MEMORY_OVERWRITE_CONFIG=1`。`memory-cli config check` 如果报告 warning，安装器会继续执行并引导你进入 TUI 配置；这类 warning 通常表示本地数据库、模型或路径还未配置完成，不代表二进制安装失败。TUI 配置默认建议写入 `~/.config/meat-memory/app.local.toml`，写出后用：
+
+```bash
+MEAT_MEMORY_CONFIG="$HOME/.config/meat-memory/app.local.toml" memory-cli config check
 ```
 
 ## 服务部署建议

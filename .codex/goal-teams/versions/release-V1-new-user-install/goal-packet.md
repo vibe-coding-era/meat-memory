@@ -1,0 +1,22 @@
+# Team Goal Packet
+
+- version: `release-V1-new-user-install`
+- goal: 以新用户视角完成 GitHub 远程下载、安装、写入一条 memory 并验证。
+- success_criteria:
+  - `curl` 可从 `https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh` 下载安装器。
+  - 安装器从 `https://github.com/vibe-coding-era/meat-memory/releases/download/release-V1/` 下载真实 asset 与 checksum。
+  - `memory-cli --help` 和 `memory-cli config check` 可执行。
+  - 安装后的 `memory-cli remember --json` 写入一条 memory。
+  - `memory-cli search --json` 能检索到该 memory。
+- forbidden_scope:
+  - 不使用本地 `deploy/release-V1/install.sh` 作为安装来源。
+  - 不使用 `file://` 或 mock release asset 作为最终完成证据。
+  - 不回滚或提交无关源码改动。
+- required_tests:
+  - raw installer HTTP 200。
+  - GitHub Release asset HTTP 200。
+  - 空 HOME 安装。
+  - markdown-only memory write + search smoke。
+- stop_conditions:
+  - GitHub Actions 发布失败且需要仓库权限或外部凭据才能恢复。
+  - 发布资产生成时间超出本轮可等待范围。
