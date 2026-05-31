@@ -18,16 +18,29 @@ English version: [README.en.md](./README.en.md)
 
 ## 安装方式
 
-安装脚本默认从 GitHub Release 下载 `release-V1` 的预编译二进制包：
+推荐安装流程是先检测环境，再安装，最后进入 TUI 配置：
 
 ```bash
+bash deploy/release-V1/install.sh --check
 bash deploy/release-V1/install.sh
+```
+
+如果环境检测提示缺少 `curl`、`tar`、`awk`、`coreutils` 等基础工具，可以先看脚本输出的系统包管理器命令；确认后再让安装器尝试补齐：
+
+```bash
+bash deploy/release-V1/install.sh --install-deps
 ```
 
 从远程仓库直接安装时：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --install-deps
+```
+
+安装脚本默认从 GitHub Release 下载 `release-V1` 的预编译二进制包，安装后会在有交互终端时启动 `memory-cli tui init --interactive`。如果是在 CI、自动化脚本或只想安装二进制，可以跳过 TUI：
+
+```bash
+bash deploy/release-V1/install.sh --skip-tui
 ```
 
 默认安装到 `~/.local/bin`。如果该目录不在 `PATH` 中，请加入 shell 配置：
@@ -72,6 +85,9 @@ cp .env.example .env
 | `MEAT_MEMORY_RELEASE_BASE_URL` | GitHub Release 下载地址 | 私有镜像或内网制品库地址 |
 | `MEAT_MEMORY_INSTALL_DIR` | `$HOME/.local/bin` | 二进制安装目录 |
 | `MEAT_MEMORY_CONFIG_DIR` | `$HOME/.config/meat-memory` | 默认配置目录 |
+| `MEAT_MEMORY_TUI_CONFIG` | `$MEAT_MEMORY_CONFIG_DIR/app.local.toml` | TUI 推荐写出的本地配置 |
+| `MEAT_MEMORY_RUN_TUI` | `auto` | `auto` 有交互终端时运行 TUI；`1` 强制；`0` 跳过 |
+| `MEAT_MEMORY_INSTALL_MISSING_DEPS` | `0` | `1` 时等同 `--install-deps` |
 | `MEAT_MEMORY_ENV_FILE` | `deploy/release-V1/.env` | `dev-up.sh` 使用的环境变量文件 |
 
 示例：
@@ -99,9 +115,14 @@ bash deploy/release-V1/install.sh
 memory-cli --help
 memory-app --help
 memory-worker --help
+memory-cli config check
 ```
 
-如果使用默认配置目录，安装程序会在 `~/.config/meat-memory/app.toml` 写入发布包中的示例配置。已有配置不会被覆盖。
+如果使用默认配置目录，安装程序会在 `~/.config/meat-memory/app.toml` 写入发布包中的示例配置。已有配置不会被覆盖。TUI 配置默认建议写入 `~/.config/meat-memory/app.local.toml`，写出后用：
+
+```bash
+MEAT_MEMORY_CONFIG=~/.config/meat-memory/app.local.toml memory-cli config check
+```
 
 ## 服务部署建议
 
@@ -164,6 +185,8 @@ cd deploy/release-V1
 
 - GitHub Release tag 为 `release-V1`。
 - 四个平台资产及 `.sha256` 文件已发布。
+- `install.sh --check` 在目标平台通过。
 - 安装脚本在 macOS arm64、macOS x86_64、Linux amd64、Linux arm64 中至少覆盖目标发布平台。
+- 安装后已完成 `memory-cli tui init --interactive` 或明确使用 `--skip-tui` 跳过。
 - 生产环境凭据、数据库、OCR/ASR/video provider、benchmark evidence 等外部门禁已有正式证据或 release waiver。
 - 本目录提交到 GitHub 时只包含部署文档和安装脚本，不包含源码。

@@ -92,7 +92,7 @@ if [ ! -x "${INSTALL_DIR}/memory-app" ] || [ ! -x "${INSTALL_DIR}/memory-worker"
   log "binaries not found in ${INSTALL_DIR}; running install.sh"
   MEAT_MEMORY_INSTALL_DIR="$INSTALL_DIR" \
   MEAT_MEMORY_CONFIG_DIR="$CONFIG_DIR" \
-  "${SCRIPT_DIR}/install.sh"
+  "${SCRIPT_DIR}/install.sh" --skip-tui
 fi
 
 start_process "memory-app" "${INSTALL_DIR}/memory-app"

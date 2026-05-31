@@ -56,16 +56,25 @@ README.txt
 
 ## 安装流程
 
-1. 安装程序检测当前 OS 和 CPU 架构。
-2. 根据平台选择对应的 release tarball。
-3. 下载 tarball 和 `.sha256` 文件。
-4. 计算本地 sha256，并与发布 checksum 对比。
-5. 解压发布包。
-6. 将 `memory-cli`、`memory-app`、`memory-worker` 安装到 `MEAT_MEMORY_INSTALL_DIR`。
-7. 如果 `MEAT_MEMORY_CONFIG_DIR/app.toml` 不存在，复制发布包中的示例配置。
-8. 运行 `memory-cli --help` 做基础验证。
+1. 安装程序先执行环境检测：OS / CPU 架构、下载工具、tar、awk、install、checksum 工具、安装目录和配置目录可写性。
+2. 如果缺少基础工具，默认只输出修复命令；用户显式传入 `--install-deps` 或 `MEAT_MEMORY_INSTALL_MISSING_DEPS=1` 后，才尝试通过系统包管理器补齐。
+3. 根据平台选择对应的 release tarball。
+4. 下载 tarball 和 `.sha256` 文件。
+5. 计算本地 sha256，并与发布 checksum 对比。
+6. 解压发布包。
+7. 将 `memory-cli`、`memory-app`、`memory-worker` 安装到 `MEAT_MEMORY_INSTALL_DIR`。
+8. 如果 `MEAT_MEMORY_CONFIG_DIR/app.toml` 不存在，复制发布包中的示例配置。
+9. 运行 `memory-cli --help` 和 `memory-cli config check` 做基础验证。
+10. 如果存在交互终端，默认进入 `memory-cli tui init --interactive --write-config <app.local.toml>` 完成本地配置；CI 或自动化场景可使用 `--skip-tui`。
 
 安装程序不克隆仓库、不运行源码构建、不写入源码目录。
+
+推荐命令：
+
+```bash
+bash deploy/release-V1/install.sh --check
+bash deploy/release-V1/install.sh --install-deps
+```
 
 ## 本地启动流程
 
@@ -193,6 +202,8 @@ MEAT_MEMORY_VERSION=<previous-release-tag> bash install.sh
 - `README.en.md` 提供英文说明。
 - `.env.example`、`dev-up.sh`、`dev-down.sh` 提供部署目录内的自包含启动路径。
 - `install.sh` 通过 shell 语法检查。
+- `install.sh --check` 能在不下载 release 资产的情况下完成环境检测。
+- 安装后能进入 TUI 配置，或通过 `--skip-tui` 明确跳过。
 - 安装脚本不包含 `git clone`、`cargo build` 或源码路径安装逻辑。
 - 提交到 GitHub 时只包含 `deploy/release-V1/` 下的部署类文件。
 
