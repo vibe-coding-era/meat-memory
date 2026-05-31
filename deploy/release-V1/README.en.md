@@ -11,7 +11,10 @@ Default Chinese version: [README.md](./README.md)
 | `README.md` | Default Chinese installation and operations guide |
 | `README.en.md` | English installation and operations guide |
 | `DEPLOYMENT_PLAN.md` | release-V1 deployment plan, release flow, and rollback strategy |
+| `.env.example` | Environment template for binary deployment |
 | `install.sh` | macOS / Linux binary installer |
+| `dev-up.sh` | Start local app / worker from release binaries |
+| `dev-down.sh` | Stop local processes started by `dev-up.sh` |
 
 ## Installation
 
@@ -33,6 +36,33 @@ The default install directory is `~/.local/bin`. If it is not on your `PATH`, ad
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+## Local Deployment Quick Start
+
+If you see either of these errors, you are likely running an old source-development command or running from the wrong directory:
+
+```text
+cp: .env.example: No such file or directory
+zsh: no such file or directory: ./docs/scripts/dev-up.sh
+```
+
+Use the self-contained release-V1 deployment entrypoint instead:
+
+```bash
+cd deploy/release-V1
+cp .env.example .env
+./dev-up.sh
+```
+
+`dev-up.sh` reads `.env` from this directory, runs `install.sh` when release binaries are missing, and starts `memory-app` and `memory-worker` in the background. Stop them with:
+
+```bash
+./dev-down.sh
+```
+
+The default `.env` points to PostgreSQL / pgvector on `127.0.0.1:5433`; update `MEAT_MEMORY_DATABASE_URL` first if your database runs elsewhere.
+
+Note: `./docs/scripts/dev-up.sh` is the Docker development entrypoint for the source repository. It is not the release-V1 binary deployment entrypoint.
+
 ## Configuration
 
 | Environment variable | Default | Description |
@@ -42,6 +72,7 @@ export PATH="$HOME/.local/bin:$PATH"
 | `MEAT_MEMORY_RELEASE_BASE_URL` | GitHub Release URL | Private mirror or internal artifact repository URL |
 | `MEAT_MEMORY_INSTALL_DIR` | `$HOME/.local/bin` | Binary install directory |
 | `MEAT_MEMORY_CONFIG_DIR` | `$HOME/.config/meat-memory` | Default config directory |
+| `MEAT_MEMORY_ENV_FILE` | `deploy/release-V1/.env` | Environment file used by `dev-up.sh` |
 
 Example:
 
@@ -106,6 +137,26 @@ rm -f ~/.local/bin/memory-cli ~/.local/bin/memory-app ~/.local/bin/memory-worker
 ```
 
 Back up or remove configuration and data directories according to your deployment policy.
+
+## Troubleshooting
+
+### `cp: .env.example: No such file or directory`
+
+Check your current directory. For release-V1 deployment:
+
+```bash
+cd deploy/release-V1
+cp .env.example .env
+```
+
+### `./docs/scripts/dev-up.sh: no such file or directory`
+
+Do not run the source-development script from a deployment-only package. Use:
+
+```bash
+cd deploy/release-V1
+./dev-up.sh
+```
 
 ## Release Checklist
 

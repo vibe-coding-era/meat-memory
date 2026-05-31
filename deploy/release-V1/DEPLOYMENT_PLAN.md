@@ -11,6 +11,7 @@
 包含：
 
 - macOS / Linux 二进制安装脚本。
+- 二进制部署专用 `.env.example`、`dev-up.sh` 和 `dev-down.sh`。
 - 中文和英文 README。
 - 发布、安装、验证、升级、回滚说明。
 
@@ -65,6 +66,33 @@ README.txt
 8. 运行 `memory-cli --help` 做基础验证。
 
 安装程序不克隆仓库、不运行源码构建、不写入源码目录。
+
+## 本地启动流程
+
+release-V1 二进制部署不使用源码仓库的 `./docs/scripts/dev-up.sh`。本地验证使用部署目录内的入口：
+
+```bash
+cd deploy/release-V1
+cp .env.example .env
+./dev-up.sh
+```
+
+`dev-up.sh` 的行为：
+
+1. 如果 `.env` 不存在，自动从 `.env.example` 复制一份。
+2. 读取 `.env` 并将相对路径解析到 `deploy/release-V1/`。
+3. 如果 `bin/memory-cli`、`bin/memory-app` 或 `bin/memory-worker` 不存在，调用 `install.sh` 安装 release 二进制。
+4. 创建 `data/`、`logs/` 和 `run/` 目录。
+5. 后台启动 `memory-app` 和 `memory-worker`，pid 写入 `run/`，日志写入 `logs/`。
+
+默认 `.env` 使用 `127.0.0.1:5433` 的 PostgreSQL / pgvector。生产或非本机数据库部署前，应先修改 `MEAT_MEMORY_DATABASE_URL`。
+
+停止：
+
+```bash
+cd deploy/release-V1
+./dev-down.sh
+```
 
 ## 推荐目录
 
@@ -163,6 +191,7 @@ MEAT_MEMORY_VERSION=<previous-release-tag> bash install.sh
 
 - `README.md` 为默认中文说明。
 - `README.en.md` 提供英文说明。
+- `.env.example`、`dev-up.sh`、`dev-down.sh` 提供部署目录内的自包含启动路径。
 - `install.sh` 通过 shell 语法检查。
 - 安装脚本不包含 `git clone`、`cargo build` 或源码路径安装逻辑。
 - 提交到 GitHub 时只包含 `deploy/release-V1/` 下的部署类文件。

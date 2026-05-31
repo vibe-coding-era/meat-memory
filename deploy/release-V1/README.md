@@ -11,7 +11,10 @@ English version: [README.en.md](./README.en.md)
 | `README.md` | 默认中文安装与运维说明 |
 | `README.en.md` | English installation and operations guide |
 | `DEPLOYMENT_PLAN.md` | release-V1 部署方案、发布流程和回滚策略 |
+| `.env.example` | 二进制部署环境变量模板 |
 | `install.sh` | macOS / Linux 二进制安装脚本 |
+| `dev-up.sh` | 使用 release 二进制启动本地 app / worker |
+| `dev-down.sh` | 停止 `dev-up.sh` 启动的本地进程 |
 
 ## 安装方式
 
@@ -33,6 +36,33 @@ curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+## 本地部署快速启动
+
+如果你遇到下面两个错误，通常是因为执行了旧的源码开发命令，或者不在仓库根目录：
+
+```text
+cp: .env.example: No such file or directory
+zsh: no such file or directory: ./docs/scripts/dev-up.sh
+```
+
+release-V1 部署包请使用本目录内的自包含入口：
+
+```bash
+cd deploy/release-V1
+cp .env.example .env
+./dev-up.sh
+```
+
+`dev-up.sh` 会读取同目录 `.env`，必要时先运行 `install.sh` 下载 release 二进制，然后在后台启动 `memory-app` 和 `memory-worker`。停止进程：
+
+```bash
+./dev-down.sh
+```
+
+默认 `.env` 指向 `127.0.0.1:5433` 的 PostgreSQL / pgvector；如果你的数据库在别处，请先修改 `.env` 中的 `MEAT_MEMORY_DATABASE_URL`。
+
+注意：`./docs/scripts/dev-up.sh` 是源码仓库的 Docker 开发入口，不是 release-V1 二进制部署入口。
+
 ## 可配置参数
 
 | 环境变量 | 默认值 | 说明 |
@@ -42,6 +72,7 @@ export PATH="$HOME/.local/bin:$PATH"
 | `MEAT_MEMORY_RELEASE_BASE_URL` | GitHub Release 下载地址 | 私有镜像或内网制品库地址 |
 | `MEAT_MEMORY_INSTALL_DIR` | `$HOME/.local/bin` | 二进制安装目录 |
 | `MEAT_MEMORY_CONFIG_DIR` | `$HOME/.config/meat-memory` | 默认配置目录 |
+| `MEAT_MEMORY_ENV_FILE` | `deploy/release-V1/.env` | `dev-up.sh` 使用的环境变量文件 |
 
 示例：
 
@@ -106,6 +137,26 @@ rm -f ~/.local/bin/memory-cli ~/.local/bin/memory-app ~/.local/bin/memory-worker
 ```
 
 配置和数据目录需要按实际部署策略单独备份或清理。
+
+## 常见问题
+
+### `cp: .env.example: No such file or directory`
+
+先确认当前目录。release-V1 部署应进入部署目录后再复制：
+
+```bash
+cd deploy/release-V1
+cp .env.example .env
+```
+
+### `./docs/scripts/dev-up.sh: no such file or directory`
+
+不要在部署-only 包里运行源码开发脚本。改用：
+
+```bash
+cd deploy/release-V1
+./dev-up.sh
+```
 
 ## 发布前检查
 
