@@ -18,26 +18,21 @@ English version: [README.en.md](./README.en.md)
 
 ## 安装方式
 
-推荐安装流程是先检测环境，再安装并验证第一条 memory：
+新用户和服务器部署必须从服务端下载安装程序，不要求本机已有源码仓库或 `deploy/release-V1` 目录。推荐流程是先下载脚本，再检测环境、安装并验证第一条 memory：
 
 ```bash
-bash deploy/release-V1/install.sh --check
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
+chmod +x install.sh
+./install.sh --check
+./install.sh --skip-tui --verify-write
 ```
 
 如果环境检测提示缺少 `curl`、`tar`、`awk`、`coreutils` 等基础工具，可以先看脚本输出的系统包管理器命令；确认后再让安装器尝试补齐：
 
 ```bash
-bash deploy/release-V1/install.sh --install-deps
-```
-
-从远程仓库直接安装时：
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
-chmod +x install.sh
-./install.sh --check
-./install.sh --skip-tui --verify-write
+./install.sh --install-deps
 ```
 
 不要把远程脚本直接 pipe 到 `bash --install-deps`；需要系统依赖时，先审阅脚本和输出的包管理器命令，再显式执行 `./install.sh --install-deps`。
@@ -47,13 +42,13 @@ chmod +x install.sh
 如果希望安装后立即验证第一条 memory 写入，可以加 `--verify-write`：
 
 ```bash
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+./install.sh --skip-tui --verify-write
 ```
 
 安装器会使用安装后的 `memory-cli remember` 写入一条 quickstart memory，再用 `memory-cli search` 验证可检索。安装后在有交互终端时默认启动 `memory-cli tui init --interactive`；如果是在 CI、自动化脚本或只想安装二进制，可以跳过 TUI：
 
 ```bash
-bash deploy/release-V1/install.sh --skip-tui
+./install.sh --skip-tui
 ```
 
 默认安装到 `~/.local/bin`。如果该目录不在 `PATH` 中，请加入 shell 配置：
@@ -62,19 +57,28 @@ bash deploy/release-V1/install.sh --skip-tui
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## 本地部署快速启动
+## 服务端部署快速启动
 
-如果你遇到下面两个错误，通常是因为执行了旧的源码开发命令，或者不在仓库根目录：
+如果你遇到下面两个错误，通常是因为执行了旧的源码开发命令，或者把文档里的仓库内路径当成了新用户安装路径：
 
 ```text
 cp: .env.example: No such file or directory
 zsh: no such file or directory: ./docs/scripts/dev-up.sh
 ```
 
-release-V1 部署包请使用本目录内的自包含入口：
+服务器上请直接从 GitHub raw 下载部署辅助脚本，不要假设本机有源码目录：
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/install.sh"
+curl -fsSLO "$BASE_URL/.env.example"
+curl -fsSLO "$BASE_URL/dev-up.sh"
+curl -fsSLO "$BASE_URL/dev-down.sh"
+chmod +x install.sh dev-up.sh dev-down.sh
+./install.sh --check
+./install.sh --skip-tui --verify-write
 cp .env.example .env
 ./dev-up.sh
 ```
@@ -115,14 +119,14 @@ MEAT_MEMORY_SKIP_DB_CHECK=1 ./dev-up.sh
 | `MEAT_MEMORY_RUN_TUI` | `auto` | `auto` 有交互终端时运行 TUI；`1` 强制；`0` 跳过 |
 | `MEAT_MEMORY_INSTALL_MISSING_DEPS` | `0` | `1` 时等同 `--install-deps` |
 | `MEAT_MEMORY_VERIFY_SCOPE_ID` | `scp_release_v1_quickstart` | `--verify-write` 使用的 scope |
-| `MEAT_MEMORY_ENV_FILE` | `deploy/release-V1/.env` | `dev-up.sh` 使用的环境变量文件 |
+| `MEAT_MEMORY_ENV_FILE` | `<部署脚本目录>/.env` | `dev-up.sh` 使用的环境变量文件 |
 
 示例：
 
 ```bash
 MEAT_MEMORY_INSTALL_DIR=/usr/local/bin \
 MEAT_MEMORY_VERSION=release-V1 \
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+./install.sh --skip-tui --verify-write
 ```
 
 说明：`--check` 不会下载或安装 release 二进制，但会创建安装目录和配置目录，用来确认路径可写。
@@ -194,7 +198,7 @@ release-V1 推荐三种部署形态：
 回滚时指定上一个已验证的 release tag：
 
 ```bash
-MEAT_MEMORY_VERSION=<previous-release-tag> bash deploy/release-V1/install.sh
+MEAT_MEMORY_VERSION=<previous-release-tag> ./install.sh --skip-tui
 ```
 
 如需完全移除：
@@ -209,19 +213,29 @@ rm -f ~/.local/bin/memory-cli ~/.local/bin/memory-app ~/.local/bin/memory-worker
 
 ### `cp: .env.example: No such file or directory`
 
-先确认当前目录。release-V1 部署应进入部署目录后再复制：
+先下载部署辅助文件并确认当前目录：
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/.env.example"
 cp .env.example .env
 ```
 
 ### `./docs/scripts/dev-up.sh: no such file or directory`
 
-不要在部署-only 包里运行源码开发脚本。改用：
+不要在部署-only 包里运行源码开发脚本。下载并使用服务端部署入口：
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/install.sh"
+curl -fsSLO "$BASE_URL/.env.example"
+curl -fsSLO "$BASE_URL/dev-up.sh"
+curl -fsSLO "$BASE_URL/dev-down.sh"
+chmod +x install.sh dev-up.sh dev-down.sh
 ./dev-up.sh
 ```
 

@@ -70,22 +70,35 @@ ${ASSET_NAME}/README.txt
 
 安装程序不克隆仓库、不运行源码构建、不写入源码目录。
 
-推荐命令：
+新用户和服务器部署不依赖本地源码目录。推荐命令：
 
 ```bash
-bash deploy/release-V1/install.sh --check
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
+chmod +x install.sh
+./install.sh --check
+./install.sh --skip-tui --verify-write
 ```
 
 `--check` 不下载、不安装 release 资产，但会创建安装目录和配置目录以确认可写性。
-如环境检测提示缺少基础工具，审阅安装器输出后再运行 `bash deploy/release-V1/install.sh --install-deps`。
+如环境检测提示缺少基础工具，审阅安装器输出后再运行 `./install.sh --install-deps`。
 
-## 本地启动流程
+## 服务端启动流程
 
-release-V1 二进制部署不使用源码仓库的 `./docs/scripts/dev-up.sh`。本地验证使用部署目录内的入口：
+release-V1 二进制部署不使用源码仓库的 `./docs/scripts/dev-up.sh`，也不要求服务器上存在 `deploy/release-V1` 本地目录。服务器验证时先从 GitHub raw 下载部署入口：
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/install.sh"
+curl -fsSLO "$BASE_URL/.env.example"
+curl -fsSLO "$BASE_URL/dev-up.sh"
+curl -fsSLO "$BASE_URL/dev-down.sh"
+chmod +x install.sh dev-up.sh dev-down.sh
+./install.sh --check
+./install.sh --skip-tui --verify-write
 cp .env.example .env
 ./dev-up.sh
 ```
@@ -93,7 +106,7 @@ cp .env.example .env
 `dev-up.sh` 的行为：
 
 1. 如果 `.env` 不存在，自动从 `.env.example` 复制一份。
-2. 读取 `.env` 并将相对路径解析到 `deploy/release-V1/`。
+2. 读取 `.env` 并将相对路径解析到部署脚本所在目录。
 3. 如果 `bin/memory-cli`、`bin/memory-app` 或 `bin/memory-worker` 不存在，调用 `install.sh` 安装 release 二进制。
 4. 创建 `data/`、`logs/` 和 `run/` 目录。
 5. 检查 `MEAT_MEMORY_DATABASE_URL` 指向的 PostgreSQL / pgvector TCP 端口；如需脚本-only smoke，可设置 `MEAT_MEMORY_SKIP_DB_CHECK=1` 跳过。
@@ -105,7 +118,7 @@ cp .env.example .env
 停止：
 
 ```bash
-cd deploy/release-V1
+cd ~/meat-memory-release-V1
 ./dev-down.sh
 ```
 
@@ -167,7 +180,7 @@ memory-worker
 1. 在发布分支上确认 release gate 已通过，或已获得正式 release waiver。
 2. 创建 `release-V1` tag 并触发 GitHub Actions release workflow。
 3. 确认 GitHub Release 中存在四个平台 tarball 和 checksum。
-4. 在目标平台运行 `install.sh`。
+4. 在目标平台从 `https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh` 下载并运行 `install.sh`。
 5. 执行安装后验证：
 
 ```bash
@@ -188,7 +201,7 @@ memory-cli search "quickstart memory" --scope-id scp_release_v1_quickstart --lim
 回滚优先使用上一版已验证 release tag：
 
 ```bash
-MEAT_MEMORY_VERSION=<previous-release-tag> bash install.sh
+MEAT_MEMORY_VERSION=<previous-release-tag> ./install.sh --skip-tui
 ```
 
 回滚检查：

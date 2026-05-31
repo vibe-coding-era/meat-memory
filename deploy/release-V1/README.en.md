@@ -18,26 +18,21 @@ Default Chinese version: [README.md](./README.md)
 
 ## Installation
 
-The recommended flow is environment check, install, then first-memory verification:
+New users and server deployments must download the installer from the server. Do not assume the machine already has a source checkout or a local `deploy/release-V1` directory. The recommended flow is download, environment check, install, then first-memory verification:
 
 ```bash
-bash deploy/release-V1/install.sh --check
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
+chmod +x install.sh
+./install.sh --check
+./install.sh --skip-tui --verify-write
 ```
 
 If the check reports missing base tools such as `curl`, `tar`, `awk`, or `coreutils`, review the package-manager command printed by the installer first. Then let the installer try to install them:
 
 ```bash
-bash deploy/release-V1/install.sh --install-deps
-```
-
-Remote install:
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
-chmod +x install.sh
-./install.sh --check
-./install.sh --skip-tui --verify-write
+./install.sh --install-deps
 ```
 
 Do not pipe a remote script directly into `bash --install-deps`. If system dependencies are missing, review the script and package-manager command first, then explicitly run `./install.sh --install-deps`.
@@ -47,13 +42,13 @@ The installer downloads prebuilt binaries from the `release-V1` GitHub Release b
 To verify the first memory write immediately after installation, add `--verify-write`:
 
 ```bash
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+./install.sh --skip-tui --verify-write
 ```
 
 The installer uses the installed `memory-cli remember` command to write one quickstart memory, then verifies it with `memory-cli search`. After installation, it starts `memory-cli tui init --interactive` when an interactive terminal is available. In CI, automation, or binary-only installation, skip TUI:
 
 ```bash
-bash deploy/release-V1/install.sh --skip-tui
+./install.sh --skip-tui
 ```
 
 The default install directory is `~/.local/bin`. If it is not on your `PATH`, add:
@@ -62,19 +57,28 @@ The default install directory is `~/.local/bin`. If it is not on your `PATH`, ad
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## Local Deployment Quick Start
+## Server Deployment Quick Start
 
-If you see either of these errors, you are likely running an old source-development command or running from the wrong directory:
+If you see either of these errors, you are likely running an old source-development command or treating repository-local paths as the new-user install path:
 
 ```text
 cp: .env.example: No such file or directory
 zsh: no such file or directory: ./docs/scripts/dev-up.sh
 ```
 
-Use the self-contained release-V1 deployment entrypoint instead:
+On a server, download the deployment helper scripts from GitHub raw. Do not assume a source directory exists:
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/install.sh"
+curl -fsSLO "$BASE_URL/.env.example"
+curl -fsSLO "$BASE_URL/dev-up.sh"
+curl -fsSLO "$BASE_URL/dev-down.sh"
+chmod +x install.sh dev-up.sh dev-down.sh
+./install.sh --check
+./install.sh --skip-tui --verify-write
 cp .env.example .env
 ./dev-up.sh
 ```
@@ -115,14 +119,14 @@ Note: `./docs/scripts/dev-up.sh` is the Docker development entrypoint for the so
 | `MEAT_MEMORY_RUN_TUI` | `auto` | `auto` runs TUI with an interactive terminal; `1` forces it; `0` skips it |
 | `MEAT_MEMORY_INSTALL_MISSING_DEPS` | `0` | `1` is equivalent to `--install-deps` |
 | `MEAT_MEMORY_VERIFY_SCOPE_ID` | `scp_release_v1_quickstart` | Scope used by `--verify-write` |
-| `MEAT_MEMORY_ENV_FILE` | `deploy/release-V1/.env` | Environment file used by `dev-up.sh` |
+| `MEAT_MEMORY_ENV_FILE` | `<deployment script directory>/.env` | Environment file used by `dev-up.sh` |
 
 Example:
 
 ```bash
 MEAT_MEMORY_INSTALL_DIR=/usr/local/bin \
 MEAT_MEMORY_VERSION=release-V1 \
-bash deploy/release-V1/install.sh --skip-tui --verify-write
+./install.sh --skip-tui --verify-write
 ```
 
 Note: `--check` does not download or install release binaries, but it creates the install and config directories to verify writability.
@@ -194,7 +198,7 @@ To upgrade, rerun the installer with the target `MEAT_MEMORY_VERSION`. The insta
 To roll back, install the previous verified release tag:
 
 ```bash
-MEAT_MEMORY_VERSION=<previous-release-tag> bash deploy/release-V1/install.sh
+MEAT_MEMORY_VERSION=<previous-release-tag> ./install.sh --skip-tui
 ```
 
 To uninstall binaries:
@@ -209,19 +213,29 @@ Back up or remove configuration and data directories according to your deploymen
 
 ### `cp: .env.example: No such file or directory`
 
-Check your current directory. For release-V1 deployment:
+Download the deployment helper file and confirm the current directory:
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/.env.example"
 cp .env.example .env
 ```
 
 ### `./docs/scripts/dev-up.sh: no such file or directory`
 
-Do not run the source-development script from a deployment-only package. Use:
+Do not run the source-development script from a deployment-only package. Download and use the server deployment entrypoint:
 
 ```bash
-cd deploy/release-V1
+mkdir -p ~/meat-memory-release-V1
+cd ~/meat-memory-release-V1
+BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
+curl -fsSLO "$BASE_URL/install.sh"
+curl -fsSLO "$BASE_URL/.env.example"
+curl -fsSLO "$BASE_URL/dev-up.sh"
+curl -fsSLO "$BASE_URL/dev-down.sh"
+chmod +x install.sh dev-up.sh dev-down.sh
 ./dev-up.sh
 ```
 
