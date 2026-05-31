@@ -71,6 +71,13 @@ jobs:
             dist/release/${{ matrix.asset_name }}.tar.gz
             dist/release/${{ matrix.asset_name }}.tar.gz.sha256
 
+      - name: Publish packaged asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/release/${{ matrix.asset_name }}.tar.gz
+            dist/release/${{ matrix.asset_name }}.tar.gz.sha256
+
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
