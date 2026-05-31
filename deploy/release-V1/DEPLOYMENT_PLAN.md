@@ -70,7 +70,15 @@ ${ASSET_NAME}/README.txt
 
 安装程序不克隆仓库、不运行源码构建、不写入源码目录。
 
-新用户和服务器部署不依赖本地源码目录。推荐命令：
+新用户和服务器部署不依赖本地源码目录。推荐一行安装命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
+```
+
+这条命令会下载 `release-V1` 对应平台二进制，安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并验证第一条 memory 可以写入和检索。
+
+如果需要先保存并审阅脚本，可以使用等价展开流程：
 
 ```bash
 mkdir -p ~/meat-memory-release-V1
@@ -89,18 +97,7 @@ chmod +x install.sh
 release-V1 二进制部署不使用源码仓库的 `./docs/scripts/dev-up.sh`，也不要求服务器上存在 `deploy/release-V1` 本地目录。服务器验证时先从 GitHub raw 下载部署入口：
 
 ```bash
-mkdir -p ~/meat-memory-release-V1
-cd ~/meat-memory-release-V1
-BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
-curl -fsSLO "$BASE_URL/install.sh"
-curl -fsSLO "$BASE_URL/.env.example"
-curl -fsSLO "$BASE_URL/dev-up.sh"
-curl -fsSLO "$BASE_URL/dev-down.sh"
-chmod +x install.sh dev-up.sh dev-down.sh
-./install.sh --check
-./install.sh --skip-tui --verify-write
-cp .env.example .env
-./dev-up.sh
+mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write && cp .env.example .env && ./dev-up.sh
 ```
 
 `dev-up.sh` 的行为：

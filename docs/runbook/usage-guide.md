@@ -1,10 +1,16 @@
 # Meat Memory 使用说明
 
-本文档面向第一次接触仓库的开发者、运维同学和 Agent 集成方，目标是回答三件事：
+本文档面向已经克隆源码仓库的开发者、运维同学和 Agent 集成方，目标是回答三件事：
 
 - 这个项目怎么启动
 - 常见场景应该用哪条命令
 - 出问题时应该去哪里排查
+
+如果你的目标是新用户安装，不要运行本文中的 `./docs/scripts/*` 源码开发脚本；直接使用一行 release 安装命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
+```
 
 如果你的目标是选择安装方式、打包方式或部署形态，建议先看 [`install.md`](install.md)。
 

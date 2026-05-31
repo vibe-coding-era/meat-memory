@@ -18,7 +18,15 @@ Default Chinese version: [README.md](./README.md)
 
 ## Installation
 
-New users and server deployments must download the installer from the server. Do not assume the machine already has a source checkout or a local `deploy/release-V1` directory. The recommended flow is download, environment check, install, then first-memory verification:
+New users and server deployments must download the installer from the server. Do not assume the machine already has a source checkout or a local `deploy/release-V1` directory. Recommended one-line install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
+```
+
+This downloads the `release-V1` binary for the current platform, installs `memory-cli`, `memory-app`, and `memory-worker`, writes a markdown-only quickstart config, and verifies the first memory write/search.
+
+If you want to save and review the script first, use the equivalent expanded flow:
 
 ```bash
 mkdir -p ~/meat-memory-release-V1
@@ -35,7 +43,7 @@ If the check reports missing base tools such as `curl`, `tar`, `awk`, or `coreut
 ./install.sh --install-deps
 ```
 
-Do not pipe a remote script directly into `bash --install-deps`. If system dependencies are missing, review the script and package-manager command first, then explicitly run `./install.sh --install-deps`.
+Do not pipe a remote script directly into `bash --install-deps`. If system dependencies are missing, save the script first, review the script and package-manager command, then explicitly run `./install.sh --install-deps`.
 
 The installer downloads prebuilt binaries from the `release-V1` GitHub Release by default. A first install writes a markdown-only quickstart config under the user's home directory, so a local PostgreSQL server is not required for the first memory. Config and data live under `~/.config/meat-memory` and `~/.local/share/meat-memory`.
 
@@ -69,18 +77,7 @@ zsh: no such file or directory: ./docs/scripts/dev-up.sh
 On a server, download the deployment helper scripts from GitHub raw. Do not assume a source directory exists:
 
 ```bash
-mkdir -p ~/meat-memory-release-V1
-cd ~/meat-memory-release-V1
-BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
-curl -fsSLO "$BASE_URL/install.sh"
-curl -fsSLO "$BASE_URL/.env.example"
-curl -fsSLO "$BASE_URL/dev-up.sh"
-curl -fsSLO "$BASE_URL/dev-down.sh"
-chmod +x install.sh dev-up.sh dev-down.sh
-./install.sh --check
-./install.sh --skip-tui --verify-write
-cp .env.example .env
-./dev-up.sh
+mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write && cp .env.example .env && ./dev-up.sh
 ```
 
 `dev-up.sh` reads `.env` from this directory, runs `install.sh` when release binaries are missing, and starts `memory-app` and `memory-worker` in the background. Stop them with:

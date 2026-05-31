@@ -4,23 +4,25 @@
 
 ## 1. 推荐路径
 
-如果你只是想快速试跑：
+### 新用户一行安装
+
+不需要克隆源码，也不需要运行 `./docs/scripts/*`。直接从服务端下载安装器和 release 二进制：
 
 ```bash
-cp .env.example .env
-./docs/scripts/dev-up.sh
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/mcp/tools
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
 ```
 
-如果你要安装 CLI 到本机：
+这条命令会安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并写入和检索一条 quickstart memory。
+
+如果命令完成后 shell 找不到 `memory-cli`，先把默认安装目录加入 `PATH`：
 
 ```bash
-cargo install --path crates/memory-cli --locked
-memory-cli --help
-memory-cli config check
-memory-cli mcp info
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+### 开发者源码试跑
+
+已经克隆源码并需要本地开发时，再看 [`usage-guide.md`](usage-guide.md)。新用户安装不要运行源码开发脚本。
 
 如果你要给 Agent 使用：
 
@@ -38,7 +40,7 @@ memory-cli skills export --target all --output-dir ./dist/agent-skills --force
 
 ### cargo install
 
-当前已验证的本地安装方式：
+仅适合已经克隆源码并安装 Rust toolchain 的开发者：
 
 ```bash
 cargo install --path crates/memory-cli --locked
@@ -54,6 +56,12 @@ memory-cli skills export --target all --output-dir ./dist/agent-skills --force
 ```
 
 ### GitHub Release 二进制包
+
+普通用户优先使用一行安装命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
+```
 
 当前 release 流水线会产出：
 
@@ -90,18 +98,7 @@ Homebrew 方案和 Formula 模板已放在：
 
 ### Docker Compose
 
-本地试跑：
-
-```bash
-cp .env.example .env
-./docs/scripts/dev-up.sh
-```
-
-停止：
-
-```bash
-./docs/scripts/dev-down.sh
-```
+仅适合源码开发环境，入口见 [`usage-guide.md`](usage-guide.md)。
 
 默认镜像名：
 

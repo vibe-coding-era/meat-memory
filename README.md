@@ -2,10 +2,24 @@
 
 `Meat Memory` 是一个面向 Agent 和多端接入场景的长期记忆内核，采用 Rust Workspace 实现，支持 `PostgreSQL + Markdown + Assets` 的组合存储，并提供 `CLI`、`HTTP`、`MCP` 三套接入面。
 
+## 一行安装 release-V1
+
+新用户不需要克隆源码，也不需要运行 `./docs/scripts/*`。直接从服务端下载安装器和 release 二进制，并写入一条 quickstart memory 做验证：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
+```
+
+安装后如果 `memory-cli` 不在 `PATH` 中，执行：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
 ## 你可以先看什么
 
-- 想立刻跑起来：看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)
-- 想安装或部署：看 [`docs/runbook/install.md`](docs/runbook/install.md)
+- 想安装或部署：看 [`deploy/release-V1/README.md`](deploy/release-V1/README.md) 或 [`docs/runbook/install.md`](docs/runbook/install.md)
+- 想从源码开发：看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)
 - 想看当前版本归档：看 [`docs/release-notes-v2_5.md`](docs/release-notes-v2_5.md)
 - 想理解整体实现：看 [`docs/architecture/system-design.md`](docs/architecture/system-design.md)
 - 想找所有文档入口：看 [`docs/README.md`](docs/README.md)
@@ -45,49 +59,13 @@
 
 ## 快速开始
 
-### 方案 A：Docker Compose 试跑
-
 ```bash
-cp .env.example .env
-./docs/scripts/dev-up.sh
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/api/v1/meta
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
 ```
 
-停止环境：
+这条命令会下载 `release-V1` 对应平台二进制，安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并验证第一条 memory 可以写入和检索。
 
-```bash
-./docs/scripts/dev-down.sh
-```
-
-### 方案 B：本地开发运行
-
-```bash
-cp .env.example .env
-./docs/scripts/dev-db-up.sh
-./docs/scripts/bootstrap.sh
-./docs/scripts/verify.sh
-./docs/scripts/test-required.sh
-cargo run -p memory-app
-```
-
-也可以通过 CLI 启动：
-
-```bash
-cargo run -p memory-cli -- serve --bind 127.0.0.1:8080
-```
-
-### 方案 C：安装 CLI 到本机
-
-```bash
-cargo install --path crates/memory-cli --locked
-memory-cli --help
-memory-cli config check
-memory-cli mcp info
-memory-cli skills export --target all --output-dir ./dist/agent-skills --force
-```
-
-更多安装、打包和部署方式见 [`docs/runbook/install.md`](docs/runbook/install.md)。
+已经克隆源码并需要本地开发时，再看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)。普通安装、打包和部署方式见 [`docs/runbook/install.md`](docs/runbook/install.md)。
 
 ## 常用命令
 

@@ -18,7 +18,15 @@ English version: [README.en.md](./README.en.md)
 
 ## 安装方式
 
-新用户和服务器部署必须从服务端下载安装程序，不要求本机已有源码仓库或 `deploy/release-V1` 目录。推荐流程是先下载脚本，再检测环境、安装并验证第一条 memory：
+新用户和服务器部署必须从服务端下载安装程序，不要求本机已有源码仓库或 `deploy/release-V1` 目录。推荐一行命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
+```
+
+这条命令会下载 `release-V1` 对应平台二进制，安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并验证第一条 memory 可以写入和检索。
+
+如果你希望先保存脚本再审阅，可以用等价的展开流程：
 
 ```bash
 mkdir -p ~/meat-memory-release-V1
@@ -35,7 +43,7 @@ chmod +x install.sh
 ./install.sh --install-deps
 ```
 
-不要把远程脚本直接 pipe 到 `bash --install-deps`；需要系统依赖时，先审阅脚本和输出的包管理器命令，再显式执行 `./install.sh --install-deps`。
+不要把远程脚本直接 pipe 到 `bash --install-deps`；需要系统依赖时，先保存脚本、审阅脚本和输出的包管理器命令，再显式执行 `./install.sh --install-deps`。
 
 安装脚本默认从 GitHub Release 下载 `release-V1` 的预编译二进制包。首次安装会生成用户目录下的 markdown-only 快速开始配置，默认不要求本机已有 PostgreSQL；配置和数据目录分别位于 `~/.config/meat-memory` 与 `~/.local/share/meat-memory`。
 
@@ -69,18 +77,7 @@ zsh: no such file or directory: ./docs/scripts/dev-up.sh
 服务器上请直接从 GitHub raw 下载部署辅助脚本，不要假设本机有源码目录：
 
 ```bash
-mkdir -p ~/meat-memory-release-V1
-cd ~/meat-memory-release-V1
-BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1
-curl -fsSLO "$BASE_URL/install.sh"
-curl -fsSLO "$BASE_URL/.env.example"
-curl -fsSLO "$BASE_URL/dev-up.sh"
-curl -fsSLO "$BASE_URL/dev-down.sh"
-chmod +x install.sh dev-up.sh dev-down.sh
-./install.sh --check
-./install.sh --skip-tui --verify-write
-cp .env.example .env
-./dev-up.sh
+mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write && cp .env.example .env && ./dev-up.sh
 ```
 
 `dev-up.sh` 会读取同目录 `.env`，必要时先运行 `install.sh` 下载 release 二进制，然后在后台启动 `memory-app` 和 `memory-worker`。停止进程：
