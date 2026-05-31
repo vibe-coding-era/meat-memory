@@ -1,0 +1,118 @@
+# Meat Memory release-V1 Deployment Package
+
+This directory is the deployment-only delivery folder for `release-V1`. It contains deployment documentation and the installer, but no source code.
+
+Default Chinese version: [README.md](./README.md)
+
+## Contents
+
+| File | Purpose |
+| --- | --- |
+| `README.md` | Default Chinese installation and operations guide |
+| `README.en.md` | English installation and operations guide |
+| `DEPLOYMENT_PLAN.md` | release-V1 deployment plan, release flow, and rollback strategy |
+| `install.sh` | macOS / Linux binary installer |
+
+## Installation
+
+The installer downloads prebuilt binaries from the `release-V1` GitHub Release by default:
+
+```bash
+bash deploy/release-V1/install.sh
+```
+
+Remote install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash
+```
+
+The default install directory is `~/.local/bin`. If it is not on your `PATH`, add:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## Configuration
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `MEAT_MEMORY_REPO` | `vibe-coding-era/meat-memory` | GitHub repository |
+| `MEAT_MEMORY_VERSION` | `release-V1` | GitHub Release tag |
+| `MEAT_MEMORY_RELEASE_BASE_URL` | GitHub Release URL | Private mirror or internal artifact repository URL |
+| `MEAT_MEMORY_INSTALL_DIR` | `$HOME/.local/bin` | Binary install directory |
+| `MEAT_MEMORY_CONFIG_DIR` | `$HOME/.config/meat-memory` | Default config directory |
+
+Example:
+
+```bash
+MEAT_MEMORY_INSTALL_DIR=/usr/local/bin \
+MEAT_MEMORY_VERSION=release-V1 \
+bash deploy/release-V1/install.sh
+```
+
+## Supported Platforms
+
+| OS | Architecture | Release asset |
+| --- | --- | --- |
+| macOS | arm64 | `meat-memory-darwin-arm64.tar.gz` |
+| macOS | x86_64 | `meat-memory-darwin-amd64.tar.gz` |
+| Linux | arm64 / aarch64 | `meat-memory-linux-arm64.tar.gz` |
+| Linux | x86_64 / amd64 | `meat-memory-linux-amd64.tar.gz` |
+
+Each binary package must be published with its matching `.sha256` file. The installer verifies the checksum before installing executables.
+
+## Post-Install Verification
+
+```bash
+memory-cli --help
+memory-app --help
+memory-worker --help
+```
+
+When the default config directory is used, the installer copies the sample `app.toml` from the release bundle to `~/.config/meat-memory/app.toml`. Existing config files are never overwritten.
+
+## Deployment Modes
+
+Recommended `release-V1` deployment modes:
+
+| Scenario | Recommended mode |
+| --- | --- |
+| Local trial or single-user CLI | Run `memory-cli` directly |
+| Long-running HTTP / MCP service | Run `memory-app` under systemd, launchd, or another process manager |
+| Background jobs | Run `memory-worker` as an independently managed process |
+
+For production or team deployments:
+
+- Run `memory-app` and `memory-worker` under a dedicated service account.
+- Keep configuration and data directories outside the binary install directory.
+- Inject secrets and database URLs through environment variables, a secret manager, or system credential storage.
+- Confirm that all `release-V1` GitHub Release assets and checksums were produced by trusted CI.
+
+## Upgrade and Rollback
+
+To upgrade, rerun the installer with the target `MEAT_MEMORY_VERSION`. The installer overwrites binaries but never overwrites existing configuration.
+
+To roll back, install the previous verified release tag:
+
+```bash
+MEAT_MEMORY_VERSION=<previous-release-tag> bash deploy/release-V1/install.sh
+```
+
+To uninstall binaries:
+
+```bash
+rm -f ~/.local/bin/memory-cli ~/.local/bin/memory-app ~/.local/bin/memory-worker
+```
+
+Back up or remove configuration and data directories according to your deployment policy.
+
+## Release Checklist
+
+Before publishing `release-V1`, confirm:
+
+- The GitHub Release tag is `release-V1`.
+- All four platform assets and matching `.sha256` files are available.
+- The installer has been tested on every target platform included in the release scope.
+- Production credentials, release database, OCR/ASR/video providers, benchmark evidence, and other external gates have formal evidence or an approved release waiver.
+- Only deployment documentation and installer files from this directory are committed to GitHub; no source code is included.
