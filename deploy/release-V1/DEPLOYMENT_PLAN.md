@@ -54,6 +54,8 @@ ${ASSET_NAME}/config/app.toml
 ${ASSET_NAME}/README.txt
 ```
 
+GitHub Release 页面自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 不属于 release-V1 用户安装资产。它们是 GitHub 的源码快照，不能作为新用户安装入口，也不能在用户文档中推荐。
+
 ## 安装流程
 
 1. 安装程序先执行环境检测：OS / CPU 架构、下载工具、tar、awk、install、checksum 工具、安装目录和配置目录可写性。
@@ -94,10 +96,17 @@ chmod +x install.sh
 
 ## 服务端启动流程
 
-release-V1 二进制部署不使用源码仓库的 `./docs/scripts/dev-up.sh`，也不要求服务器上存在 `deploy/release-V1` 本地目录。服务器验证时先从 GitHub raw 下载部署入口：
+release-V1 二进制部署不使用源码仓库的 `./docs/scripts/dev-up.sh`，也不要求服务器上存在 `deploy/release-V1` 本地目录。服务器验证时先从 GitHub raw 下载部署入口并完成安装验证：
 
 ```bash
-mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write && cp .env.example .env && ./dev-up.sh
+mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write
+```
+
+上面这条命令不启动长驻服务，因此不要求 PostgreSQL / pgvector 已经可用。启动服务前先创建 `.env`：
+
+```bash
+cp .env.example .env
+./dev-up.sh
 ```
 
 `dev-up.sh` 的行为：
@@ -106,10 +115,10 @@ mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=htt
 2. 读取 `.env` 并将相对路径解析到部署脚本所在目录。
 3. 如果 `bin/memory-cli`、`bin/memory-app` 或 `bin/memory-worker` 不存在，调用 `install.sh` 安装 release 二进制。
 4. 创建 `data/`、`logs/` 和 `run/` 目录。
-5. 检查 `MEAT_MEMORY_DATABASE_URL` 指向的 PostgreSQL / pgvector TCP 端口；如需脚本-only smoke，可设置 `MEAT_MEMORY_SKIP_DB_CHECK=1` 跳过。
+5. 仅当 PostgreSQL 启用时，检查 `MEAT_MEMORY_DATABASE_URL` 指向的 PostgreSQL / pgvector TCP 端口；如需脚本-only smoke，可设置 `MEAT_MEMORY_SKIP_DB_CHECK=1` 跳过。
 6. 后台启动 `memory-app` 和 `memory-worker`，pid 写入 `run/`，日志写入 `logs/`。
 
-默认 `.env` 使用 `127.0.0.1:5433` 的 PostgreSQL / pgvector。生产或非本机数据库部署前，应先修改 `MEAT_MEMORY_DATABASE_URL`。
+默认 `.env.example` 使用 markdown-only quickstart：`MEAT_MEMORY_ENABLE_PG=0`，不要求本机已有 PostgreSQL。生产或非本机数据库部署前，应先修改 `MEAT_MEMORY_DATABASE_URL` 并设置 `MEAT_MEMORY_ENABLE_PG=1`。
 命令行传入的 `MEAT_MEMORY_*` 环境变量优先级高于 `.env`，便于临时覆盖数据库或跳过 DB preflight。
 
 停止：

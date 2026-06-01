@@ -10,6 +10,8 @@
 curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh | bash -s -- --skip-tui --verify-write
 ```
 
+GitHub Release 页面中的 `Source code (zip)` / `Source code (tar.gz)` 是源码快照，不是新用户安装包。安装请使用上面的一行命令，或下载 `meat-memory-<os>-<arch>.tar.gz` 二进制资产。
+
 安装后如果 `memory-cli` 不在 `PATH` 中，执行：
 
 ```bash
@@ -65,33 +67,35 @@ curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release
 
 这条命令会下载 `release-V1` 对应平台二进制，安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并验证第一条 memory 可以写入和检索。
 
-已经克隆源码并需要本地开发时，再看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)。普通安装、打包和部署方式见 [`docs/runbook/install.md`](docs/runbook/install.md)。
+已经克隆源码并需要本地开发时，再看 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)。普通安装和部署方式见 [`docs/runbook/install.md`](docs/runbook/install.md)。
 
-## 常用命令
+## 安装后常用命令
 
 ```bash
-cargo run -p memory-cli -- config check
-cargo run -p memory-cli -- config check --database
-cargo run -p memory-cli -- mcp info
-cargo run -p memory-cli -- tui init
-cargo run -p memory-cli -- skills export --target all --output-dir ./dist/agent-skills --force
+memory-cli config check
+memory-cli config check --database
+memory-cli mcp info
+memory-cli tui init
+memory-cli skills export --target all --output-dir ./dist/agent-skills --force
 ```
 
 写入与检索示例：
 
 ```bash
-cargo run -p memory-cli -- remember \
+memory-cli remember \
   --scope-id scp_cli_demo \
   --title "评审规则" \
   --body "代码评审先列风险，再列摘要。" \
   --memory-kind preference \
   --json
 
-cargo run -p memory-cli -- search "评审 风险" \
+memory-cli search "评审 风险" \
   --scope-id scp_cli_demo \
   --limit 5 \
   --json
 ```
+
+源码仓库内开发调试时，可以把上面的 `memory-cli` 换成 `cargo run -p memory-cli --`，具体见 [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)。
 
 ## 服务入口
 
@@ -113,13 +117,18 @@ cargo run -p memory-cli -- search "评审 风险" \
 
 ## 文档导航
 
-- [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)：完整使用说明
-- [`docs/runbook/install.md`](docs/runbook/install.md)：安装、打包与部署入口
+用户安装：
+
+- [`docs/runbook/install.md`](docs/runbook/install.md)：普通用户安装与部署入口
 - [`docs/release-notes-v2_5.md`](docs/release-notes-v2_5.md)：V2.5 版本归档
+
+开发者和发布维护者：
+
+- [`docs/runbook/usage-guide.md`](docs/runbook/usage-guide.md)：源码仓库开发使用说明
 - [`docs/architecture/system-design.md`](docs/architecture/system-design.md)：系统架构设计
 - [`docs/runbook/README.md`](docs/runbook/README.md)：部署与验收入口
 - [`docs/agent-skills/README.md`](docs/agent-skills/README.md)：Agent Skill 模板和导出方式
-- [`docs/scripts/README.md`](docs/scripts/README.md)：脚本入口导航
+- [`docs/scripts/README.md`](docs/scripts/README.md)：研发脚本入口导航
 - [`crates/README.md`](crates/README.md)：workspace 模块职责导航
 - [`migrations/README.md`](migrations/README.md)：数据库迁移说明
 - [`infra/README.md`](infra/README.md)：基础设施目录说明

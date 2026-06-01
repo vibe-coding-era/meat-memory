@@ -64,9 +64,55 @@ database_host_port() {
   printf '%s %s\n' "$host" "$port"
 }
 
+is_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+config_feature_value() {
+  local key="$1"
+  local config_path="${MEAT_MEMORY_CONFIG:-}"
+
+  [ -n "$config_path" ] && [ -f "$config_path" ] || return 1
+
+  awk -v key="$key" '
+    /^\[[^]]+\]$/ { section = $0 }
+    section == "[features]" && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      value = $0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      sub(/[[:space:]]*(#.*)?$/, "", value)
+      gsub(/"/, "", value)
+      print value
+      exit
+    }
+  ' "$config_path"
+}
+
+postgres_enabled() {
+  if [ "${MEAT_MEMORY_ENABLE_PG+x}" = "x" ]; then
+    is_truthy "$MEAT_MEMORY_ENABLE_PG"
+    return
+  fi
+
+  local config_value
+  config_value="$(config_feature_value enable_pg || true)"
+  [ -n "$config_value" ] && is_truthy "$config_value"
+}
+
 check_database_endpoint() {
   if [ "${MEAT_MEMORY_SKIP_DB_CHECK:-0}" = "1" ]; then
     log "skipped database preflight because MEAT_MEMORY_SKIP_DB_CHECK=1"
+    return
+  fi
+
+  if ! postgres_enabled; then
+    log "skipped database preflight because PostgreSQL is disabled"
     return
   fi
 

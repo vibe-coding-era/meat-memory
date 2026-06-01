@@ -26,6 +26,8 @@ curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release
 
 这条命令会下载 `release-V1` 对应平台二进制，安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并验证第一条 memory 可以写入和检索。
 
+GitHub Release 页面会自动显示 `Source code (zip)` 和 `Source code (tar.gz)`，那是 GitHub 生成的源码快照，不是安装包。普通用户不要下载这两个源码包；请选择 `meat-memory-<os>-<arch>.tar.gz` 二进制资产，或直接使用上面的一行安装命令。
+
 如果你希望先保存脚本再审阅，可以用等价的展开流程：
 
 ```bash
@@ -74,24 +76,32 @@ cp: .env.example: No such file or directory
 zsh: no such file or directory: ./docs/scripts/dev-up.sh
 ```
 
-服务器上请直接从 GitHub raw 下载部署辅助脚本，不要假设本机有源码目录：
+服务器上请直接从 GitHub raw 下载部署辅助脚本并完成安装验证，不要假设本机有源码目录：
 
 ```bash
-mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write && cp .env.example .env && ./dev-up.sh
+mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write
 ```
 
-`dev-up.sh` 会读取同目录 `.env`，必要时先运行 `install.sh` 下载 release 二进制，然后在后台启动 `memory-app` 和 `memory-worker`。停止进程：
+上面这条命令只负责下载安装、环境检查和写入第一条 markdown-only memory，不会启动依赖数据库的长驻服务。
+
+如果要启动 `memory-app` 和 `memory-worker`，先创建 `.env`：
+
+```bash
+cp .env.example .env
+./dev-up.sh
+```
+
+默认 `.env.example` 使用 markdown-only quickstart：`MEAT_MEMORY_ENABLE_PG=0`，不要求本机已有 PostgreSQL。停止进程：
 
 ```bash
 ./dev-down.sh
 ```
 
-默认 `.env` 指向 `127.0.0.1:5433` 的 PostgreSQL / pgvector；如果你的数据库在别处，请先修改 `.env` 中的 `MEAT_MEMORY_DATABASE_URL`。
-`dev-up.sh` 会在启动服务前检查数据库 TCP 端口；如果你只想验证脚本路径，可设置 `MEAT_MEMORY_SKIP_DB_CHECK=1` 跳过该检查。
+如果你要启用 PostgreSQL / pgvector，请先启动数据库或把 `.env` 中的 `MEAT_MEMORY_DATABASE_URL` 改为可访问地址，再设置 `MEAT_MEMORY_ENABLE_PG=1`。`dev-up.sh` 只会在 PostgreSQL 启用时检查数据库 TCP 端口；如果你只想验证脚本路径，可设置 `MEAT_MEMORY_SKIP_DB_CHECK=1` 跳过该检查。
 命令行传入的 `MEAT_MEMORY_*` 环境变量优先级高于 `.env`，例如：
 
 ```bash
-MEAT_MEMORY_SKIP_DB_CHECK=1 ./dev-up.sh
+MEAT_MEMORY_ENABLE_PG=0 ./dev-up.sh
 ```
 
 注意：`./docs/scripts/dev-up.sh` 是源码仓库的 Docker 开发入口，不是 release-V1 二进制部署入口。

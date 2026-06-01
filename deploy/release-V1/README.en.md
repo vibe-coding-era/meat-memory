@@ -26,6 +26,8 @@ curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release
 
 This downloads the `release-V1` binary for the current platform, installs `memory-cli`, `memory-app`, and `memory-worker`, writes a markdown-only quickstart config, and verifies the first memory write/search.
 
+The GitHub Release page also shows auto-generated `Source code (zip)` and `Source code (tar.gz)` links. Those are source snapshots, not install packages. New users should not download them; use a `meat-memory-<os>-<arch>.tar.gz` binary asset or the one-line installer above.
+
 If you want to save and review the script first, use the equivalent expanded flow:
 
 ```bash
@@ -74,24 +76,32 @@ cp: .env.example: No such file or directory
 zsh: no such file or directory: ./docs/scripts/dev-up.sh
 ```
 
-On a server, download the deployment helper scripts from GitHub raw. Do not assume a source directory exists:
+On a server, download the deployment helper scripts from GitHub raw and finish the install verification. Do not assume a source directory exists:
 
 ```bash
-mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write && cp .env.example .env && ./dev-up.sh
+mkdir -p ~/meat-memory-release-V1 && cd ~/meat-memory-release-V1 && BASE_URL=https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1 && for f in install.sh .env.example dev-up.sh dev-down.sh; do curl -fsSLO "$BASE_URL/$f"; done && chmod +x install.sh dev-up.sh dev-down.sh && ./install.sh --skip-tui --verify-write
 ```
 
-`dev-up.sh` reads `.env` from this directory, runs `install.sh` when release binaries are missing, and starts `memory-app` and `memory-worker` in the background. Stop them with:
+That command only downloads, installs, runs environment checks, and writes the first markdown-only memory. It does not start long-running services that may depend on a database.
+
+To start `memory-app` and `memory-worker`, create `.env` first:
+
+```bash
+cp .env.example .env
+./dev-up.sh
+```
+
+The default `.env.example` uses markdown-only quickstart mode with `MEAT_MEMORY_ENABLE_PG=0`, so a local PostgreSQL server is not required. Stop services with:
 
 ```bash
 ./dev-down.sh
 ```
 
-The default `.env` points to PostgreSQL / pgvector on `127.0.0.1:5433`; update `MEAT_MEMORY_DATABASE_URL` first if your database runs elsewhere.
-`dev-up.sh` checks the database TCP endpoint before starting services; set `MEAT_MEMORY_SKIP_DB_CHECK=1` only when you intentionally want to skip that preflight.
+To enable PostgreSQL / pgvector, start the database or update `MEAT_MEMORY_DATABASE_URL` first, then set `MEAT_MEMORY_ENABLE_PG=1`. `dev-up.sh` checks the database TCP endpoint only when PostgreSQL is enabled; set `MEAT_MEMORY_SKIP_DB_CHECK=1` only when you intentionally want to skip that preflight.
 Environment variables passed on the command line take precedence over `.env`, for example:
 
 ```bash
-MEAT_MEMORY_SKIP_DB_CHECK=1 ./dev-up.sh
+MEAT_MEMORY_ENABLE_PG=0 ./dev-up.sh
 ```
 
 Note: `./docs/scripts/dev-up.sh` is the Docker development entrypoint for the source repository. It is not the release-V1 binary deployment entrypoint.

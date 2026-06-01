@@ -1,6 +1,6 @@
 # 安装与部署入口
 
-本文档面向准备安装、打包或部署 `Meat Memory` 的用户，给出当前可用入口和推荐顺序。
+本文档面向准备安装或部署 `Meat Memory` 的用户，给出当前可用入口和推荐顺序。普通用户只需要“新用户一行安装”或“GitHub Release 二进制包”部分；源码构建、打包和研发脚本只适合发布维护者。
 
 ## 1. 推荐路径
 
@@ -14,6 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release
 
 这条命令会安装 `memory-cli`、`memory-app`、`memory-worker`，生成 markdown-only 快速开始配置，并写入和检索一条 quickstart memory。
 
+注意：GitHub Release 页面自动显示的 `Source code (zip)` 和 `Source code (tar.gz)` 是源码快照，不是新用户安装包。普通用户应使用一行安装命令，或下载 `meat-memory-<os>-<arch>.tar.gz` 二进制资产。
+
 如果命令完成后 shell 找不到 `memory-cli`，先把默认安装目录加入 `PATH`：
 
 ```bash
@@ -24,13 +26,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 已经克隆源码并需要本地开发时，再看 [`usage-guide.md`](usage-guide.md)。新用户安装不要运行源码开发脚本。
 
-如果你要给 Agent 使用：
+如果你要给 Agent 使用，安装完成后运行：
 
 ```bash
 memory-cli skills export --target all --output-dir ./dist/agent-skills --force
 ```
 
-也可以生成 release 附带的 skill bundle：
+下面的 skill bundle 构建命令仅适合已经克隆源码仓库的发布维护者：
 
 ```bash
 ./docs/scripts/build-agent-skills-bundle.sh all ./dist/release
@@ -140,7 +142,9 @@ helm lint infra/helm/meat-memory
 - 复用已有 PVC
 - worker 按需启用
 
-## 4. 打包与发布
+## 4. 发布维护者：源码 checkout 后打包
+
+本节只适合已经克隆源码仓库、安装 Rust toolchain 并负责发布维护的人。普通安装用户不要运行这些命令。
 
 本地打二进制包：
 
@@ -169,11 +173,11 @@ GitHub Actions release 流水线当前覆盖：
 
 ## 5. 相关文档
 
-- [`usage-guide.md`](usage-guide.md)：完整使用说明
+- [`usage-guide.md`](usage-guide.md)：源码仓库开发使用说明
 - [`local-deploy-v1.md`](local-deploy-v1.md)：本地 Docker Compose 部署
 - [`cloud-deploy-v1.md`](cloud-deploy-v1.md)：云端 Docker / Helm 部署
 - [`systemd-deploy.md`](systemd-deploy.md)：单机 systemd 部署
-- [`../agent-skills/README.md`](../agent-skills/README.md)：Agent Skill 交付
+- [`../agent-skills/README.md`](../agent-skills/README.md)：Agent Skill 交付维护
 - [`../architecture-design/install-package-deploy-plan.md`](../architecture-design/install-package-deploy-plan.md)：安装、打包与部署完整方案
 - [`../../packaging/npm/README.md`](../../packaging/npm/README.md)：npm 包装层说明
 - [`../../packaging/homebrew/README.md`](../../packaging/homebrew/README.md)：Homebrew 发布方案

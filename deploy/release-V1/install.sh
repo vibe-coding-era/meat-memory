@@ -562,6 +562,7 @@ main() {
       log "quickstart mode: markdown-only; set MEAT_MEMORY_DEFAULT_ENABLE_PG=1 for PostgreSQL"
     else
       log "kept existing config: ${CONFIG_DIR}/app.toml"
+      log "existing config may still enable PostgreSQL; set MEAT_MEMORY_ENABLE_PG=0 for markdown-only quickstart or MEAT_MEMORY_OVERWRITE_CONFIG=1 to regenerate it"
     fi
   fi
 

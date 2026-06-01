@@ -113,9 +113,20 @@ Quick start
    ./bin/memory-cli skills export --target all --output-dir ./dist/agent-skills --force
 
 Docs
-- README.md
-- docs/runbook/usage-guide.md
-- docs/architecture-design/install-package-deploy-plan.md
+- This archive is a binary runtime bundle only; it does not include source code.
+- Do not use GitHub's auto-generated "Source code" zip/tar.gz archives for
+  new-user installation.
+- For installation docs, use:
+  https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/README.md
+- For server deployment helpers, download individual raw files:
+  install.sh:
+  https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/install.sh
+  .env.example:
+  https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/.env.example
+  dev-up.sh:
+  https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/dev-up.sh
+  dev-down.sh:
+  https://raw.githubusercontent.com/vibe-coding-era/meat-memory/release-V1/deploy/release-V1/dev-down.sh
 EOF
 
 tar -C "${DIST_DIR}" -czf "${ARCHIVE_PATH}" "${ASSET_NAME}"
