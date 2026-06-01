@@ -105,6 +105,7 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: deploy/release-V1/RELEASE_NOTES.md
           files: dist/github-release-flat/*
 
   publish-docker:
